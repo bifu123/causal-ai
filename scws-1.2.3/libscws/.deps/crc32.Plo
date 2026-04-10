@@ -1,3 +1,0 @@
-crc32.lo: crc32.c /usr/include/stdc-predef.h crc32.h
-/usr/include/stdc-predef.h:
-crc32.h:
