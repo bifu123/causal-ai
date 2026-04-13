@@ -416,6 +416,37 @@ function openDrawer(nodeId) {
     // 打开抽屉
     document.getElementById('drawer').classList.remove('drawer-hidden');
     
+    // 调试输出：抽屉打开时的状态
+    console.log(`[抽屉调试] 抽屉已打开，节点ID: ${nodeId}`);
+    // 隐藏btn-toggle-search按钮，确保抽屉打开时搜索图标不可见
+    
+    
+    
+    // 检查搜索图标按钮的CSS样式
+    const searchToggle = document.querySelector('#btn-toggle-search.search-toggle');
+    searchToggle.style.display = 'none'; // 强制隐藏搜索图标按钮，确保抽屉打开时不可见
+    // if (searchToggle) {
+    //     const computedStyle = window.getComputedStyle(searchToggle);
+    //     console.log(`[CSS调试] 搜索图标按钮样式:`, {
+    //         element: searchToggle,
+    //         id: searchToggle.id,
+    //         className: searchToggle.className,
+    //         computedDisplay: computedStyle.display,
+    //         computedVisibility: computedStyle.visibility,
+    //         parentDisplay: window.getComputedStyle(searchToggle.parentElement).display,
+    //         isDrawerOpen: !document.getElementById('drawer').classList.contains('drawer-hidden'),
+    //         drawerClass: document.getElementById('drawer').className
+    //     });
+    // } else {
+    //     console.log(`[CSS调试] 未找到搜索图标按钮: #btn-toggle-search.search-toggle`);
+    // }
+    
+    console.log(`[抽屉调试] 搜索面板状态:`, {
+        searchPanel: document.getElementById('search-panel'),
+        searchToggle: document.querySelector('#search-panel .search-toggle'),
+        searchToggleDisplay: document.querySelector('#search-panel .search-toggle')?.style.display || '未找到'
+    });
+    
     console.log(`[抽屉] 已加载节点 ${nodeId} 的数据:`, {
         event_tuple_length: (node.event_tuple || '').length,
         action_tag: node.action_tag,
@@ -447,6 +478,12 @@ function closeDrawer() {
     currentSelectedNodeId = null;
     // 自动回正视角（可选）
     Graph.zoomToFit(1000);
+    // 恢复搜索图标按钮显示
+    const searchToggle = document.querySelector('#btn-toggle-search.search-toggle');
+    if (searchToggle) {
+        searchToggle.style.display = 'flex'; // 强制显示搜索图标按钮，确保抽屉关闭时可见
+    }
+
 }
 
 async function handleSaveNode() {
@@ -905,9 +942,23 @@ function handleNodeClick(node) {
     
     // 强制聚焦，并使用第二个参数（lookAt坐标）进行偏移补偿
     // 我们让相机看向节点略微“向右”一点的位置，使节点视觉左移
+    const targetLookAt = { x: node.x + (node.x * offsetRatio), y: node.y, z: node.z };
+    
+    // 调试输出：相机偏移计算
+    console.log(`[handleNodeClick调试] 相机偏移计算:`, {
+        drawerWidth,
+        screenWidth,
+        offsetRatio,
+        distance,
+        distRatio,
+        nodePosition: { x: node.x, y: node.y, z: node.z },
+        cameraPosition: camPos,
+        targetLookAt
+    });
+    
     Graph.cameraPosition(
         camPos, 
-        { x: node.x + (node.x * offsetRatio), y: node.y, z: node.z }, 
+        targetLookAt, 
         1200
     );
 
@@ -1058,6 +1109,19 @@ window.addEventListener('load', () => {
                 y: node.y,
                 z: node.z
             };
+            
+            // 调试输出：相机偏移计算
+            console.log(`[onNodeClick调试] 相机偏移计算:`, {
+                DRAWER_WIDTH,
+                screenWidth,
+                offsetRatio,
+                FOCUS_DIST,
+                distRatio,
+                nodePosition: { x: node.x, y: node.y, z: node.z },
+                cameraPosition: camPos,
+                targetLookAt,
+                offsetCalculation: `node.x + (Math.abs(node.x) + 200) * offsetRatio = ${node.x} + (${Math.abs(node.x)} + 200) * ${offsetRatio} = ${targetLookAt.x}`
+            });
             
             Graph.cameraPosition(camPos, targetLookAt, 1200);
 

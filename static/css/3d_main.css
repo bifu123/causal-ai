@@ -65,6 +65,15 @@ body::after {
     left: -384px;
 }
 
+/* 当抽屉打开时，隐藏搜索图标按钮（#btn-toggle-search）；抽屉关闭时，显示搜索图标按钮 */
+.drawer:not(.drawer-hidden) ~ #ui-overlay #search-panel #btn-toggle-search.search-toggle {
+    display: none !important;
+}
+
+.drawer.drawer-hidden ~ #ui-overlay #search-panel #btn-toggle-search.search-toggle {
+    display: flex !important;
+}
+
 #ui-overlay {
     position: absolute;
     top: 0;
@@ -459,10 +468,10 @@ body::after {
 .search-toggle {
     width: 48px;
     height: 48px;
-    background: rgba(0, 0, 0, 0.7);
+    /* background: rgba(0, 0, 0, 0.7); */
     backdrop-filter: blur(10px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 50%;
+    /* border: 1px solid rgba(255, 255, 255, 0.1); */
+    /* border-radius: 50%; */
     display: flex;
     align-items: center;
     justify-content: center;
