@@ -888,18 +888,18 @@ body::after {
     transform: translateY(0);
 }
 
-/* 3D-force-graph tooltip 样式 - 弱化装饰，突出节点主体 */
+/* 3D-force-graph tooltip 样式 - 极简版 */
 .force-graph-tooltip {
-    background: rgba(17, 24, 39, 0.85) !important; /* 降低不透明度 */
-    color: #cbd5e1 !important; /* 降低文字对比度 */
-    border: 1px solid rgba(96, 165, 250, 0.3) !important; /* 弱化边框 */
-    border-radius: 6px !important; /* 减小圆角 */
-    padding: 12px !important; /* 减小内边距 */
+    background: rgba(54, 53, 53, 0.74) !important; /* 纯黑背景，高不透明度 */
+    color: #eee9e9 !important; /* 纯白文字，最高对比度 */
+    border: none !important; /* 移除边框 */
+    border-radius: 0 !important; /* 移除圆角 */
+    padding: 16px !important; /* 增加内边距 */
     font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace !important;
-    font-size: 12px !important; /* 减小字体大小 */
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3) !important; /* 弱化阴影 */
-    max-width: 450px !important; /* 减小最大宽度 */
-    min-width: 250px !important; /* 减小最小宽度 */
+    font-size: 12px !important; /* 增大字号（原12px -> 14px，增大两号） */
+    box-shadow: none !important; /* 移除阴影 */
+    max-width: 500px !important; /* 增加最大宽度 */
+    min-width: 300px !important; /* 增加最小宽度 */
     word-wrap: break-word !important;
     white-space: normal !important;
     z-index: 1000 !important;
@@ -908,107 +908,92 @@ body::after {
     position: absolute !important;
     top: -40px !important; /* 离节点更近一些 */
     left: 50% !important;
-    line-height: 1.4 !important; /* 减小行高 */
-    backdrop-filter: blur(5px) !important; /* 减小模糊效果 */
+    line-height: 1.6 !important; /* 增加行高 */
+    backdrop-filter: none !important; /* 移除模糊效果 */
+    border-radius: 8px !important; /* 轻微圆角 */
+    /* 不透明度 */
+    opacity: 1 !important;
 }
 
-/* 简化尖角 - 指向节点 */
+/* 简化尖角 - 纯黑色 */
 .force-graph-tooltip::before {
     content: '';
     position: absolute !important;
     top: 100% !important;
     left: 50% !important;
     transform: translateX(-50%) !important;
-    border-width: 6px !important; /* 减小尖角大小 */
+    border-width: 8px !important; /* 增加尖角大小 */
     border-style: solid !important;
-    border-color: rgba(96, 165, 250, 0.3) transparent transparent transparent !important; /* 弱化尖角颜色 */
+    border-color: rgba(0, 0, 0, 0.9) transparent transparent transparent !important; /* 纯黑色尖角 */
+
 }
 
-.force-graph-tooltip::after {
-    content: '';
-    position: absolute !important;
-    top: 100% !important;
-    left: 50% !important;
-    transform: translateX(-50%) !important;
-    border-width: 5px !important; /* 减小内层尖角大小 */
-    border-style: solid !important;
-    border-color: rgba(17, 24, 39, 0.85) transparent transparent transparent !important; /* 匹配背景色 */
-}
-
-/* tooltip标题样式 - 弱化 */
+/* tooltip标题样式 - 极简 */
 .force-graph-tooltip .tooltip-title {
-    color: #7c9bc8 !important; /* 降低颜色饱和度 */
-    font-weight: 600 !important; /* 降低字体粗细 */
-    margin-bottom: 8px !important; /* 减小边距 */
-    font-size: 13px !important; /* 减小字体大小 */
-    padding-bottom: 4px !important; /* 减小内边距 */
-    border-bottom: 1px solid rgba(96, 165, 250, 0.2) !important; /* 弱化边框 */
+    color: #d2dad5 !important; /* 纯白色 */
+    font-weight: bold !important; /* 加粗 */
+    margin-bottom: 14px !important; /* 增加边距 */
+    font-size: 12px !important; /* 增大字号（原13px -> 16px） */
+    padding-bottom: 0 !important; /* 移除内边距 */
+    border-bottom: none !important; /* 移除边框 */
 }
 
-/* tooltip元数据区域样式 - 进一步简化 */
-.force-graph-tooltip .tooltip-meta {
+/* 简化tooltip内容区域 */
+.force-graph-tooltip .tooltip-simple {
     display: flex !important;
-    flex-wrap: wrap !important;
-    gap: 6px !important; /* 减小间距 */
-    margin-bottom: 10px !important; /* 减小边距 */
-    padding-bottom: 0 !important;
-    border-bottom: none !important;
+    flex-direction: column !important;
+    gap: 8px !important; /* 行间距 */
 }
 
-.force-graph-tooltip .tooltip-meta-item {
+/* 简化行样式 */
+.force-graph-tooltip .tooltip-row {
     display: flex !important;
-    align-items: center !important;
-    gap: 3px !important; /* 减小间距 */
-    font-size: 11px !important; /* 减小字体大小 */
-    background: rgba(30, 41, 59, 0.4) !important; /* 降低背景不透明度 */
-    padding: 3px 6px !important; /* 减小内边距 */
-    border-radius: 3px !important; /* 减小圆角 */
-    border: 1px solid rgba(75, 85, 99, 0.2) !important; /* 弱化边框 */
+    align-items: flex-start !important;
+    gap: 8px !important; /* 元素间距 */
+    font-size: 12px !important; /* 增大字号 */
+    line-height: 1.4 !important; /* 增加行高 */
 }
 
+/* 简化标签样式 */
 .force-graph-tooltip .tooltip-label {
-    color: #8a9bb2 !important; /* 降低对比度 */
-    font-size: 10px !important; /* 减小字体大小 */
-    font-weight: 400 !important; /* 降低字体粗细 */
+    color: #cccccc !important; /* 浅灰色标签 */
+    font-size: 12px !important; /* 增大字号 */
+    font-weight: normal !important; /* 正常粗细 */
+    min-width: 40px !important; /* 固定标签宽度 */
 }
 
+/* 简化值样式 */
 .force-graph-tooltip .tooltip-value {
-    color: #d1dbe8 !important; /* 降低对比度 */
-    font-size: 11px !important; /* 减小字体大小 */
-    font-weight: 400 !important; /* 降低字体粗细 */
+    color: #ffffff !important; /* 纯白色值 */
+    font-size: 12px !important; /* 增大字号 */
+    font-weight: normal !important; /* 正常粗细 */
 }
 
-/* 权重值特殊样式 - 弱化 */
+/* 权重值特殊样式 - 简化 */
 .force-graph-tooltip .tooltip-value.weight-value {
-    color: #d4a017 !important; /* 降低颜色饱和度 */
+    color: #ffcc00 !important; /* 亮黄色，突出权重 */
     font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace !important;
-    font-size: 10px !important; /* 减小字体大小 */
-    font-weight: 600 !important; /* 降低字体粗细 */
+    font-size: 14px !important; /* 增大字号 */
+    font-weight: bold !important; /* 加粗 */
 }
 
-/* 事件叙述区域样式 - 简化 */
-.force-graph-tooltip .tooltip-event {
-    margin-top: 10px !important; /* 减小边距 */
-    padding-top: 10px !important; /* 减小内边距 */
-    border-top: 1px solid rgba(75, 85, 99, 0.3) !important; /* 弱化边框 */
+/* 状态样式 */
+.force-graph-tooltip .tooltip-status {
+    color: #aaaaaa !important; /* 灰色状态 */
+    font-size: 13px !important; /* 稍小字号 */
+    font-style: italic !important; /* 斜体 */
 }
 
-.force-graph-tooltip .tooltip-event-label {
-    color: #0da371 !important; /* 降低颜色饱和度 */
-    font-size: 11px !important; /* 减小字体大小 */
-    font-weight: 600 !important; /* 降低字体粗细 */
-    margin-bottom: 4px !important; /* 减小边距 */
-    display: block !important;
-}
-
+/* 事件内容样式 - 简化 */
 .force-graph-tooltip .tooltip-event-content {
-    color: #d1dbe8 !important; /* 降低对比度 */
-    font-size: 11px !important; /* 减小字体大小 */
-    line-height: 1.5 !important; /* 减小行高 */
-    background: rgba(30, 41, 59, 0.3) !important; /* 降低背景不透明度 */
-    padding: 6px 8px !important; /* 减小内边距 */
-    border-radius: 3px !important; /* 减小圆角 */
-    border: 1px solid rgba(75, 85, 99, 0.2) !important; /* 弱化边框 */
+    color: #ffffff !important; /* 纯白色 */
+    font-size: 12px !important; /* 增大字号 */
+    line-height: 1.4 !important; /* 增加行高 */
+    background: none !important; /* 移除背景 */
+    padding: 0 !important; /* 移除内边距 */
+    border-radius: 0 !important; /* 移除圆角 */
+    border: none !important; /* 移除边框 */
     max-height: none !important;
     overflow-y: visible !important;
+    flex: 1 !important; /* 占据剩余空间 */
 }

@@ -1064,11 +1064,16 @@ window.addEventListener('load', () => {
                 const sprite = new THREE.Sprite(
                     new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false })
                 );
-                const baseScale = 0.45;
+                // 标签大小控制：与节点权重成反比，权重越大标签相对越小
+                // 基础缩放0.45，权重为1时缩放为0.35，权重为0时缩放为0.55
+                // 同时设置最小缩放限制为0.3，最大缩放限制为0.6
+                const baseScale = Math.max(0.3, Math.min(0.6, 0.55 - (weight * 0.2)));
                 sprite.scale.set(texture.baseWidth * baseScale, texture.baseHeight * baseScale, 1);
                 
-                // 位置 = 物理半径 + 固定间隙
-                sprite.position.y = actualPhysicalRadius + 14; 
+                // 位置 = 固定高度，不随节点半径增大而增高
+                // 使用最大半径5.5作为基准，确保所有标签在同一高度
+                const maxRadius = MAX_RADIUS * REL_SIZE;
+                sprite.position.y = maxRadius + 14; 
                 group.add(sprite);
             }
 
@@ -1160,34 +1165,24 @@ window.addEventListener('load', () => {
             else if (weightValue >= 0.3) weightStatus = '衰减';
             
             // 对事件叙述进行字符截取，最多显示150个字符
-            const maxLength = 150;
+            const maxLength = 250;
             if (eventTuple.length > maxLength) {
                 eventTuple = eventTuple.substring(0, maxLength) + '...';
             }
             
+            // 简化tooltip：移除因缘标签、动作标签，移除装饰性样式
             return `<div class="force-graph-tooltip">
                 <div class="tooltip-title">${node.id}</div>
-                <div class="tooltip-meta">
-                    <div class="tooltip-meta-item">
-                        <span class="tooltip-label">动作标签:</span>
-                        <span class="tooltip-value">${node.action_tag || '贞'}</span>
-                    </div>
-                    <div class="tooltip-meta-item">
-                        <span class="tooltip-label">因缘标签:</span>
-                        <span class="tooltip-value">${node.block_tag || '因'}</span>
-                    </div>
-                    <div class="tooltip-meta-item">
+                <div class="tooltip-simple">
+                    <div class="tooltip-row">
                         <span class="tooltip-label">权重:</span>
                         <span class="tooltip-value weight-value">${weight}</span>
+                        <span class="tooltip-status">(${weightStatus})</span>
                     </div>
-                    <div class="tooltip-meta-item">
-                        <span class="tooltip-label">状态:</span>
-                        <span class="tooltip-value">${weightStatus}</span>
+                    <div class="tooltip-row">
+                        <span class="tooltip-label">事件:</span>
+                        <span class="tooltip-event-content">${eventTuple}</span>
                     </div>
-                </div>
-                <div class="tooltip-event">
-                    <div class="tooltip-event-label">事件叙述:</div>
-                    <div class="tooltip-event-content">${eventTuple}</div>
                 </div>
             </div>`;
         })
