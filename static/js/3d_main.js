@@ -937,7 +937,7 @@ window.addEventListener('load', () => {
     const MAX_RADIUS = 5.5;  // 最大半径
     const REL_SIZE = 7;      // 引擎缩放系数
     const FOCUS_DIST = 350;  // 聚焦时的相机距离
-    const DRAWER_WIDTH = 450; // 右侧抽屉宽度（像素）
+    const DRAWER_WIDTH = 450; // 右侧抽屉宽度（像素）- 与正确版本一致
 
     // --- [2. 引擎初始化] ---
     Graph = ForceGraph3D()(container)
