@@ -1,6 +1,6 @@
 ## 🚀 Agent 接入指南 (API 调用示例)
 
-本系统采用 AINS (AI Native Software) 协议，允许 Agent 通过 HTTP POST 接口发起“首贞”或“对贞”推演。
+本系统采用 AINS (AI Native Software) 协议，允许 Agent 通过 HTTP POST 接口发起"首贞"或"对贞"推演。
 
 ### 接口定义
 - **URL**: `http://192.168.66.39:8094/api/v1/causal/genesis`
@@ -12,7 +12,7 @@
 ```python
 import requests
 
-def trigger_causal_node(node_id, action_tag, block_tag, event_tuple, parent_id=None, full_image_url=None):
+def trigger_causal_node(node_id, action_tag, block_tag, event_tuple, parent_id=None, full_image_url=None, owner_id="default"):
     """
     发起因果推演请求
     
@@ -23,6 +23,7 @@ def trigger_causal_node(node_id, action_tag, block_tag, event_tuple, parent_id=N
     - event_tuple (str): 事件二元组内容描述
     - parent_id (str/list, optional): 父事件ID，可以是单个字符串或列表（多父事件），默认为None（首贞）
     - full_image_url (str, optional): 全息图片URL，默认为None
+    - owner_id (str, optional): 事件拥有者ID，默认为"default"
     
     返回:
     - dict: API响应结果
@@ -34,7 +35,8 @@ def trigger_causal_node(node_id, action_tag, block_tag, event_tuple, parent_id=N
         action_tag="贞",
         block_tag="因",
         event_tuple="那一天阴云密布...",
-        full_image_url="uploads/raw/zhen.png"
+        full_image_url="uploads/raw/zhen.png",
+        owner_id="worker"
     )
     
     # 发起又贞
@@ -43,7 +45,8 @@ def trigger_causal_node(node_id, action_tag, block_tag, event_tuple, parent_id=N
         action_tag="又贞",
         block_tag="因",
         event_tuple="不觉到了丙申那天...",
-        parent_id="王占曰：吉，其来"
+        parent_id="王占曰：吉，其来",
+        owner_id="worker"
     )
     
     # 发起对贞
@@ -52,7 +55,8 @@ def trigger_causal_node(node_id, action_tag, block_tag, event_tuple, parent_id=N
         action_tag="对贞",
         block_tag="果",
         event_tuple="终于在距离首贞十二天后...",
-        parent_id="丙申，王占曰：吉"
+        parent_id="丙申，王占曰：吉",
+        owner_id="worker"
     )
     """
     url = "http://192.168.66.39:8094/api/v1/causal/genesis"
@@ -62,7 +66,8 @@ def trigger_causal_node(node_id, action_tag, block_tag, event_tuple, parent_id=N
         "parent_id": parent_id,
         "block_tag": block_tag,
         "action_tag": action_tag,
-        "event_tuple": event_tuple
+        "event_tuple": event_tuple,
+        "owner_id": owner_id
     }
     
     if full_image_url:
@@ -81,7 +86,7 @@ def trigger_genesis():
 贞人蓬头散发，走上台来作法，别着腰刀（明阳花山石画），女奴献酒，族人围火载舞，但是用于祭祀的羌人仍然不够，因为十二天后就是从先祖太甲到母戊的大型祭祀。需要人牲四百多人，目前的库存实在紧缺，商王紧皱眉头，决定以最诚的心去打动上天。于是他亲自问卜....
 
 卜文曰：
-贞：“王占曰：吉，其来”
+贞："王占曰：吉，其来"
 
 翻译：商王占卜结果很好（事件主体投入意志），方国会来（预判）。"""
     
@@ -98,7 +103,7 @@ if __name__ == "__main__":
     trigger_genesis()
 ```
 
-### 2. 发起“又贞” (基于已有事件继续补充)
+### 2. 发起"又贞" (基于已有事件继续补充)
 **Curl 示例**:
 ```bash
 curl -X POST "http://192.168.66.39:8094/api/v1/causal/genesis" \
@@ -108,12 +113,13 @@ curl -X POST "http://192.168.66.39:8094/api/v1/causal/genesis" \
            "parent_id": "王占曰：吉，其来",
            "block_tag": "因",
            "action_tag": "又贞",
-           "event_tuple": "不觉到了丙申那天，边缰的将领没有俘虏羌人的消息，方国也没有来进贡大乌龟和人牲，而祭祀大典日近，贞人们的龟甲骨头都是惜着用，商王不放心，再次贞问。\n\n卜文曰：\n贞：“丙申，王占曰：吉”\n\n翻译：商王占卜结果很好（事件主体继续投入意志），争取结果向期望方向坍塌（方国还是会来）"
+           "event_tuple": "不觉到了丙申那天，边缰的将领没有俘虏羌人的消息，方国也没有来进贡大乌龟和人牲，而祭祀大典日近，贞人们的龟甲骨头都是惜着用，商王不放心，再次贞问。\n\n卜文曰：\n贞："丙申，王占曰：吉"\n\n翻译：商王占卜结果很好（事件主体继续投入意志），争取结果向期望方向坍塌（方国还是会来）",
+           "owner_id": "worker"
          }'
 ```
 
 
-### 3. 发起“对贞” (基于结果的事后补录)
+### 3. 发起"对贞" (基于结果的事后补录)
 **Curl 示例**:
 ```bash
 curl -X POST "http://192.168.66.39:8094/api/v1/causal/genesis" \
@@ -123,7 +129,8 @@ curl -X POST "http://192.168.66.39:8094/api/v1/causal/genesis" \
            "parent_id": "丙申，王占曰：吉",
            "block_tag": "果",
            "action_tag": "对贞",
-           "event_tuple": "终于在距离首贞十二天后，方国来进贡了，商王朝的心终于落下了。\n\n卜文曰：\n对贞：“旬有二日，方来”\n\n翻译：终于在距离首贞十二天后，方国来进贡了（事件主体对结果确认）"
+           "event_tuple": "终于在距离首贞十二天后，方国来进贡了，商王朝的心终于落下了。\n\n卜文曰：\n对贞："旬有二日，方来"\n\n翻译：终于在距离首贞十二天后，方国来进贡了（事件主体对结果确认）",
+           "owner_id": "worker"
          }'
 ```
 
@@ -317,6 +324,150 @@ if __name__ == "__main__":
 curl -X GET "http://192.168.66.39:8094/api/v1/causal/history"
 ```
 
+### 7. 关键字搜索事件
+**Python 示例**:
+```python
+import requests
+
+def search_causal_by_keyword(keyword, owner_id=None, limit=100):
+    """
+    根据关键字搜索事件节点
+    
+    参数:
+    - keyword (str): 搜索关键词，支持逻辑与（&）操作符
+    - owner_id (str, optional): 事件拥有者ID，如果为None则搜索所有事件
+    - limit (int, optional): 返回结果数量限制，默认为100
+    
+    返回:
+    - dict: API响应结果，包含搜索结果列表
+    
+    注意:
+    - 搜索算法采用三级召回策略：
+      1. 精确匹配：使用PostgreSQL全文搜索
+      2. 自适应匹配：对关键词进行分词后搜索
+      3. 回退匹配：使用LIKE模糊匹配
+    - 搜索结果按相关度排序，相关度由V5算法计算
+    
+    示例:
+    # 搜索所有包含"商王"的事件
+    results = search_causal_by_keyword("商王")
+    for item in results.get('data', []):
+        print(f"事件标题: {item['node_id']}, 相关度: {item['relevance_score']}")
+    
+    # 搜索特定用户的事件
+    results = search_causal_by_keyword("祭祀", owner_id="worker", limit=50)
+    """
+    url = "http://192.168.66.39:8094/api/v1/causal/search/keyword"
+    
+    payload = {
+        "keyword": keyword
+    }
+    
+    if owner_id is not None:
+        payload["owner_id"] = owner_id
+    
+    if limit is not None:
+        payload["limit"] = limit
+    
+    response = requests.post(url, json=payload)
+    result = response.json()
+    
+    if result.get('status') == 'success':
+        print(f"搜索到 {result.get('count', 0)} 个相关事件")
+    else:
+        print(f"搜索失败: {result.get('message')}")
+    
+    return result
+
+# 示例：关键字搜索
+if __name__ == "__main__":
+    # 搜索所有包含"商王"的事件
+    results = search_causal_by_keyword("商王")
+    
+    # 搜索特定用户的事件
+    results = search_causal_by_keyword("祭祀", owner_id="worker", limit=50)
+```
+
+**Curl 示例**:
+```bash
+# 搜索所有包含"商王"的事件
+curl -X POST "http://192.168.66.39:8094/api/v1/causal/search/keyword" \
+     -H "Content-Type: application/json" \
+     -d '{
+           "keyword": "商王"
+         }'
+
+# 搜索特定用户的事件
+curl -X POST "http://192.168.66.39:8094/api/v1/causal/search/keyword" \
+     -H "Content-Type: application/json" \
+     -d '{
+           "keyword": "祭祀",
+           "owner_id": "worker",
+           "limit": 50
+         }'
+```
+
+### 8. 序列ID搜索事件
+**Python 示例**:
+```python
+import requests
+
+def search_causal_by_serial(serial_id):
+    """
+    根据序列ID搜索事件节点
+    
+    参数:
+    - serial_id (int): 事件的物理序列ID
+    
+    返回:
+    - dict: API响应结果，包含事件详细信息
+    
+    注意:
+    - serial_id是事件的物理ID，在数据库中是唯一标识
+    - 此接口用于精确查找特定事件，常用于点击事件处理
+    
+    示例:
+    # 查找serial_id为123的事件
+    result = search_causal_by_serial(123)
+    if result.get('status') == 'success':
+        event = result.get('data')
+        print(f"事件标题: {event['node_id']}")
+        print(f"事件描述: {event['event_tuple'][:100]}...")
+    else:
+        print(f"查找失败: {result.get('message')}")
+    """
+    url = "http://192.168.66.39:8094/api/v1/causal/search/serial"
+    
+    payload = {
+        "serial_id": serial_id
+    }
+    
+    response = requests.post(url, json=payload)
+    result = response.json()
+    
+    if result.get('status') == 'success':
+        print(f"找到事件: {result.get('data', {}).get('node_id', '未知')}")
+    else:
+        print(f"查找失败: {result.get('message')}")
+    
+    return result
+
+# 示例：序列ID搜索
+if __name__ == "__main__":
+    # 查找serial_id为1的事件
+    result = search_causal_by_serial(1)
+```
+
+**Curl 示例**:
+```bash
+# 查找serial_id为1的事件
+curl -X POST "http://192.168.66.39:8094/api/v1/causal/search/serial" \
+     -H "Content-Type: application/json" \
+     -d '{
+           "serial_id": 1
+         }'
+```
+
 ### 参数说明
 | 字段 | 类型 | 必填 | 说明 |
 | :--- | :--- | :--- | :--- |
@@ -326,6 +477,7 @@ curl -X GET "http://192.168.66.39:8094/api/v1/causal/history"
 | `action_tag` | String | 是 | 动作标签，如：贞、又贞、对贞 |
 | `event_tuple` | String | 是 | 事件二元组内容描述 |
 | `full_image_url` | String | 否 | 全息图片 |
+| `owner_id` | String | 否 | 事件拥有者ID，默认为"default" |
 
 ### 高级功能说明
 1. **多父事件支持**: 父事件ID可以是`|`分隔的字符串（如`"父事件1|父事件2"`）或列表
