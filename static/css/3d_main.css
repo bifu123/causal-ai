@@ -888,41 +888,40 @@ body::after {
     transform: translateY(0);
 }
 
-/* 3D-force-graph tooltip 样式 - 气泡式，有尖角指向节点 */
+/* 3D-force-graph tooltip 样式 - 弱化装饰，突出节点主体 */
 .force-graph-tooltip {
-    background: rgba(17, 24, 39, 0.98) !important;
-    color: #d1d5db !important;
-    border: 1px solid rgba(96, 165, 250, 0.5) !important;
-    border-radius: 8px !important;
-    padding: 14px !important;
+    background: rgba(17, 24, 39, 0.85) !important; /* 降低不透明度 */
+    color: #cbd5e1 !important; /* 降低文字对比度 */
+    border: 1px solid rgba(96, 165, 250, 0.3) !important; /* 弱化边框 */
+    border-radius: 6px !important; /* 减小圆角 */
+    padding: 12px !important; /* 减小内边距 */
     font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace !important;
-    font-size: 13px !important;
-    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(96, 165, 250, 0.2) inset !important;
-    max-width: 500px !important;
-    min-width: 280px !important;
+    font-size: 12px !important; /* 减小字体大小 */
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3) !important; /* 弱化阴影 */
+    max-width: 450px !important; /* 减小最大宽度 */
+    min-width: 250px !important; /* 减小最小宽度 */
     word-wrap: break-word !important;
     white-space: normal !important;
     z-index: 1000 !important;
-    pointer-events: auto !important; /* 改为auto，允许鼠标交互 */
+    pointer-events: auto !important;
     transform: translateY(-100%) translateX(-50%) !important;
     position: absolute !important;
-    top: -50px !important; /* 离节点更远，避免遮挡 */
+    top: -40px !important; /* 离节点更近一些 */
     left: 50% !important;
-    line-height: 1.5 !important;
-    backdrop-filter: blur(10px) !important;
+    line-height: 1.4 !important; /* 减小行高 */
+    backdrop-filter: blur(5px) !important; /* 减小模糊效果 */
 }
 
-/* 气泡尖角 - 指向节点 */
+/* 简化尖角 - 指向节点 */
 .force-graph-tooltip::before {
     content: '';
     position: absolute !important;
     top: 100% !important;
     left: 50% !important;
     transform: translateX(-50%) !important;
-    border-width: 8px !important;
+    border-width: 6px !important; /* 减小尖角大小 */
     border-style: solid !important;
-    border-color: rgba(96, 165, 250, 0.5) transparent transparent transparent !important;
-    filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.3)) !important;
+    border-color: rgba(96, 165, 250, 0.3) transparent transparent transparent !important; /* 弱化尖角颜色 */
 }
 
 .force-graph-tooltip::after {
@@ -931,28 +930,27 @@ body::after {
     top: 100% !important;
     left: 50% !important;
     transform: translateX(-50%) !important;
-    border-width: 7px !important;
+    border-width: 5px !important; /* 减小内层尖角大小 */
     border-style: solid !important;
-    border-color: rgba(17, 24, 39, 0.98) transparent transparent transparent !important;
+    border-color: rgba(17, 24, 39, 0.85) transparent transparent transparent !important; /* 匹配背景色 */
 }
 
-/* tooltip标题样式 */
+/* tooltip标题样式 - 弱化 */
 .force-graph-tooltip .tooltip-title {
-    color: #60a5fa !important;
-    font-weight: bold !important;
-    margin-bottom: 10px !important;
-    font-size: 14px !important;
-    padding-bottom: 6px !important;
-    border-bottom: 1px solid rgba(96, 165, 250, 0.3) !important;
-    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5) !important;
+    color: #7c9bc8 !important; /* 降低颜色饱和度 */
+    font-weight: 600 !important; /* 降低字体粗细 */
+    margin-bottom: 8px !important; /* 减小边距 */
+    font-size: 13px !important; /* 减小字体大小 */
+    padding-bottom: 4px !important; /* 减小内边距 */
+    border-bottom: 1px solid rgba(96, 165, 250, 0.2) !important; /* 弱化边框 */
 }
 
-/* tooltip元数据区域样式 - 移除底部边框 */
+/* tooltip元数据区域样式 - 进一步简化 */
 .force-graph-tooltip .tooltip-meta {
     display: flex !important;
     flex-wrap: wrap !important;
-    gap: 8px !important;
-    margin-bottom: 12px !important;
+    gap: 6px !important; /* 减小间距 */
+    margin-bottom: 10px !important; /* 减小边距 */
     padding-bottom: 0 !important;
     border-bottom: none !important;
 }
@@ -960,59 +958,57 @@ body::after {
 .force-graph-tooltip .tooltip-meta-item {
     display: flex !important;
     align-items: center !important;
-    gap: 4px !important;
-    font-size: 12px !important;
-    background: rgba(30, 41, 59, 0.6) !important;
-    padding: 4px 8px !important;
-    border-radius: 4px !important;
-    border: 1px solid rgba(75, 85, 99, 0.3) !important;
+    gap: 3px !important; /* 减小间距 */
+    font-size: 11px !important; /* 减小字体大小 */
+    background: rgba(30, 41, 59, 0.4) !important; /* 降低背景不透明度 */
+    padding: 3px 6px !important; /* 减小内边距 */
+    border-radius: 3px !important; /* 减小圆角 */
+    border: 1px solid rgba(75, 85, 99, 0.2) !important; /* 弱化边框 */
 }
 
 .force-graph-tooltip .tooltip-label {
-    color: #94a3b8 !important;
-    font-size: 11px !important;
-    font-weight: 500 !important;
+    color: #8a9bb2 !important; /* 降低对比度 */
+    font-size: 10px !important; /* 减小字体大小 */
+    font-weight: 400 !important; /* 降低字体粗细 */
 }
 
 .force-graph-tooltip .tooltip-value {
-    color: #f8fafc !important;
-    font-size: 12px !important;
-    font-weight: 500 !important;
+    color: #d1dbe8 !important; /* 降低对比度 */
+    font-size: 11px !important; /* 减小字体大小 */
+    font-weight: 400 !important; /* 降低字体粗细 */
 }
 
-/* 权重值特殊样式 */
+/* 权重值特殊样式 - 弱化 */
 .force-graph-tooltip .tooltip-value.weight-value {
-    color: #f59e0b !important;
+    color: #d4a017 !important; /* 降低颜色饱和度 */
     font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace !important;
-    font-size: 11px !important;
-    font-weight: bold !important;
+    font-size: 10px !important; /* 减小字体大小 */
+    font-weight: 600 !important; /* 降低字体粗细 */
 }
 
-/* 事件叙述区域样式 */
+/* 事件叙述区域样式 - 简化 */
 .force-graph-tooltip .tooltip-event {
-    margin-top: 12px !important;
-    padding-top: 12px !important;
-    border-top: 1px solid rgba(75, 85, 99, 0.5) !important;
+    margin-top: 10px !important; /* 减小边距 */
+    padding-top: 10px !important; /* 减小内边距 */
+    border-top: 1px solid rgba(75, 85, 99, 0.3) !important; /* 弱化边框 */
 }
 
 .force-graph-tooltip .tooltip-event-label {
-    color: #10b981 !important;
-    font-size: 12px !important;
-    font-weight: bold !important;
-    margin-bottom: 6px !important;
+    color: #0da371 !important; /* 降低颜色饱和度 */
+    font-size: 11px !important; /* 减小字体大小 */
+    font-weight: 600 !important; /* 降低字体粗细 */
+    margin-bottom: 4px !important; /* 减小边距 */
     display: block !important;
-    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5) !important;
 }
 
 .force-graph-tooltip .tooltip-event-content {
-    color: #e2e8f0 !important;
-    font-size: 12px !important;
-    line-height: 1.6 !important;
-    background: rgba(30, 41, 59, 0.4) !important;
-    padding: 8px 10px !important;
-    border-radius: 4px !important;
-    border: 1px solid rgba(75, 85, 99, 0.3) !important;
-    /* 移除滚动条设置，因为现在内容已经截取 */
+    color: #d1dbe8 !important; /* 降低对比度 */
+    font-size: 11px !important; /* 减小字体大小 */
+    line-height: 1.5 !important; /* 减小行高 */
+    background: rgba(30, 41, 59, 0.3) !important; /* 降低背景不透明度 */
+    padding: 6px 8px !important; /* 减小内边距 */
+    border-radius: 3px !important; /* 减小圆角 */
+    border: 1px solid rgba(75, 85, 99, 0.2) !important; /* 弱化边框 */
     max-height: none !important;
     overflow-y: visible !important;
 }
