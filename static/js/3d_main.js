@@ -97,6 +97,10 @@ function updateHighlight() {
         .linkDirectionalParticles(Graph.linkDirectionalParticles());
 }
 
+// Tooltip延迟隐藏相关变量
+let hoverTimeout = null;
+const HOVER_DELAY = 500; // 500毫秒延迟
+
 /** 超采样文字纹理渲染：确保 ID 极致清晰，使用2的幂次方尺寸避免警告 */
 function createTextTexture(text, weight, THREE) {
     const canvas = document.createElement('canvas');
@@ -1146,7 +1150,7 @@ window.addEventListener('load', () => {
         // --- [5. 连线与细节配置] ---
         .nodeLabel(node => {
             const weight = typeof node.survival_weight === 'number' ? node.survival_weight.toFixed(10) : '0.00';
-            const eventTuple = node.event_tuple || node.content || '无事件叙述';
+            let eventTuple = node.event_tuple || node.content || '无事件叙述';
             // 获取权重状态描述（参照index.html中的getWeightStatus函数）
             const weightValue = parseFloat(weight);
             let weightStatus = '微弱';
@@ -1154,6 +1158,12 @@ window.addEventListener('load', () => {
             else if (weightValue >= 0.7) weightStatus = '活跃';
             else if (weightValue >= 0.5) weightStatus = '稳定';
             else if (weightValue >= 0.3) weightStatus = '衰减';
+            
+            // 对事件叙述进行字符截取，最多显示150个字符
+            const maxLength = 150;
+            if (eventTuple.length > maxLength) {
+                eventTuple = eventTuple.substring(0, maxLength) + '...';
+            }
             
             return `<div class="force-graph-tooltip">
                 <div class="tooltip-title">${node.id}</div>
@@ -1175,7 +1185,6 @@ window.addEventListener('load', () => {
                         <span class="tooltip-value">${weightStatus}</span>
                     </div>
                 </div>
-                <div class="tooltip-divider"></div>
                 <div class="tooltip-event">
                     <div class="tooltip-event-label">事件叙述:</div>
                     <div class="tooltip-event-content">${eventTuple}</div>
@@ -1185,8 +1194,25 @@ window.addEventListener('load', () => {
         .nodeColor(node => highlightNodes.has(node) ? '#ffffff' : '#444')
         .onNodeHover(node => {
             container.style.cursor = node ? 'pointer' : null;
-            hoverNode = node;
-            updateHighlight();
+            
+            // 清除之前的定时器
+            if (hoverTimeout) {
+                clearTimeout(hoverTimeout);
+                hoverTimeout = null;
+            }
+            
+            if (node) {
+                // 鼠标进入节点：立即显示tooltip
+                hoverNode = node;
+                updateHighlight();
+            } else {
+                // 鼠标离开节点：延迟500毫秒隐藏tooltip
+                hoverTimeout = setTimeout(() => {
+                    hoverNode = null;
+                    updateHighlight();
+                    hoverTimeout = null;
+                }, HOVER_DELAY);
+            }
         })
         .linkWidth(l => highlightLinks.has(l) ? 8.0 : 2.0)
         .linkColor(l => highlightLinks.has(l) ? '#fff' : 'rgba(0, 255, 255, 0.2)')
