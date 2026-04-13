@@ -996,7 +996,7 @@ window.addEventListener('load', () => {
 
     // --- [2. 引擎初始化] ---
     Graph = ForceGraph3D()(container)
-        .backgroundColor('#00050a') // 深邃星空底色
+        .backgroundColor('rgba(0, 5, 10, 0.6)') // 半透明深色，让背景图透出
         .showNavInfo(false)
         .nodeThreeObjectExtend(false) // 彻底接管节点渲染
         .nodeRelSize(REL_SIZE)
