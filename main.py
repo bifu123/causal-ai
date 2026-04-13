@@ -553,6 +553,223 @@ async def get_causal_history(actor_id: str = None, owner_id: str = None):
         print(f"[API 错误] 获取历史数据失败: {e}")
         return {"status": "error", "message": str(e)}
 
+# --- 搜索接口：关键字搜索 ---
+@app.post("/api/v1/causal/search/keyword")
+async def search_by_keyword(search_data: dict):
+    """
+    职责：根据关键字搜索事件节点
+    支持参数：
+        keyword: 搜索关键词，支持逻辑与（&）操作符
+        owner_id: 事件拥有者ID，如果为None则搜索所有事件
+        limit: 返回结果数量限制，如果为None则返回所有行
+    """
+    try:
+        keyword = search_data.get('keyword')
+        owner_id = search_data.get('owner_id', 'default')
+        limit = search_data.get('limit', 100)
+        
+        if not keyword:
+            return {"status": "error", "message": "缺少搜索关键词"}
+        
+        # 导入搜索模块
+        from core.search import get_event_with_params
+        
+        # 执行搜索
+        results = get_event_with_params(keyword, owner_id, limit)
+        
+        # 将中文键名转换为英文键名，以便与前端保持一致
+        converted_results = []
+        for result in results:
+            converted = {
+                "serial_id": result.get("本事件ID"),
+                "node_id": result.get("本事件标题"),
+                "event_tuple": result.get("事件二元组描述"),
+                "survival_weight": result.get("本事件权重"),
+                "relevance_score": result.get("本事件相关度"),
+                "block_tag": result.get("因缘标签"),
+                "action_tag": result.get("动作标签"),
+                "full_image_url": result.get("截图"),
+                "owner_id": result.get("事件拥有者"),
+                "parent_ids": result.get("前事件标题列表", []),
+                "preview_id": result.get("前事件ID列表"),
+                "next_ids": result.get("后续事件ID列表", [])
+            }
+            converted_results.append(converted)
+        
+        return {
+            "status": "success",
+            "data": converted_results,
+            "count": len(converted_results),
+            "keyword": keyword,
+            "owner_id": owner_id
+        }
+    except Exception as e:
+        print(f"[API 错误] 关键字搜索失败: {e}")
+        return {"status": "error", "message": str(e)}
+
+# --- 搜索接口：序列ID搜索 ---
+@app.post("/api/v1/causal/search/serial")
+async def search_by_serial(search_data: dict):
+    """
+    职责：根据序列ID搜索事件节点
+    支持参数：
+        serial_id: 事件的物理序列ID
+    """
+    try:
+        serial_id = search_data.get('serial_id')
+        
+        if serial_id is None:
+            return {"status": "error", "message": "缺少序列ID"}
+        
+        # 导入搜索模块
+        from core.search import get_event_by_sid
+        
+        # 执行搜索
+        result = get_event_by_sid(serial_id)
+        
+        if not result:
+            return {"status": "error", "message": f"找不到serial_id为{serial_id}的节点"}
+        
+        # 将中文键名转换为英文键名，以便与前端保持一致
+        converted_result = {
+            "serial_id": result.get("本事件ID"),
+            "node_id": result.get("本事件标题"),
+            "event_tuple": result.get("事件二元组描述"),
+            "survival_weight": result.get("本事件权重"),
+            "block_tag": result.get("因缘标签"),
+            "action_tag": result.get("动作标签"),
+            "full_image_url": result.get("截图"),
+            "owner_id": result.get("事件拥有者"),
+            "parent_ids": result.get("前事件标题列表", []),
+            "preview_id": result.get("前事件ID列表"),
+            "next_ids": result.get("后续事件ID列表", [])
+        }
+        
+        return {
+            "status": "success",
+            "data": converted_result
+        }
+    except Exception as e:
+        print(f"[API 错误] 序列ID搜索失败: {e}")
+        return {"status": "error", "message": str(e)}
+
+# --- 点击事件接口 ---
+@app.post("/api/v1/causal/click")
+async def handle_node_click(click_data: dict):
+    """
+    职责：处理节点点击事件
+    支持参数：
+        serial_id: 事件节点的物理ID
+        actor_id: 用户ID（可选）
+        owner_id: 事件拥有者ID（可选）
+    Action:
+        1. 从地宫恢复内容（如果存在）
+        2. 提升节点权重到60%（大股东模式）
+        3. 重新计算其他节点权重
+        4. 通过socketio更新到前端
+    """
+    try:
+        serial_id = click_data.get('serial_id')
+        actor_id = click_data.get('actor_id')
+        owner_id = click_data.get('owner_id', 'default')
+        
+        if serial_id is None:
+            return {"status": "error", "message": "缺少序列ID"}
+        
+        print(f"[点击事件] 开始处理 serial_id: {serial_id}, actor_id: {actor_id}, owner_id: {owner_id}")
+        
+        # 1. 通过serial_id获取节点信息
+        from core.search import get_event_by_sid
+        search_result = get_event_by_sid(serial_id)
+        if not search_result:
+            return {"status": "error", "message": f"找不到serial_id为{serial_id}的节点"}
+        
+        # 将中文键名转换为英文键名
+        node = {
+            "serial_id": search_result.get("本事件ID"),
+            "node_id": search_result.get("本事件标题"),
+            "event_tuple": search_result.get("事件二元组描述"),
+            "survival_weight": search_result.get("本事件权重"),
+            "block_tag": search_result.get("因缘标签"),
+            "action_tag": search_result.get("动作标签"),
+            "full_image_url": search_result.get("截图"),
+            "owner_id": search_result.get("事件拥有者"),
+            "parent_ids": search_result.get("前事件标题列表", []),
+            "preview_id": search_result.get("前事件ID列表"),
+            "next_ids": search_result.get("后续事件ID列表", [])
+        }
+        
+        node_id = node.get('node_id')
+        print(f"[点击事件] 找到节点: {node_id} (serial_id: {serial_id})")
+        
+        # 2. 从地宫恢复内容（如果存在）
+        restored_node = db.restore_from_necropolis(node_id)
+        if restored_node:
+            print(f"[点击事件] 已从地宫恢复节点 {node_id} 的完整内容")
+            node = restored_node
+        
+        # 3. 提升节点权重（大股东模式：60%）
+        updated_nodes = db.promote_all_weights(
+            node_id=node_id,
+            actor_id=actor_id,
+            owner_id=owner_id,
+            set_as_boss=True  # 设置为大股东模式
+        )
+        
+        if not updated_nodes:
+            print(f"[点击事件] 警告：权重提升未返回任何更新节点")
+            # 即使没有更新节点，也返回当前节点信息
+            return {
+                "status": "success",
+                "message": f"节点 {node_id} 信息已获取",
+                "data": node,
+                "updated_count": 0
+            }
+        
+        # 4. 从更新节点中找到当前节点
+        current_node = None
+        for updated_node in updated_nodes:
+            if updated_node.get('node_id') == node_id:
+                current_node = updated_node
+                break
+        
+        if not current_node:
+            current_node = node
+            print(f"[点击事件] 警告：在更新节点中未找到当前节点，使用原始节点")
+        
+        # 5. 广播所有更新的事件
+        for updated_node in updated_nodes:
+            # 确保所有值都是JSON可序列化的
+            if 'survival_weight' in updated_node:
+                updated_node['survival_weight'] = float(updated_node['survival_weight'])
+            if 'last_accessed' in updated_node:
+                updated_node['last_accessed'] = str(updated_node['last_accessed'])
+            if 'created_at' in updated_node:
+                updated_node['created_at'] = str(updated_node['created_at'])
+            
+            # 如果指定了actor_id，添加用户标识
+            if actor_id:
+                updated_node['actor_id'] = actor_id
+            
+            # 添加owner_id标识
+            updated_node['owner_id'] = owner_id
+            
+            await sm.emit('node_updated', updated_node)
+        
+        print(f"[点击事件] 完成处理，更新了 {len(updated_nodes)} 个节点")
+        
+        return {
+            "status": "success",
+            "message": f"节点 {node_id} 权重已提升到60%（大股东模式）",
+            "data": current_node,
+            "updated_count": len(updated_nodes),
+            "actor_id": actor_id,
+            "owner_id": owner_id
+        }
+    except Exception as e:
+        print(f"[API 错误] 点击事件处理失败: {e}")
+        return {"status": "error", "message": str(e)}
+
 # --- 核心接口：Genesis (首贞/又贞/对贞) ---
 @app.post("/api/v1/causal/genesis")
 async def create_genesis_node(node: CausalNodeRequest):

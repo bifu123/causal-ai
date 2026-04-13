@@ -1139,6 +1139,290 @@ window.addEventListener('load', () => {
         submitCreateBtn.onclick = submitCreateNode;
     }
     
+    // 绑定搜索面板交互功能
+    const searchToggleBtn = document.getElementById('btn-toggle-search');
+    const searchCloseBtn = document.getElementById('btn-close-search');
+    const searchFormContainer = document.getElementById('search-form-container');
+    const searchInput = document.getElementById('search-input');
+    const searchBtn = document.getElementById('btn-search');
+    
+    if (searchToggleBtn && searchFormContainer) {
+        // 点击放大镜图标展开搜索面板
+        searchToggleBtn.onclick = function() {
+            searchFormContainer.classList.add('expanded');
+            // 展开后聚焦到搜索输入框
+            setTimeout(() => {
+                if (searchInput) searchInput.focus();
+            }, 100);
+        };
+        
+        // 点击关闭按钮折叠搜索面板
+        if (searchCloseBtn) {
+            searchCloseBtn.onclick = function() {
+                searchFormContainer.classList.remove('expanded');
+            };
+        }
+        
+        // 点击搜索按钮执行搜索
+        if (searchBtn) {
+            searchBtn.onclick = function() {
+                performSearch();
+            };
+        }
+        
+        // 按Enter键执行搜索
+        if (searchInput) {
+            searchInput.addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    performSearch();
+                }
+            });
+        }
+        
+        // 点击页面其他地方关闭搜索面板
+        document.addEventListener('click', function(e) {
+            if (searchFormContainer.classList.contains('expanded')) {
+                // 检查点击是否在搜索面板内部
+                const isClickInsideSearchPanel = searchToggleBtn.contains(e.target) || 
+                                                searchFormContainer.contains(e.target);
+                
+                // 如果点击在搜索面板外部，关闭搜索面板
+                if (!isClickInsideSearchPanel) {
+                    searchFormContainer.classList.remove('expanded');
+                }
+            }
+        });
+    }
+    
+    // 搜索功能实现
+    async function performSearch() {
+        const searchTerm = searchInput ? searchInput.value.trim() : '';
+        const searchType = document.getElementById('search-type') ? document.getElementById('search-type').value : 'keyword';
+        
+        if (!searchTerm) {
+            showSelectionHint('请输入搜索关键词');
+            return;
+        }
+        
+        console.log(`[搜索] 执行搜索: 类型=${searchType}, 关键词=${searchTerm}`);
+        showSelectionHint(`正在搜索: ${searchTerm}`);
+        
+        try {
+            // 根据搜索类型调用不同的API
+            let apiUrl, requestData;
+            
+            if (searchType === 'serial') {
+                // 序列ID搜索
+                apiUrl = '/api/v1/causal/search/serial';
+                requestData = { serial_id: parseInt(searchTerm) || 0 };
+            } else {
+                // 关键字搜索
+                apiUrl = '/api/v1/causal/search/keyword';
+                requestData = { 
+                    keyword: searchTerm,
+                    owner_id: window.currentOwnerId || 'default',
+                    limit: 20
+                };
+            }
+            
+            const response = await fetch(apiUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(requestData)
+            });
+            
+            const data = await response.json();
+            
+            if (data.status === 'success') {
+                displaySearchResults(data.data, searchType);
+            } else {
+                showSelectionHint(`搜索失败: ${data.message}`);
+                displaySearchResults([]);
+            }
+        } catch (error) {
+            console.error('[搜索] 搜索请求失败:', error);
+            showSelectionHint(`搜索失败: ${error.message}`);
+            displaySearchResults([]);
+        }
+    }
+    
+    // 显示搜索结果
+    function displaySearchResults(results, searchType = 'keyword') {
+        const resultsContainer = document.getElementById('search-results');
+        if (!resultsContainer) return;
+        
+        // 显示结果区域
+        resultsContainer.style.display = 'block';
+        
+        if (!results || (Array.isArray(results) && results.length === 0)) {
+            resultsContainer.innerHTML = `
+                <div class="search-empty">
+                    <div class="empty-icon">🔍</div>
+                    <div class="empty-text">未找到相关事件</div>
+                </div>
+            `;
+            return;
+        }
+        
+        // 如果是单个结果（序列ID搜索），转换为数组
+        const resultList = Array.isArray(results) ? results : [results];
+        
+        // 构建结果HTML
+        let resultsHtml = '<div class="search-results-list">';
+        
+        resultList.forEach((result, index) => {
+            const serialId = result.serial_id || result.本事件ID;
+            const nodeId = result.node_id || result.本事件标题;
+            const eventTuple = result.event_tuple || result.事件二元组描述 || '';
+            const relevanceScore = result.relevance_score || result.本事件相关度 || 0;
+            const survivalWeight = result.survival_weight || result.本事件权重 || 0;
+            const actionTag = result.action_tag || result.动作标签 || '贞';
+            const blockTag = result.block_tag || result.因缘标签 || '因';
+            
+            // 截取事件叙述的前100个字符
+            const previewText = eventTuple.length > 100 ? 
+                eventTuple.substring(0, 100) + '...' : eventTuple;
+            
+            // 计算相关度百分比
+            const relevancePercent = Math.min(Math.round(relevanceScore * 100), 100);
+            
+            // 计算权重百分比
+            const weightPercent = Math.min(Math.round(survivalWeight * 100), 100);
+            
+            resultsHtml += `
+                <div class="search-result-item" data-serial-id="${serialId}" data-node-id="${nodeId}">
+                    <div class="result-header">
+                        <div class="result-title">
+                            <span class="result-tag ${actionTag}">${actionTag}</span>
+                            <span class="result-node-id">${nodeId}</span>
+                            <span class="result-serial-id">#${serialId}</span>
+                        </div>
+                        <div class="result-meta">
+                            <span class="result-relevance">
+                                <span class="relevance-label">相关度:</span>
+                                <span class="relevance-value">${relevancePercent}%</span>
+                            </span>
+                            <span class="result-weight">
+                                <span class="weight-label">权重:</span>
+                                <span class="weight-value">${weightPercent}%</span>
+                            </span>
+                        </div>
+                    </div>
+                    <div class="result-content">
+                        <div class="result-event-tuple">${previewText}</div>
+                        <div class="result-tags">
+                            <span class="tag-block">${blockTag}</span>
+                        </div>
+                    </div>
+                    <div class="result-actions">
+                        <button class="result-action-btn" onclick="handleSearchResultClick(${serialId}, '${nodeId}')">
+                            瞄定此事件
+                        </button>
+                    </div>
+                </div>
+            `;
+        });
+        
+        resultsHtml += '</div>';
+        resultsContainer.innerHTML = resultsHtml;
+        
+        // 显示结果数量
+        const resultCount = resultList.length;
+        showSelectionHint(`找到 ${resultCount} 个相关事件`);
+    }
+    
+    // 处理搜索结果点击事件 - 定义为全局函数
+    window.handleSearchResultClick = async function(serialId, nodeId) {
+        console.log(`[搜索点击] 点击搜索结果: serial_id=${serialId}, node_id=${nodeId}`);
+        
+        try {
+            // 调用点击事件API
+            const requestData = { 
+                serial_id: serialId,
+                actor_id: window.currentActorId || '',
+                owner_id: window.currentOwnerId || 'default'
+            };
+            
+            console.log(`[搜索点击] 调用点击API:`, requestData);
+            
+            const response = await fetch('/api/v1/causal/click', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(requestData)
+            });
+            
+            const data = await response.json();
+            
+            if (data.status === 'success') {
+                showSelectionHint(`已瞄定事件 "${nodeId}"，权重提升到60%`);
+                
+                // 在3D图中高亮显示该节点
+                highlightSearchResultNode(nodeId);
+                
+                // 关闭搜索结果面板
+                const searchFormContainer = document.getElementById('search-form-container');
+                if (searchFormContainer) {
+                    searchFormContainer.classList.remove('expanded');
+                }
+                
+                // 清空搜索输入框
+                const searchInput = document.getElementById('search-input');
+                if (searchInput) {
+                    searchInput.value = '';
+                }
+                
+                // 隐藏搜索结果
+                const resultsContainer = document.getElementById('search-results');
+                if (resultsContainer) {
+                    resultsContainer.style.display = 'none';
+                }
+            } else {
+                showSelectionHint(`瞄定失败: ${data.message}`);
+            }
+        } catch (error) {
+            console.error('[搜索点击] 点击事件处理失败:', error);
+            showSelectionHint(`瞄定失败: ${error.message}`);
+        }
+    }
+    
+    // 在3D图中高亮显示搜索结果节点
+    function highlightSearchResultNode(nodeId) {
+        if (!Graph) return;
+        
+        const { nodes } = Graph.graphData();
+        const targetNode = nodes.find(n => n.id === nodeId);
+        
+        if (targetNode) {
+            // 设置节点为选中状态
+            selectedNodeObj = targetNode;
+            
+            // 物理锁定节点
+            targetNode.fx = targetNode.x;
+            targetNode.fy = targetNode.y;
+            targetNode.fz = targetNode.z;
+            
+            // 聚焦到该节点（但不打开抽屉）
+            const distance = 600;
+            const distRatio = 1 + distance / Math.hypot(targetNode.x, targetNode.y, targetNode.z);
+            const camPos = { 
+                x: targetNode.x * distRatio, 
+                y: targetNode.y * distRatio, 
+                z: targetNode.z * distRatio 
+            };
+            
+            Graph.cameraPosition(camPos, targetNode, 1200);
+            
+            // 添加高亮效果
+            highlightNodes.clear();
+            highlightNodes.add(targetNode);
+            updateHighlight();
+            
+            console.log(`[搜索高亮] 已高亮显示节点: ${nodeId}`);
+        } else {
+            console.warn(`[搜索高亮] 未在图中找到节点: ${nodeId}`);
+        }
+    }
+    
     // 初始化 Socket 与 数据
     initSocketHandlers();
     loadInitialData();

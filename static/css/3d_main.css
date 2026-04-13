@@ -102,14 +102,14 @@ body::after {
 }
 
 #controls {
-    position: absolute;
+    position: fixed;
     bottom: 20px;
     left: 20px;
     pointer-events: auto;
     display: flex;
     flex-direction: column;
     gap: 10px;
-    z-index: 20;
+    z-index: 1999;
 }
 
 .control-icon {
@@ -442,6 +442,441 @@ body::after {
 /* 节点信息显示 */
 #node-info.active {
     display: block;
+}
+
+/* 右上角搜索面板样式 - 可折叠 */
+#search-panel {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    z-index: 9998;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+}
+
+/* 搜索图标按钮 - 默认显示 */
+.search-toggle {
+    width: 48px;
+    height: 48px;
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    color: #60a5fa;
+    font-size: 20px;
+    font-weight: bold;
+    margin-bottom: 10px;
+}
+
+.search-toggle:hover {
+    background: rgba(0, 0, 0, 0.9);
+    border-color: rgba(96, 165, 250, 0.5);
+    transform: scale(1.1);
+    box-shadow: 0 0 20px rgba(96, 165, 250, 0.3);
+}
+
+.search-toggle:active {
+    transform: scale(0.95);
+}
+
+/* 搜索表单容器 - 默认隐藏 */
+.search-form-container {
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(20px);
+    border: 1px solid rgba(96, 165, 250, 0.2);
+    border-radius: 12px;
+    padding: 15px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+    width: 350px;
+    max-width: 90vw;
+    display: none;
+    opacity: 0;
+    transform: translateY(-10px);
+    transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+.search-form-container.expanded {
+    display: block;
+    opacity: 1;
+    transform: translateY(0);
+}
+
+/* 搜索表单标题 */
+.search-form-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 15px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid rgba(96, 165, 250, 0.3);
+}
+
+.search-form-title {
+    font-size: 14px;
+    color: #60a5fa;
+    font-weight: bold;
+    letter-spacing: 1px;
+}
+
+.search-form-close {
+    font-size: 18px;
+    color: #94a3b8;
+    cursor: pointer;
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    transition: all 0.2s;
+}
+
+.search-form-close:hover {
+    background: rgba(239, 68, 68, 0.2);
+    color: #ef4444;
+}
+
+/* 搜索输入组 */
+.search-input-group {
+    display: flex;
+    align-items: center;
+    background: rgba(0, 0, 0, 0.3);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(96, 165, 250, 0.2);
+    border-radius: 8px;
+    padding: 2px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+    transition: all 0.3s ease;
+    height: 40px;
+    margin-bottom: 10px;
+}
+
+.search-input-group:focus-within {
+    border-color: rgba(96, 165, 250, 0.4);
+    box-shadow: 0 2px 12px rgba(96, 165, 250, 0.3);
+    background: rgba(0, 0, 0, 0.4);
+}
+
+.search-input {
+    flex: 1;
+    background: transparent !important;
+    background-color: transparent !important;
+    border: none !important;
+    color: #e2e8f0;
+    font-size: 13px;
+    padding: 8px 12px;
+    outline: none !important;
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    height: 100%;
+    backdrop-filter: blur(0);
+    border-radius: 0;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+}
+
+/* 强制消除所有状态下的背景和边框影响 */
+.search-input,
+.search-input:focus,
+.search-input:active,
+.search-input:hover,
+.search-input:not(:placeholder-shown),
+.search-input:valid,
+.search-input:invalid,
+.search-input:-webkit-autofill,
+.search-input:-webkit-autofill:hover, 
+.search-input:-webkit-autofill:focus {
+    background-color: transparent !important;
+    background: transparent !important;
+    -webkit-box-shadow: 0 0 0px 1000px transparent inset !important; /* 消除自动填充的底色 */
+    transition: background-color 5000s ease-in-out 0s; /* 减缓自动填充颜色的出现 */
+    border: none !important;
+    box-shadow: none !important;
+    outline: none !important;
+    color: #e2e8f0 !important; /* 默认文字颜色 */
+}
+
+/* 焦点和有值状态文字颜色 */
+.search-input:focus,
+.search-input:not(:placeholder-shown) {
+    color: #ffffff !important;
+}
+
+/* 自动填充状态文字颜色 */
+.search-input:-webkit-autofill,
+.search-input:-webkit-autofill:hover, 
+.search-input:-webkit-autofill:focus {
+    -webkit-text-fill-color: #e2e8f0 !important; /* Webkit自动填充文字颜色 */
+    color: #e2e8f0 !important;
+}
+
+.search-input::placeholder {
+    color: #94a3b8;
+    font-size: 12px;
+    opacity: 0.7;
+}
+
+/* 隐藏 Chrome 等浏览器搜索框默认的清除和装饰 */
+.search-input::-webkit-search-decoration,
+.search-input::-webkit-search-cancel-button,
+.search-input::-webkit-search-results-button,
+.search-input::-webkit-search-results-decoration {
+    display: none;
+}
+
+.search-select {
+    background: transparent;
+    border: none;
+    color: #cbd5e1;
+    font-size: 12px;
+    padding: 0 8px;
+    margin: 0 4px;
+    outline: none;
+    cursor: pointer;
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%2394a3b8' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+    background-position: right 4px center;
+    background-repeat: no-repeat;
+    background-size: 0.9em;
+    padding-right: 20px;
+    height: 100%;
+    border-radius: 0;
+}
+
+.search-select:focus {
+    color: #ffffff;
+    background: transparent;
+    box-shadow: none;
+}
+
+.search-submit-button {
+    background: rgba(96, 165, 250, 0.2);
+    border: 1px solid rgba(96, 165, 250, 0.3);
+    color: #60a5fa;
+    font-size: 13px;
+    padding: 8px 16px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    font-weight: bold;
+    width: 100%;
+    margin-top: 5px;
+}
+
+.search-submit-button:hover {
+    background: rgba(96, 165, 250, 0.3);
+    border-color: rgba(96, 165, 250, 0.5);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(96, 165, 250, 0.2);
+}
+
+.search-submit-button:active {
+    transform: translateY(0);
+}
+
+/* 搜索结果区域样式 */
+.search-results {
+    margin-top: 15px;
+    max-height: 400px;
+    overflow-y: auto;
+    border-top: 1px solid rgba(96, 165, 250, 0.2);
+    padding-top: 10px;
+}
+
+.search-empty {
+    text-align: center;
+    padding: 20px;
+    color: #94a3b8;
+    font-size: 13px;
+}
+
+.empty-icon {
+    font-size: 24px;
+    margin-bottom: 8px;
+    opacity: 0.5;
+}
+
+.empty-text {
+    font-size: 12px;
+}
+
+.search-results-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.search-result-item {
+    background: rgba(0, 0, 0, 0.4);
+    border: 1px solid rgba(96, 165, 250, 0.1);
+    border-radius: 8px;
+    padding: 12px;
+    transition: all 0.3s ease;
+    cursor: pointer;
+}
+
+.search-result-item:hover {
+    background: rgba(0, 0, 0, 0.6);
+    border-color: rgba(96, 165, 250, 0.3);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.result-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 8px;
+}
+
+.result-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.result-tag {
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-weight: bold;
+    text-transform: uppercase;
+}
+
+.result-tag.贞 {
+    background: rgba(245, 158, 11, 0.2);
+    color: #f59e0b;
+    border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.result-tag.又贞 {
+    background: rgba(16, 185, 129, 0.2);
+    color: #10b981;
+    border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.result-tag.对贞 {
+    background: rgba(59, 130, 246, 0.2);
+    color: #3b82f6;
+    border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+.result-node-id {
+    font-size: 13px;
+    color: #f8fafc;
+    font-weight: bold;
+    max-width: 150px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.result-serial-id {
+    font-size: 10px;
+    color: #94a3b8;
+    background: rgba(148, 163, 184, 0.1);
+    padding: 1px 4px;
+    border-radius: 3px;
+}
+
+.result-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    align-items: flex-end;
+}
+
+.result-relevance,
+.result-weight {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 10px;
+}
+
+.relevance-label,
+.weight-label {
+    color: #94a3b8;
+}
+
+.relevance-value {
+    color: #10b981;
+    font-weight: bold;
+}
+
+.weight-value {
+    color: #f59e0b;
+    font-weight: bold;
+}
+
+.result-content {
+    margin-bottom: 10px;
+}
+
+.result-event-tuple {
+    font-size: 12px;
+    color: #cbd5e1;
+    line-height: 1.4;
+    margin-bottom: 8px;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.result-tags {
+    display: flex;
+    gap: 6px;
+}
+
+.tag-block {
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: rgba(96, 165, 250, 0.1);
+    color: #60a5fa;
+    border: 1px solid rgba(96, 165, 250, 0.2);
+}
+
+.result-actions {
+    display: flex;
+    justify-content: flex-end;
+}
+
+.result-action-btn {
+    background: rgba(96, 165, 250, 0.2);
+    border: 1px solid rgba(96, 165, 250, 0.3);
+    color: #60a5fa;
+    font-size: 11px;
+    padding: 4px 12px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    border-radius: 4px;
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    font-weight: bold;
+}
+
+.result-action-btn:hover {
+    background: rgba(96, 165, 250, 0.3);
+    border-color: rgba(96, 165, 250, 0.5);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(96, 165, 250, 0.2);
+}
+
+.result-action-btn:active {
+    transform: translateY(0);
 }
 
 /* 3D-force-graph tooltip 样式 - 简洁清晰版 */

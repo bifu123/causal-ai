@@ -14,6 +14,9 @@
     <!-- 添加Tween.js用于相机动画 -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/tween.js/18.6.4/tween.umd.js"></script>
     
+    <!-- 加载d3.js库（3d-force-graph依赖） -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+    
     <!-- 然后加载3d-force-graph，它会使用已存在的THREE实例 -->
     <script src="https://cdn.jsdelivr.net/npm/3d-force-graph@1.70.0/dist/3d-force-graph.min.js"></script>
     
@@ -66,6 +69,37 @@
             </div>
             <div class="control-icon" id="btn-create-node" data-tooltip="发起首贞">
                 <div class="icon-plus">贞</div>
+            </div>
+        </div>
+        
+        <!-- 搜索面板 - 右上角可折叠 -->
+        <div id="search-panel">
+            <!-- 搜索图标按钮 - 默认显示 -->
+            <div class="search-toggle" id="btn-toggle-search" title="展开搜索面板">
+                🔍
+            </div>
+            
+            <!-- 搜索表单容器 - 默认隐藏 -->
+            <div class="search-form-container" id="search-form-container">
+                <div class="search-form-header">
+                    <div class="search-form-title">事件搜索</div>
+                    <div class="search-form-close" id="btn-close-search" title="关闭搜索面板">✕</div>
+                </div>
+                
+                <div class="search-input-group">
+                    <input type="text" id="search-input" class="search-input" placeholder="输入关键词搜索事件...">
+                    <select id="search-type" class="search-select">
+                        <option value="keyword">关键字搜索</option>
+                        <option value="serial">序列ID搜索</option>
+                    </select>
+                </div>
+                
+                <button id="btn-search" class="search-submit-button">搜索</button>
+                
+                <!-- 搜索结果区域 - 默认隐藏 -->
+                <div id="search-results" class="search-results" style="display: none;">
+                    <div class="search-empty">输入关键词开始搜索</div>
+                </div>
             </div>
         </div>
     </div>
