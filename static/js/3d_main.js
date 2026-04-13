@@ -1146,9 +1146,40 @@ window.addEventListener('load', () => {
         // --- [5. 连线与细节配置] ---
         .nodeLabel(node => {
             const weight = typeof node.survival_weight === 'number' ? node.survival_weight.toFixed(10) : '0.00';
+            const eventTuple = node.event_tuple || node.content || '无事件叙述';
+            // 获取权重状态描述（参照index.html中的getWeightStatus函数）
+            const weightValue = parseFloat(weight);
+            let weightStatus = '微弱';
+            if (weightValue >= 0.9) weightStatus = '强盛';
+            else if (weightValue >= 0.7) weightStatus = '活跃';
+            else if (weightValue >= 0.5) weightStatus = '稳定';
+            else if (weightValue >= 0.3) weightStatus = '衰减';
+            
             return `<div class="force-graph-tooltip">
-                <b>${node.id}</b> [${node.action_tag}]<br/>
-                权重: ${weight}
+                <div class="tooltip-title">${node.id}</div>
+                <div class="tooltip-meta">
+                    <div class="tooltip-meta-item">
+                        <span class="tooltip-label">动作标签:</span>
+                        <span class="tooltip-value">${node.action_tag || '贞'}</span>
+                    </div>
+                    <div class="tooltip-meta-item">
+                        <span class="tooltip-label">因缘标签:</span>
+                        <span class="tooltip-value">${node.block_tag || '因'}</span>
+                    </div>
+                    <div class="tooltip-meta-item">
+                        <span class="tooltip-label">权重:</span>
+                        <span class="tooltip-value weight-value">${weight}</span>
+                    </div>
+                    <div class="tooltip-meta-item">
+                        <span class="tooltip-label">状态:</span>
+                        <span class="tooltip-value">${weightStatus}</span>
+                    </div>
+                </div>
+                <div class="tooltip-divider"></div>
+                <div class="tooltip-event">
+                    <div class="tooltip-event-label">事件叙述:</div>
+                    <div class="tooltip-event-content">${eventTuple}</div>
+                </div>
             </div>`;
         })
         .nodeColor(node => highlightNodes.has(node) ? '#ffffff' : '#444')
