@@ -1,28 +1,30 @@
 @echo off
 setlocal
 
-:: 使用 pushd 解决 UNC 路径问题，它会自动分配一个临时的盘符（如 Z:）
+:: 使用 pushd 解决 UNC 路径不支持 cd 的问题
 pushd "\\192.168.66.39\root\root\causal_ai\"
 
-:: 1. 解决目录所有权信任问题
-:: 这一步是关键，解决 fatal: detected dubious ownership
-git config --global --add safe.directory "*"
-
-:: 2. 检查并清理 Git 锁
+:: 1. 检查并强制清理可能存在的锁文件（防止脚本因锁死而中断）
 if exist ".git\index.lock" (
     echo [系统] 发现 Git 进程锁，正在自动清理...
     del /f /q ".git\index.lock"
 )
 
-:: 3. 检查 .gitignore
+:: 2. 检查 .gitignore 逻辑
+:: 注意：这里去掉了 findstr，直接判断文件是否存在或手动维护
 if not exist ".gitignore" (
     echo .causal_ai/ > .gitignore
     echo [提示] 已创建 .gitignore 并排除 .causal_ai 目录
 )
 
-:: 4. 执行 Git 职责
+:: 在执行 git push 前添加
+git config --local http.proxy http://127.0.0.1:65532
+git config --local https.proxy http://127.0.0.1:65532
+
+
+:: 3. 执行 Git 职责
 git add .
-git commit -m "debug: fix path and security ownership issues"
+git commit -m "debug: fix path and lock issues"
 git push origin main
 
 :: 返回原始目录并卸载临时盘符
