@@ -1,0 +1,20 @@
+bug: 3d_main.html中抽屉打开，被点击节点应该处于除抽屉宽度后的区域中心，而现在它处在了绝对屏幕的中心。
+
+
+正确处理：
+- 使用简单的相机偏移算法
+
+- 在 `handleNodeClick` 函数中：`{ x: node.x + (node.x * offsetRatio), y: node.y, z: node.z }`
+
+- 在 `onNodeClick` 回调中：`{ x: node.x + (Math.abs(node.x) + 200) * offsetRatio, y: node.y, z: node.z }`
+
+- 偏移系数：`offsetRatio = (DRAWER_WIDTH / screenWidth) * 0.7`
+
+- 没有使用 `setCameraViewOffset` 函数
+
+
+参考：
+./back-js/3d_main.js
+
+请对比当前./static/js3d_main.js和./back-js/3d_main.js的区别
+

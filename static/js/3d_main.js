@@ -932,32 +932,33 @@ function handleNodeClick(node) {
     openDrawer(node.id);
     
     // --- 3. 动态偏移中心聚焦 ---
-    // 计算逻辑：为了让节点出现在"屏幕宽度 - 抽屉宽度"的中心
-    const drawerWidth = 450; // 根据你的CSS抽屉宽度调整
+    // 【数学模型】：计算视口偏移
+    // 目标：让节点显示在 (屏幕总宽 - 抽屉宽度) 的几何中心
     const screenWidth = window.innerWidth;
-    // 计算偏移比例：如果抽屉占了一半，偏移就是 0.25
-    const offsetRatio = (drawerWidth / screenWidth) * 0.5; 
+    const offsetRatio = (450 / screenWidth) * 0.7; // 偏移系数，使用与onNodeClick一致的算法
 
-    const distance = 600; // 放大距离
+    const distance = 350; // 使用FOCUS_DIST常量值
     const distRatio = 1 + distance / Math.hypot(node.x, node.y, node.z);
-
-    // 获取相机当前向量，计算侧移量
     const camPos = { x: node.x * distRatio, y: node.y * distRatio, z: node.z * distRatio };
-    
-    // 强制聚焦，并使用第二个参数（lookAt坐标）进行偏移补偿
-    // 我们让相机看向节点略微"向右"一点的位置，使节点视觉左移
-    const targetLookAt = { x: node.x + (node.x * offsetRatio), y: node.y, z: node.z };
+
+    // 计算注视点：为了让节点在左侧居中，注视点需向右偏移
+    const targetLookAt = {
+        x: node.x + (Math.abs(node.x) + 200) * offsetRatio, 
+        y: node.y,
+        z: node.z
+    };
     
     // 调试输出：相机偏移计算
     console.log(`[handleNodeClick调试] 相机偏移计算:`, {
-        drawerWidth,
+        drawerWidth: 450,
         screenWidth,
         offsetRatio,
         distance,
         distRatio,
         nodePosition: { x: node.x, y: node.y, z: node.z },
         cameraPosition: camPos,
-        targetLookAt
+        targetLookAt,
+        offsetCalculation: `node.x + (Math.abs(node.x) + 200) * offsetRatio = ${node.x} + (${Math.abs(node.x)} + 200) * ${offsetRatio} = ${targetLookAt.x}`
     });
     
     Graph.cameraPosition(
