@@ -29,6 +29,11 @@ def get_event_with_params(keyword: str, owner_id: str = None, limit: int = None)
     if not keyword:
         return []
     
+    # 构建owner_id过滤条件
+    owner_filter = ""
+    if owner_id:
+        owner_filter = f" AND root.owner_id = '{owner_id}'"
+    
     # 保持底层 SQL 高效运行
     sql = f"""
 WITH target_val AS (
@@ -40,6 +45,7 @@ primary_search AS (
     SELECT root.* FROM ains_active_nodes root, target_val
     WHERE to_tsvector('chinese', root.node_id || ' ' || root.event_tuple) 
        @@ to_tsquery('chinese', target_val.raw_keyword)
+       {owner_filter}
 ),
 fallback_search AS (
     -- 第二职责：LIKE 物理保底（处理逻辑与的顺序匹配，同时检索 ID 和原文）
@@ -49,6 +55,7 @@ fallback_search AS (
         OR 
         root.node_id LIKE '%' || REPLACE(target_val.raw_keyword, ' & ', '%') || '%'
     )
+    {owner_filter}
     AND NOT EXISTS (SELECT 1 FROM primary_search)
 ),
 final_nodes AS (
@@ -113,11 +120,11 @@ FROM final_nodes AS root
                 
                 item = {
                     "本事件ID": raw_dict['serial_id'],
-                    "前事件ID列表": raw_dict['preview_id'],
+                    "前事件ID列表": raw_dict['preview_id'] if raw_dict['preview_id'] != '根节点' else '',
                     "因缘标签": raw_dict['block_tag'],
                     "动作标签": raw_dict['action_tag'],
                     "事件二元组描述": raw_dict['event_tuple'],
-                    "后续事件ID列表": [int(x) for x in raw_dict['next_id_list'].split(',')] if raw_dict['next_id_list'] else [],
+                    "后续事件ID列表": [int(x.strip()) for x in raw_dict['next_id_list'].split(',') if x.strip().isdigit()] if raw_dict['next_id_list'] and raw_dict['next_id_list'] != '末端' else [],
                     "本事件权重": float(raw_dict['survival_weight']) if isinstance(raw_dict['survival_weight'], Decimal) else raw_dict['survival_weight'],
                     "本事件标题": raw_dict['node_id'],
                     "截图": raw_dict['full_image_url'],
