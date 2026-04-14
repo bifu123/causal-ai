@@ -42,6 +42,45 @@ function showSelectionHint(msg) {
     setTimeout(() => hint.classList.add('hidden'), 3000);
 }
 
+/**
+ * 打开图片全屏模态框
+ */
+function openImageModal(imageUrl) {
+    const modal = document.getElementById('image-modal');
+    const fullImage = document.getElementById('full-image');
+    
+    if (modal && fullImage) {
+        fullImage.src = imageUrl;
+        modal.classList.remove('modal-hidden');
+        
+        // 添加点击模态框外部关闭的功能
+        modal.addEventListener('click', function(e) {
+            if (e.target === modal) {
+                closeImageModal();
+            }
+        });
+        
+        // 添加ESC键关闭功能
+        const handleEscKey = function(e) {
+            if (e.key === 'Escape') {
+                closeImageModal();
+                document.removeEventListener('keydown', handleEscKey);
+            }
+        };
+        document.addEventListener('keydown', handleEscKey);
+    }
+}
+
+/**
+ * 关闭图片全屏模态框
+ */
+function closeImageModal() {
+    const modal = document.getElementById('image-modal');
+    if (modal) {
+        modal.classList.add('modal-hidden');
+    }
+}
+
 /** 动作颜色映射：遵循 ylbot 业务职责标准，亮度与权重成正比 */
 function getNodeColor(node) {
     const colorMap = { '贞': '#f59e0b', '又贞': '#10b981', '对贞': '#3b82f6' };
@@ -412,6 +451,15 @@ function openDrawer(nodeId) {
         if (imageUrl) {
             previewImg.src = imageUrl;
             imagePreview.classList.remove('hidden');
+            
+            // 添加点击事件：点击缩略图打开全屏模态框
+            previewImg.onclick = function() {
+                openImageModal(imageUrl);
+            };
+            
+            // 添加CSS样式使缩略图可点击
+            previewImg.style.cursor = 'pointer';
+            previewImg.title = '点击查看大图';
         } else {
             imagePreview.classList.add('hidden');
         }
@@ -2326,7 +2374,16 @@ window.addEventListener('load', () => {
     initSocketHandlers();
     loadInitialData();
 
-    // --- [8. 视图自适应业务] ---
+    // --- [8. 绑定图片模态框关闭按钮事件] ---
+    const closeImageBtn = document.getElementById('btn-close-image');
+    if (closeImageBtn) {
+        closeImageBtn.onclick = closeImageModal;
+        console.log('[图片模态框] 关闭按钮事件绑定成功');
+    } else {
+        console.warn('[图片模态框] 警告：未找到btn-close-image按钮元素');
+    }
+
+    // --- [9. 视图自适应业务] ---
     window.addEventListener('resize', () => {
         if (!Graph) return;
 

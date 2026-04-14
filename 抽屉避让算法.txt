@@ -16,5 +16,7 @@ bug: 3d_main.html中抽屉打开，被点击节点应该处于除抽屉宽度后
 参考：
 ./back-js/3d_main.js
 
+
+bug: 3d_main.html中抽屉打开，被点击节点应该处于除抽屉宽度后的区域中心，而现在它处在了绝对屏幕的中心。
 请对比当前./static/js3d_main.js和./back-js/3d_main.js的区别
 

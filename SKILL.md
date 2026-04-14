@@ -1,13 +1,13 @@
-## 🚀 Agent 接入指南 (API 调用示例)
+## 🚀 元龙因果 AI Agent 接入指南 (API 调用示例)
 
-本系统采用 AINS (AI Native Software) 协议，允许 Agent 通过 HTTP POST 接口发起"首贞"或"对贞"推演。
+本系统采用 AINS (AI Native Software) 协议，允许 Agent 通过 HTTP POST 接口操作本系统。
 
 ### 接口定义
 - **URL**: `http://192.168.66.39:8094/api/v1/causal/genesis`
 - **Method**: `POST`
 - **Content-Type**: `application/json`
 
-### 1. 发起因果推演 (通用函数)
+### 1. 发起“首贞”（因果链的起点事件）
 **Python 示例**:
 ```python
 import requests
