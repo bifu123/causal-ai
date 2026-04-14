@@ -932,7 +932,7 @@ function handleNodeClick(node) {
     openDrawer(node.id);
     
     // --- 3. 动态偏移中心聚焦 ---
-    // 计算逻辑：为了让节点出现在“屏幕宽度 - 抽屉宽度”的中心
+    // 计算逻辑：为了让节点出现在"屏幕宽度 - 抽屉宽度"的中心
     const drawerWidth = 450; // 根据你的CSS抽屉宽度调整
     const screenWidth = window.innerWidth;
     // 计算偏移比例：如果抽屉占了一半，偏移就是 0.25
@@ -945,7 +945,7 @@ function handleNodeClick(node) {
     const camPos = { x: node.x * distRatio, y: node.y * distRatio, z: node.z * distRatio };
     
     // 强制聚焦，并使用第二个参数（lookAt坐标）进行偏移补偿
-    // 我们让相机看向节点略微“向右”一点的位置，使节点视觉左移
+    // 我们让相机看向节点略微"向右"一点的位置，使节点视觉左移
     const targetLookAt = { x: node.x + (node.x * offsetRatio), y: node.y, z: node.z };
     
     // 调试输出：相机偏移计算
@@ -982,6 +982,172 @@ function handleNodeClick(node) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(requestData)
     });
+}
+
+/**
+ * 寻龙：又贞/对贞功能
+ * 参考index.html中的deriveNode函数实现
+ */
+function deriveNode(tag) {
+    if (!currentSelectedNodeId) {
+        showSelectionHint('请先选择一个节点作为父节点');
+        return;
+    }
+    
+    // 使用现有的模态框，而不是动态创建新的
+    const modal = document.getElementById('derive-modal');
+    if (!modal) {
+        console.error('[寻龙] 错误：未找到derive-modal模态框');
+        showSelectionHint('系统错误：未找到模态框');
+        return;
+    }
+    
+    // 更新模态框标题
+    const titleElement = document.getElementById('derive-title');
+    if (titleElement) {
+        titleElement.textContent = `寻龙：${tag}（基于: ${currentSelectedNodeId}）`;
+    }
+    
+    // 清空表单字段
+    document.getElementById('derive-node-id').value = '';
+    document.getElementById('derive-action-tag').value = tag;
+    document.getElementById('derive-event-tuple').value = '';
+    document.getElementById('derive-image-file').value = '';
+    // 注意：HTML中没有derive-full-image-url字段，已移除
+    
+    // 重置因缘标签选项
+    const blockTagSelect = document.getElementById('derive-block-tag');
+    if (blockTagSelect) {
+        if (tag === '又贞') {
+            blockTagSelect.innerHTML = `
+                <option value="">请选择因缘标签</option>
+                <option value="因">因 (原因/起因)</option>
+                <option value="相">相 (现象/状态)</option>
+            `;
+            blockTagSelect.disabled = false;
+        } else if (tag === '对贞') {
+            blockTagSelect.innerHTML = `
+                <option value="果" selected>果 (结果/成果)</option>
+            `;
+            blockTagSelect.disabled = true;
+        }
+    }
+    
+    // 隐藏图片预览
+    const imagePreview = document.getElementById('derive-image-preview');
+    if (imagePreview) {
+        imagePreview.classList.add('hidden');
+    }
+    const previewImg = document.getElementById('derive-preview-img');
+    if (previewImg) {
+        previewImg.src = '';
+    }
+    
+    // 显示模态框
+    modal.classList.remove('modal-hidden');
+    
+    console.log(`[寻龙] 打开${tag}模态框，基于节点: ${currentSelectedNodeId}`);
+}
+
+/**
+ * 关闭寻龙模态框
+ */
+function closeDeriveModal() {
+    const modal = document.getElementById('derive-modal');
+    if (modal) {
+        modal.remove();
+    }
+}
+
+/**
+ * 提交寻龙节点创建
+ * 参考index.html中的submitDeriveNode函数实现
+ */
+async function submitDeriveNode(tag, parentId) {
+    const nodeId = document.getElementById('derive-node-id').value.trim();
+    const blockTag = document.getElementById('derive-block-tag').value;
+    const eventTuple = document.getElementById('derive-event-tuple').value.trim();
+    const imageFile = document.getElementById('derive-image-file').files[0];
+    
+    if (!nodeId) {
+        showSelectionHint('卜辞不能为空！');
+        return;
+    }
+    
+    if (!blockTag) {
+        showSelectionHint('因缘标签不能为空！');
+        return;
+    }
+    
+    if (!eventTuple) {
+        showSelectionHint('事件叙述不能为空！');
+        return;
+    }
+    
+    let fullImageUrl = '';
+    
+    // 如果有图片文件，先上传
+    if (imageFile) {
+        try {
+            const formData = new FormData();
+            formData.append('file', imageFile);
+            
+            console.log('[寻龙] 上传图片...');
+            const uploadResponse = await fetch('/api/v1/causal/upload', {
+                method: 'POST',
+                body: formData
+            });
+            
+            const uploadData = await uploadResponse.json();
+            if (uploadData.status === 'success') {
+                fullImageUrl = uploadData.data.url;
+                console.log('[寻龙] 图片上传成功:', fullImageUrl);
+            } else {
+                console.error('[寻龙] 图片上传失败:', uploadData.message);
+                showSelectionHint('图片上传失败：' + uploadData.message);
+                return;
+            }
+        } catch (error) {
+            console.error('[寻龙] 图片上传异常:', error);
+            showSelectionHint('图片上传失败：' + error.message);
+            return;
+        }
+    }
+    
+    // 提交创建请求
+    const requestData = { 
+        node_id: nodeId, 
+        block_tag: blockTag,
+        parent_id: [parentId],
+        event_tuple: eventTuple, 
+        action_tag: tag,
+        full_image_url: fullImageUrl,
+        actor_id: window.currentActorId,
+        owner_id: window.currentOwnerId || 'default'
+    };
+    
+    console.log('[寻龙] 提交创建请求:', requestData);
+    
+    try {
+        const response = await fetch('/api/v1/causal/genesis', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(requestData)
+        });
+        
+        const data = await response.json();
+        console.log('[寻龙] API响应:', data);
+        
+        if (data.status === 'success') {
+            showSelectionHint('事件创建成功！前端将通过Socket.IO实时更新。');
+            closeDeriveModal();
+        } else {
+            showSelectionHint('创建失败：' + data.message);
+        }
+    } catch (error) {
+        console.error('[寻龙] 创建请求异常:', error);
+        showSelectionHint('创建失败：' + error.message);
+    }
 }
 
 // window.addEventListener('load', () => {
@@ -1819,6 +1985,56 @@ window.addEventListener('load', () => {
     const submitCreateBtn = document.getElementById('btn-submit-create');
     if (submitCreateBtn) {
         submitCreateBtn.onclick = submitCreateNode;
+    }
+    
+    // 绑定又贞和对贞按钮事件
+    const deriveYouzhenBtn = document.getElementById('btn-derive-youzhen');
+    if (deriveYouzhenBtn) {
+        deriveYouzhenBtn.onclick = function() {
+            deriveNode('又贞');
+        };
+        console.log('[寻龙] 又贞按钮事件绑定成功');
+    } else {
+        console.warn('[寻龙] 警告：未找到btn-derive-youzhen按钮元素');
+    }
+    
+    const deriveDuizhenBtn = document.getElementById('btn-derive-duizhen');
+    if (deriveDuizhenBtn) {
+        deriveDuizhenBtn.onclick = function() {
+            deriveNode('对贞');
+        };
+        console.log('[寻龙] 对贞按钮事件绑定成功');
+    } else {
+        console.warn('[寻龙] 警告：未找到btn-derive-duizhen按钮元素');
+    }
+    
+    // 绑定寻龙模态框取消和提交按钮事件
+    const cancelDeriveBtn = document.getElementById('btn-cancel-derive');
+    if (cancelDeriveBtn) {
+        cancelDeriveBtn.onclick = function() {
+            const modal = document.getElementById('derive-modal');
+            if (modal) {
+                modal.classList.add('modal-hidden');
+            }
+        };
+        console.log('[寻龙] 取消按钮事件绑定成功');
+    } else {
+        console.warn('[寻龙] 警告：未找到btn-cancel-derive按钮元素');
+    }
+    
+    const submitDeriveBtn = document.getElementById('btn-submit-derive');
+    if (submitDeriveBtn) {
+        submitDeriveBtn.onclick = function() {
+            const actionTag = document.getElementById('derive-action-tag').value;
+            if (actionTag && currentSelectedNodeId) {
+                submitDeriveNode(actionTag, currentSelectedNodeId);
+            } else {
+                showSelectionHint('无法提交：缺少必要信息');
+            }
+        };
+        console.log('[寻龙] 提交按钮事件绑定成功');
+    } else {
+        console.warn('[寻龙] 警告：未找到btn-submit-derive按钮元素');
     }
     
     // 绑定搜索面板交互功能
