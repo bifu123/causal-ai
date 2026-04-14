@@ -316,10 +316,10 @@
             if (header) {
                 let infoHtml = '';
                 if (window.currentActorId) {
-                    infoHtml += ` <span style="font-size: 14px; color: #60a5fa;">观察者: ${window.currentActorId}</span>`;
+                    infoHtml += ` <span style="font-size: 14px;">观察者: <font color="#10b981">${window.currentActorId}</font></span>`;
                 }
                 if (window.currentOwnerId !== 'default') {
-                    infoHtml += ` <span style="font-size: 14px; color: #10b981;">拥有者: ${window.currentOwnerId}</span>`;
+                    infoHtml += ` <span style="font-size: 14px;">拥有者: <font color="#10b981">${window.currentOwnerId}</font></span>`;
                 }
                 header.innerHTML += infoHtml;
             }
