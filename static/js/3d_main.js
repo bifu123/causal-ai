@@ -2374,7 +2374,82 @@ window.addEventListener('load', () => {
     initSocketHandlers();
     loadInitialData();
 
-    // --- [8. 绑定图片模态框关闭按钮事件] ---
+    // --- [8. 父ID字段事件处理初始化] ---
+    function setupParentIdFieldEvents() {
+        const parentIdField = document.getElementById('d-parent-ids');
+        const eventTupleField = document.getElementById('d-event-tuple');
+        
+        if (parentIdField) {
+            parentIdField.addEventListener('click', function(e) {
+                // 点击父ID文本框时，自动清空它的值
+                const originalValue = this.value;
+                console.log('父ID文本框点击，原始值:', originalValue);
+                
+                // 清空文本框
+                this.value = '';
+                console.log('父ID文本框已清空');
+                
+                // 设置 is_change = false
+                is_change = false;
+                console.log('父ID文本框被点击并清空，设置 is_change = false');
+                
+                // 进入父ID选择模式
+                activeParentIdField = this;
+                parentIdSelectionMode = true;
+                document.getElementById('parent-id-hint').classList.remove('hidden');
+                
+                // 显示提示信息
+                showSelectionHint('请点击事件节点获取父ID');
+            });
+            
+            parentIdField.addEventListener('focus', function() {
+                // 焦点事件不自动清空，由点击事件处理
+                console.log('父ID文本框获得焦点');
+            });
+            
+            // 父ID文本框失去焦点时，不清除 is_change = false，保持直到保存提交
+            parentIdField.addEventListener('blur', function() {
+                // 延迟检查，避免立即清除
+                setTimeout(() => {
+                    // 不清除 is_change，保持 false 直到保存提交
+                    
+                    // 清除选择模式
+                    if (activeParentIdField === this) {
+                        activeParentIdField = null;
+                        parentIdSelectionMode = false;
+                        document.getElementById('parent-id-hint').classList.add('hidden');
+                    }
+                }, 100);
+            });
+        }
+        
+        // 事件叙述字段获得焦点时，不再自动设置 is_change = false
+        // 只有父ID文本框被清空时才设置 is_change = false
+        
+        // ESC键取消选择模式
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape' && parentIdSelectionMode) {
+                activeParentIdField = null;
+                parentIdSelectionMode = false;
+                document.getElementById('parent-id-hint').classList.add('hidden');
+                hideSelectionHint();
+            }
+        });
+        
+        // 点击其他输入框时清除选择模式
+        document.addEventListener('click', function(e) {
+            if (parentIdSelectionMode && e.target.tagName === 'INPUT' && e.target.id !== 'd-parent-ids') {
+                activeParentIdField = null;
+                parentIdSelectionMode = false;
+                document.getElementById('parent-id-hint').classList.add('hidden');
+            }
+        });
+    }
+    
+    // 初始化父ID字段事件处理
+    setupParentIdFieldEvents();
+
+    // --- [9. 绑定图片模态框关闭按钮事件] ---
     const closeImageBtn = document.getElementById('btn-close-image');
     if (closeImageBtn) {
         closeImageBtn.onclick = closeImageModal;
