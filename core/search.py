@@ -31,65 +31,55 @@ def get_event_with_params(keyword: str, owner_id: str = None, limit: int = None)
     
     # 保持底层 SQL 高效运行
     sql = f"""
-WITH RECURSIVE target_val AS (
+WITH target_val AS (
+    -- 搜索职责定义：支持 & 逻辑与
     SELECT '{keyword}'::text as raw_keyword
 ),
-tokenized_val AS (
-    SELECT string_agg(token, ' & ') as adaptive_keyword
-    FROM ts_debug('chinese', (SELECT raw_keyword FROM target_val))
-    WHERE alias != 'blank'
-),
 primary_search AS (
-    SELECT root.*, 1 as search_rank FROM ains_active_nodes root, target_val
-    WHERE to_tsvector('chinese', root.event_tuple) @@ plainto_tsquery('chinese', target_val.raw_keyword)
-    {'AND root.owner_id = \'' + owner_id + '\'' if owner_id else ''}
-),
-adaptive_search AS (
-    SELECT root.*, 2 as search_rank FROM ains_active_nodes root, tokenized_val
-    WHERE NOT EXISTS (SELECT 1 FROM primary_search)
-      AND to_tsvector('chinese', root.event_tuple) @@ to_tsquery('chinese', tokenized_val.adaptive_keyword)
-      {'AND root.owner_id = \'' + owner_id + '\'' if owner_id else ''}
+    -- 第一职责：全文检索（合并 node_id 和 event_tuple）
+    SELECT root.* FROM ains_active_nodes root, target_val
+    WHERE to_tsvector('chinese', root.node_id || ' ' || root.event_tuple) 
+       @@ to_tsquery('chinese', target_val.raw_keyword)
 ),
 fallback_search AS (
-    SELECT root.*, 3 as search_rank FROM ains_active_nodes root, target_val
-    WHERE NOT EXISTS (SELECT 1 FROM primary_search)
-      AND NOT EXISTS (SELECT 1 FROM adaptive_search)
-      AND root.event_tuple LIKE ALL (
-          SELECT '%' || trim(word) || '%' 
-          FROM unnest(string_to_array((SELECT raw_keyword FROM target_val), ' ')) AS word
-      )
-      {'AND root.owner_id = \'' + owner_id + '\'' if owner_id else ''}
+    -- 第二职责：LIKE 物理保底（处理逻辑与的顺序匹配，同时检索 ID 和原文）
+    SELECT root.* FROM ains_active_nodes root, target_val
+    WHERE (
+        root.event_tuple LIKE '%' || REPLACE(target_val.raw_keyword, ' & ', '%') || '%'
+        OR 
+        root.node_id LIKE '%' || REPLACE(target_val.raw_keyword, ' & ', '%') || '%'
+    )
+    AND NOT EXISTS (SELECT 1 FROM primary_search)
 ),
 final_nodes AS (
     SELECT * FROM primary_search
     UNION ALL
-    SELECT * FROM adaptive_search
-    UNION ALL
     SELECT * FROM fallback_search
 )
 SELECT 
-    root.serial_id,
+    root.serial_id,          -- 当前事件物理 ID
+    -- 物理溯源：父节点的 serial_id
     COALESCE(
-        (SELECT parent.serial_id 
+        (SELECT parent.serial_id::text 
          FROM ains_active_nodes parent 
          WHERE parent.node_id = root.parent_id), 
-        0
+        '根节点'
     ) AS preview_id, 
-    root.block_tag,
-    root.action_tag,
-    root.event_tuple,
+    root.block_tag,          -- 板块标签
+    root.action_tag,         -- 职责属性
+    root.event_tuple,        -- 动态笔记原文
+    -- 物理演化：所有子节点的 serial_id 列表
     COALESCE((
-        SELECT STRING_AGG(sub.serial_id::text, ',') 
+        SELECT STRING_AGG(sub.serial_id::text, ', ') 
         FROM ains_active_nodes AS sub
         WHERE sub.parent_id = root.node_id
-    ) , '') AS next_id_list,
-    root.survival_weight as db_score,
+    ) , '末端') AS next_id_list,
     root.node_id,
     root.parent_id,
+    root.survival_weight,
     root.full_image_url,
     root.owner_id
 FROM final_nodes AS root
-ORDER BY search_rank ASC, root.survival_weight DESC
 """
     
     if limit:
@@ -108,18 +98,33 @@ ORDER BY search_rank ASC, root.survival_weight DESC
                 raw_dict = dict(zip(columns, row))
                 
                 # 核心映射职责：将原始字段映射为 Agent 中文键名
+                # item = {
+                #     "本事件ID": raw_dict['serial_id'],
+                #     "前事件ID列表": raw_dict['preview_id'], # 物理回溯单点
+                #     "因缘标签": raw_dict['block_tag'],
+                #     "动作标签": raw_dict['action_tag'],
+                #     "事件二元组描述": raw_dict['event_tuple'],
+                #     "后续事件ID列表": [int(x) for x in raw_dict['next_id_list'].split(',')] if raw_dict['next_id_list'] else [],
+                #     "本事件权重": float(raw_dict['db_score']) if isinstance(raw_dict['db_score'], Decimal) else raw_dict['db_score'],
+                #     "本事件标题": raw_dict['node_id'],
+                #     "截图": raw_dict['full_image_url'],
+                #     "事件拥有者": raw_dict['owner_id']
+                # }
+                
                 item = {
                     "本事件ID": raw_dict['serial_id'],
-                    "前事件ID列表": raw_dict['preview_id'], # 物理回溯单点
+                    "前事件ID列表": raw_dict['preview_id'],
                     "因缘标签": raw_dict['block_tag'],
                     "动作标签": raw_dict['action_tag'],
                     "事件二元组描述": raw_dict['event_tuple'],
                     "后续事件ID列表": [int(x) for x in raw_dict['next_id_list'].split(',')] if raw_dict['next_id_list'] else [],
-                    "本事件权重": float(raw_dict['db_score']) if isinstance(raw_dict['db_score'], Decimal) else raw_dict['db_score'],
+                    "本事件权重": float(raw_dict['survival_weight']) if isinstance(raw_dict['survival_weight'], Decimal) else raw_dict['survival_weight'],
                     "本事件标题": raw_dict['node_id'],
                     "截图": raw_dict['full_image_url'],
                     "事件拥有者": raw_dict['owner_id']
                 }
+
+                
 
                 # 处理父节点（前事件标题列表）
                 if raw_dict.get('parent_id'):
@@ -195,7 +200,3 @@ if __name__ == "__main__":
         query = input("请输入事件关键字：")
         response = get_event_with_params(keyword=query, owner_id="worker", limit=100)
         print(json.dumps(response, ensure_ascii=False, indent=2))
-        
-
-
-
