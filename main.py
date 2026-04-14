@@ -122,7 +122,7 @@ class CausalNodeRequest(BaseModel):
 @app.get("/ui", response_class=HTMLResponse)
 async def get_ui(request: Request):
     """因果感知 UI 观测站"""
-    return templates.TemplateResponse(request=request, name="index.html")
+    return templates.TemplateResponse(request=request, name="2d_main.html")
 
 @app.get("/3d", response_class=HTMLResponse)
 async def get_3d_visualization(request: Request):
