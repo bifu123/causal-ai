@@ -1,0 +1,3 @@
+一、又贞和对贞操作没有把当前owner_id参数加入，导致写入数据库的owner_id都是default。
+二、index.html 2d界面中的tooltip应该仿照3d_main.html的中处理办法。
+三、3d_main.html中编辑父ID处理有BUG，应该参照index.html方式处理
