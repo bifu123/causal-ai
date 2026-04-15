@@ -27,6 +27,10 @@ let gravityFocusEnabled = false;
 let gravityFocusNode = null;
 let originalForces = { charge: -600, link: 180 };
 
+// 抽屉避让常量
+const DRAWER_WIDTH = 384; // 抽屉宽度 (w-96 = 24rem = 384px)
+const FOCUS_DIST = 200;   // 聚焦距离
+
 // --- [2. 核心辅助工具] ---
 
 function getThreeInstance() {
@@ -40,6 +44,57 @@ function showSelectionHint(msg) {
     hint.textContent = msg;
     hint.classList.remove('hidden');
     setTimeout(() => hint.classList.add('hidden'), 3000);
+}
+
+/**
+ * 关键修复：精确坐标偏移计算
+ * 计算带偏移的相机位置和观察点
+ * 目的是让节点显示在 (屏幕宽度 - 抽屉宽度) 的中心
+ */
+function calculateOffsetView(node, distance = FOCUS_DIST) {
+    const camPos = Graph.cameraPosition();
+    const { x, y, z } = node;
+
+    // 1. 计算从原点到节点的单位向量（方向）
+    const dist = Math.hypot(x, y, z) || 1;
+    const dir = { x: x / dist, y: y / dist, z: z / dist };
+
+    // 2. 目标相机位置（在节点方向上向外延伸固定距离）
+    const newCamPos = {
+        x: x + dir.x * distance,
+        y: y + dir.y * distance,
+        z: z + dir.z * distance
+    };
+
+    // 3. 计算水平偏移量
+    // 原理：在 3D 空间中，我们需要将 lookAt 点向右偏移，使节点在屏幕上向左移动
+    const screenWidth = window.innerWidth;
+    const drawerVisible = !document.getElementById('drawer').classList.contains('drawer-hidden');
+    
+    let lookAtPos = { x, y, z };
+
+    if (drawerVisible && screenWidth > DRAWER_WIDTH) {
+        // 计算抽屉占屏幕的比例
+        const offsetRatio = DRAWER_WIDTH / screenWidth;
+        
+        // 基于相机距离和FOV计算世界坐标系下的偏移宽度
+        // 这里的 0.65 是一个经验补偿系数，确保节点位于左侧区域的几何中心
+        const fovRad = (Graph.camera().fov * Math.PI) / 180;
+        const visibleWidthAtDist = 2 * Math.tan(fovRad / 2) * distance;
+        const worldOffset = visibleWidthAtDist * offsetRatio * 0.5;
+
+        // 获取相机右向量（Right Vector），使偏移垂直于视线
+        const camera = Graph.camera();
+        const rightVec = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+
+        lookAtPos = {
+            x: x + rightVec.x * worldOffset,
+            y: y + rightVec.y * worldOffset,
+            z: z + rightVec.z * worldOffset
+        };
+    }
+
+    return { camPos: newCamPos, lookAt: lookAtPos };
 }
 
 /**
@@ -1885,35 +1940,20 @@ window.addEventListener('load', () => {
             selectedNodeObj = node; 
             openDrawer(node.id); // 唤起右侧抽屉
             
-            // 【数学模型】：计算视口偏移
-            // 目标：让节点显示在 (屏幕总宽 - 抽屉宽度) 的几何中心
-            const screenWidth = window.innerWidth;
-            const offsetRatio = (DRAWER_WIDTH / screenWidth) * 0.7; // 偏移系数
-
-            const distRatio = 1 + FOCUS_DIST / Math.hypot(node.x, node.y, node.z);
-            const camPos = { x: node.x * distRatio, y: node.y * distRatio, z: node.z * distRatio };
-
-            // 计算注视点：为了让节点在左侧居中，注视点需向右偏移
-            const targetLookAt = {
-                x: node.x + (Math.abs(node.x) + 200) * offsetRatio, 
-                y: node.y,
-                z: node.z
-            };
+            // 使用精确坐标偏移计算
+            const { camPos, lookAt } = calculateOffsetView(node, FOCUS_DIST);
             
             // 调试输出：相机偏移计算
             console.log(`[onNodeClick调试] 相机偏移计算:`, {
                 DRAWER_WIDTH,
-                screenWidth,
-                offsetRatio,
+                screenWidth: window.innerWidth,
                 FOCUS_DIST,
-                distRatio,
                 nodePosition: { x: node.x, y: node.y, z: node.z },
                 cameraPosition: camPos,
-                targetLookAt,
-                offsetCalculation: `node.x + (Math.abs(node.x) + 200) * offsetRatio = ${node.x} + (${Math.abs(node.x)} + 200) * ${offsetRatio} = ${targetLookAt.x}`
+                targetLookAt: lookAt
             });
             
-            Graph.cameraPosition(camPos, targetLookAt, 1200);
+            Graph.cameraPosition(camPos, lookAt, 1200);
 
             // 后端交互
             const requestData = { node_id: node.id };

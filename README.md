@@ -125,19 +125,40 @@ http://serverip:8094/ui?owner_id=worker&actor_id=user2
 
 ## 核心功能API
 
-### 代谢引擎API
-- `GET /api/metabolism/status`: 获取代谢引擎状态
-- `POST /api/metabolism/set_boss/:node_id`: 手动设置节点为大股东
+### 事件管理API
+- `POST /api/v1/causal/genesis`: 创建事件节点（首贞/又贞/对贞）
+- `POST /api/v1/causal/update`: 更新事件节点信息
+- `POST /api/v1/causal/delete`: 删除事件节点
+- `GET /api/v1/causal/history`: 获取所有活跃事件数据
 
-### 节点管理API
-- `GET /api/nodes`: 获取所有节点
-- `POST /api/nodes`: 创建新节点
-- `PUT /api/nodes/:node_id`: 更新节点
-- `DELETE /api/nodes/:node_id`: 删除节点
+### 搜索API
+- `POST /api/v1/causal/search/keyword`: 根据关键字搜索事件节点
+- `POST /api/v1/causal/search/serial`: 根据序列ID搜索事件节点（支持actor_id参数）
 
 ### 权重管理API
-- `GET /api/weights/:actor_id`: 获取用户权重
-- `POST /api/weights/:actor_id/:node_id`: 设置用户权重
+- `POST /api/v1/causal/promote_chain`: 提升节点权重到60%（大股东模式）
+- `POST /api/v1/causal/click`: 处理节点点击事件（包含地宫恢复和权重提升）
+- `POST /api/v1/causal/restore`: 从地宫恢复节点内容
+
+### 文件上传API
+- `POST /api/v1/causal/upload`: 上传图片文件
+
+### 参数说明
+- `actor_id`: 用户ID，用于用户个性化权重管理。当提供此参数时，系统会从`ains_user_weights`表获取用户特定的权重数据。
+- `owner_id`: 事件拥有者ID，用于过滤显示特定用户的事件节点。
+- `serial_id`: 事件物理ID，在数据库中是唯一标识，用于精确查找特定事件。
+
+### 用户个性化权重
+系统支持多用户环境下的个性化权重管理：
+1. 每个用户对因果节点有独立的权重视图
+2. 点击节点时只更新该用户在`ains_user_weights`表中的权重记录
+3. 不同用户对同一节点可以有不同的权重值
+4. 前端显示时，优先使用用户权重，如果用户权重不存在则使用全局权重
+
+### 搜索功能增强
+- `get_event_by_sid`函数已更新，支持`actor_id`参数，返回用户个性化权重数据
+- 序列ID搜索接口现在支持`actor_id`参数，可以返回用户特定的权重
+- 点击事件接口现在传递`actor_id`参数，确保权重提升操作更新用户权重表
 
 
 ## 开发说明

@@ -6,7 +6,7 @@ from datetime import datetime
 from fastapi import FastAPI, Request, UploadFile, File
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from fastapi_socketio import SocketManager
 from pydantic import BaseModel
 from typing import Optional, List, Union
@@ -614,9 +614,11 @@ async def search_by_serial(search_data: dict):
     职责：根据序列ID搜索事件节点
     支持参数：
         serial_id: 事件的物理序列ID
+        actor_id: 用户ID（可选），如果提供则返回用户个性化权重
     """
     try:
         serial_id = search_data.get('serial_id')
+        actor_id = search_data.get('actor_id')
         
         if serial_id is None:
             return {"status": "error", "message": "缺少序列ID"}
@@ -624,8 +626,8 @@ async def search_by_serial(search_data: dict):
         # 导入搜索模块
         from core.search import get_event_by_sid
         
-        # 执行搜索
-        result = get_event_by_sid(serial_id)
+        # 执行搜索（传递actor_id以获取用户个性化权重）
+        result = get_event_by_sid(serial_id, actor_id=actor_id)
         
         if not result:
             return {"status": "error", "message": f"找不到serial_id为{serial_id}的节点"}
@@ -642,12 +644,14 @@ async def search_by_serial(search_data: dict):
             "owner_id": result.get("事件拥有者"),
             "parent_ids": result.get("前事件标题列表", []),
             "preview_id": result.get("前事件ID列表"),
-            "next_ids": result.get("后续事件ID列表", [])
+            "next_ids": result.get("后续事件ID列表", []),
+            "actor_id": actor_id if actor_id else None  # 添加actor_id字段
         }
         
         return {
             "status": "success",
-            "data": converted_result
+            "data": converted_result,
+            "actor_id": actor_id
         }
     except Exception as e:
         print(f"[API 错误] 序列ID搜索失败: {e}")
@@ -678,9 +682,9 @@ async def handle_node_click(click_data: dict):
         
         print(f"[点击事件] 开始处理 serial_id: {serial_id}, actor_id: {actor_id}, owner_id: {owner_id}")
         
-        # 1. 通过serial_id获取节点信息
+        # 1. 通过serial_id获取节点信息（传递actor_id以获取用户个性化权重）
         from core.search import get_event_by_sid
-        search_result = get_event_by_sid(serial_id)
+        search_result = get_event_by_sid(serial_id, actor_id=actor_id)
         if not search_result:
             return {"status": "error", "message": f"找不到serial_id为{serial_id}的节点"}
         
@@ -901,6 +905,54 @@ async def handle_connect(sid, env):
         # 将 Decimal 转为 float 传给前端
         node['survival_weight'] = float(node['survival_weight'])
         await sm.emit('node_created', node, to=sid)
+
+
+# 定义读取源文件的通用函数
+def read_file(file):
+    try:
+        with open(file, "r", encoding="utf-8") as f:
+            content = f.read()
+        return Response(content=content, media_type="text/plain; charset=utf-8")
+    except Exception as e:
+        return {"status": "error", "message": f"读取 {file} 失败: {str(e)}"}
+
+# --- 文档和工具接口 ---
+@app.get("/README.md", response_class=HTMLResponse)
+async def get_readme_html(request: Request):
+    """
+    返回美化的 README.md HTML页面（针对人类用户）
+    """
+    try:
+        return templates.TemplateResponse(request=request, name="readme.html")
+    except Exception as e:
+        return HTMLResponse(content=f"<h1>错误</h1><p>加载README页面失败: {str(e)}</p>")
+
+@app.get("/api/readme/raw")
+async def get_readme_raw():
+    """
+    返回原始的 README.md 文件内容（供JavaScript获取）
+    """
+    return read_file("README.md")
+
+@app.get("/SKILL.md")
+async def get_skill():
+    """
+    返回 SKILL.md 文件内容（保持原始格式，供Agent使用）
+    """
+    return read_file("SKILL.md")
+
+@app.get("/tools")
+async def get_tools():
+    """
+    返回 tools.py 文件内容（保持原始格式，供Agent使用）
+    """
+    return read_file("tools.py")
+
+@app.get("/", response_class=HTMLResponse)
+async def get_index(request: Request):
+    """首页系统简介"""
+    return templates.TemplateResponse(request=request, name="index.html")
+
 
 # --- 启动代谢引擎 ---
 @app.on_event("startup")

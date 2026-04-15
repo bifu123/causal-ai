@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>因果链数据库</title>
+    <style>
+        body {
+            background-color: black;
+            color: #eeebeb;
+            margin: 0;
+            padding: 0;
+            min-height: 100vh;
+            /* 若需垂直居中，可取消下方三行注释 */
+            /* display: flex; */
+            /* align-items: center; */
+            /* justify-content: center; */
+        }
+
+        .container {
+            max-width: 800px;  /* 限制最大宽度 */
+            margin: 0 auto;    /* 核心：通过左右 margin 自动平分实现水平居中 */
+            padding: 60px 20px;
+            text-align: center; /* 使内部文字和 inline 元素居中 */
+        }
+
+        .zongshu {
+            margin-bottom: 40px;
+            line-height: 1.8;
+            font-size: 1.1rem;
+            text-align: justify; /* 段落两端对齐，增加阅读美感 */
+            text-justify: inter-character;
+        }
+
+        .link {
+            display: flex;
+            justify-content: center; /* 确保列表整体在 container 内居中 */
+        }
+
+        .link ul {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            text-align: left; /* 列表内部文字保持左对齐 */
+        }
+
+        .link li {
+            margin: 15px 0;
+            font-size: 1.05rem;
+        }
+
+        .link a {
+            color: #4f46e5;
+            text-decoration: none;
+            transition: all 0.2s ease;
+            border-bottom: 1px solid transparent;
+        }
+
+        .link a:hover {
+            color: #818cf8;
+            border-bottom: 1px solid #818cf8;
+            padding-bottom: 2px;
+        }
+
+        /* 针对 Agent 业务职责入口的特殊样式 */
+        .link a[href*="SKILL"], .link a[href*="tools"] {
+            color: #a78bfa;
+        }
+
+        .link a[href*="SKILL"]:hover, .link a[href*="tools"]:hover {
+            color: #c4b5fd;
+            border-bottom-color: #c4b5fd;
+        }
+        .footer {
+            position: fixed;
+            bottom: 20px;
+            left: 0;
+            right: 0;
+            text-align: center;
+            z-index: 100;
+        }
+
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="zongshu">
+            因果链数据库是一种接近于人类记忆和认知的数据记录方式。与传统文件夹嵌套树状结构、结构化JSON、二维数据表的方式都不同，是有时间一维矢量的事件链组成的网。是现在和未来Agent和人类提供了全新的数字生活的基础。
+        </div>
+        <div class="link">
+            <ul>
+                <li><a href="/README.md">查看README.md说明（人类用户）</a></li>
+                <li><a href="/3d?owner_id=cbf&actor_id=user2">3d界面（人类用户）</a></li>
+                <li><a href="/ui?owner_id=cbf&actor_id=user2">2d界面（人类用户）</a></li>
+                <li><a href="/SKILL.md">技能（Agent 用户）</a></li>
+                <li><a href="/tools">工具（Agent 用户）</a></li>
+            </ul>
+        </div>
+        <div class="footer">
+            powerd by 元龙居士 QQ:415135222
+        </div>
+    </div>
+</body>
+</html>

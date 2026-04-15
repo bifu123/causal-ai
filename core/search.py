@@ -103,21 +103,7 @@ FROM final_nodes AS root
             agent_results = []
             for row in raw_results:
                 raw_dict = dict(zip(columns, row))
-                
-                # 核心映射职责：将原始字段映射为 Agent 中文键名
-                # item = {
-                #     "本事件ID": raw_dict['serial_id'],
-                #     "前事件ID列表": raw_dict['preview_id'], # 物理回溯单点
-                #     "因缘标签": raw_dict['block_tag'],
-                #     "动作标签": raw_dict['action_tag'],
-                #     "事件二元组描述": raw_dict['event_tuple'],
-                #     "后续事件ID列表": [int(x) for x in raw_dict['next_id_list'].split(',')] if raw_dict['next_id_list'] else [],
-                #     "本事件权重": float(raw_dict['db_score']) if isinstance(raw_dict['db_score'], Decimal) else raw_dict['db_score'],
-                #     "本事件标题": raw_dict['node_id'],
-                #     "截图": raw_dict['full_image_url'],
-                #     "事件拥有者": raw_dict['owner_id']
-                # }
-                
+                     
                 item = {
                     "本事件ID": raw_dict['serial_id'],
                     "前事件ID列表": raw_dict['preview_id'] if raw_dict['preview_id'] != '根节点' else '',
@@ -160,9 +146,10 @@ FROM final_nodes AS root
         print(f"[搜索错误] 执行搜索失败: {e}")
         return []
 
-def get_event_by_sid(serial_id: int) -> Dict[str, Any]:
+def get_event_by_sid(serial_id: int, actor_id: str = None) -> Dict[str, Any]:
     """
     根据 serial_id 获取 Agent 友好型节点数据
+    如果提供 actor_id，返回用户个性化权重；否则返回全局权重
     """
     sql = f'''
 SELECT 
@@ -184,6 +171,19 @@ WHERE root.serial_id = {serial_id};
             row = cur.fetchone()
             if row:
                 d = dict(zip(columns, row))
+                
+                # 获取权重：如果提供actor_id，优先使用用户权重
+                weight = float(d['survival_weight']) if isinstance(d['survival_weight'], Decimal) else d['survival_weight']
+                
+                if actor_id:
+                    # 查询用户权重表
+                    user_weight = db.get_user_weight(actor_id, serial_id)
+                    if user_weight is not None:
+                        weight = user_weight
+                        print(f"[搜索调试] 使用用户 {actor_id} 的个性化权重: {weight} (serial_id: {serial_id})")
+                    else:
+                        print(f"[搜索调试] 用户 {actor_id} 没有个性化权重，使用全局权重: {weight} (serial_id: {serial_id})")
+                
                 return {
                     "本事件ID": d['serial_id'],
                     "前事件ID列表": d['preview_id'],
@@ -191,11 +191,12 @@ WHERE root.serial_id = {serial_id};
                     "动作标签": d['action_tag'],
                     "事件二元组描述": d['event_tuple'],
                     "后续事件ID列表": [int(x) for x in d['next_id_list'].split(',')] if d['next_id_list'] else [],
-                    "本事件权重": float(d['survival_weight']) if isinstance(d['survival_weight'], Decimal) else d['survival_weight'],
+                    "本事件权重": weight,
                     "本事件标题": d['node_id'],
                     "截图": d['full_image_url'],
                     "事件拥有者": d['owner_id'],
-                    "前事件标题列表": db._string_to_parents(d['parent_id']) if d['parent_id'] else []
+                    "前事件标题列表": db._string_to_parents(d['parent_id']) if d['parent_id'] else [],
+                    "观察者用户": actor_id if actor_id else None  # 添加观察者用户信息
                 }
             return {}
     except Exception as e:
