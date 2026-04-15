@@ -58,13 +58,13 @@ def search_causal_by_keyword(keyword, owner_id='cbf', limit=100):
     return result
 
 ## 点击事件
-def search_causal_by_serial(serial_id, actor_id=None, owner_id="cbf"):
+def search_causal_by_serial(serial_id, actor_id="user2", owner_id="cbf"):
     """
     处理节点点击事件（执行完整的点击操作）
     
     参数:
     - serial_id (int): 事件节点的物理ID
-    - actor_id (str, optional): 用户ID，用于个性化权重更新
+    - actor_id (str, optional): 用户ID，用于个性化权重更新,默认为"user2"
     - owner_id (str, optional): 事件拥有者ID，默认为"cbf"
     
     返回:
