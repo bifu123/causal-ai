@@ -4,10 +4,10 @@
 #                        #
 #*************************
 
-## 从关键字瞄定事件列表
+## 从关键字搜索事件列表
 def search_causal_by_keyword(keyword, owner_id='cbf', limit=100):
     """
-    根据关键字搜索事件节点
+    根据关键字搜索事件列表
     
     参数:
     - keyword (str): 搜索关键词，支持逻辑与（&）操作符
@@ -57,48 +57,55 @@ def search_causal_by_keyword(keyword, owner_id='cbf', limit=100):
     
     return result
 
-## 从ID瞄定事件
-def search_causal_by_serial(serial_id, actor_id=None):
+## 点击事件
+def search_causal_by_serial(serial_id, actor_id=None, owner_id="cbf"):
     """
-    根据事件ID搜索事件节点
+    处理节点点击事件（执行完整的点击操作）
     
     参数:
-    - serial_id (int): 事件的物理序列ID
-    - actor_id (str, optional): 用户ID，如果提供则返回用户个性化权重
+    - serial_id (int): 事件节点的物理ID
+    - actor_id (str, optional): 用户ID，用于个性化权重更新
+    - owner_id (str, optional): 事件拥有者ID，默认为"cbf"
     
     返回:
-    - dict: API响应结果，包含事件详细信息
+    - dict: API响应结果，包含更新后的事件数据
     
     注意:
-    - serial_id是事件的物理ID，在数据库中是唯一标识
-    - 此接口用于精确查找特定事件，常用于点击事件处理
-    - 如果提供actor_id参数，返回用户个性化权重；否则返回全局权重
+    - 此函数执行完整的点击事件处理流程：
+      1. 获取节点基本信息
+      2. 从地宫恢复内容（如果存在）
+      3. 提升节点权重到60%（大股东模式）
+      4. 重新计算其他节点权重
+      5. 通过Socket.IO实时更新到前端
+    - 如果提供actor_id参数，权重更新只影响用户权重表（ains_user_weights），
+      不影响全局权重表（ains_active_nodes）
+    - 此函数会触发实时更新，所有连接到观测站的客户端都会收到更新通知
     
     示例:
-    # 查找serial_id为123的事件（全局权重）
+    # 处理serial_id为123的节点点击（全局权重更新）
     result = search_causal_by_serial(123)
     if result.get('status') == 'success':
         event = result.get('data')
-        print(f"事件标题: {event['node_id']}")
-        print(f"事件权重: {event['survival_weight']}")
-        print(f"事件描述: {event['event_tuple'][:100]}...")
+        print(f"节点 {event['node_id']} 权重已提升到60%")
+        print(f"共更新了 {result.get('updated_count', 0)} 个节点")
     
-    # 查找serial_id为123的事件（用户个性化权重）
-    result = search_causal_by_serial(123, actor_id="user2")
+    # 处理serial_id为123的节点点击（用户个性化权重更新）
+    result = search_causal_by_serial(123, actor_id="user2", owner_id="cbf")
     if result.get('status') == 'success':
         event = result.get('data')
-        print(f"事件标题: {event['node_id']}")
-        print(f"用户个性化权重: {event['survival_weight']}")
+        print(f"用户 user2 的节点 {event['node_id']} 权重已提升到60%")
         print(f"观察者用户: {event.get('actor_id')}")
+        print(f"事件拥有者: {event.get('owner_id')}")
     else:
-        print(f"查找失败: {result.get('message')}")
+        print(f"点击处理失败: {result.get('message')}")
     """
     import requests
 
-    url = "http://192.168.66.39:8094/api/v1/causal/search/serial"
+    url = "http://192.168.66.39:8094/api/v1/causal/click"
     
     payload = {
-        "serial_id": serial_id
+        "serial_id": serial_id,
+        "owner_id": owner_id
     }
     
     if actor_id is not None:
@@ -109,13 +116,13 @@ def search_causal_by_serial(serial_id, actor_id=None):
     
     if result.get('status') == 'success':
         event = result.get('data', {})
-        print(f"找到事件: {event.get('node_id', '未知')}")
+        print(f"点击处理成功: {event.get('node_id', '未知节点')}")
+        print(f"权重提升到: {event.get('survival_weight', 0):.2%}")
+        print(f"更新节点数: {result.get('updated_count', 0)}")
         if actor_id:
-            print(f"用户个性化权重: {event.get('survival_weight')}")
-        else:
-            print(f"全局权重: {event.get('survival_weight')}")
+            print(f"用户个性化权重已更新")
     else:
-        print(f"查找失败: {result.get('message')}")
+        print(f"点击处理失败: {result.get('message')}")
     
     return result
 

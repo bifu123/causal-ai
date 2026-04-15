@@ -178,3 +178,88 @@ def get_event_by_sid(serial_id: int, actor_id: str = None) -> Dict[str, Any]:
 3. 检查 `ains_user_weights` 表是否正确记录用户权重
 
 **完成状态**：✅ 已实现 `get_event_by_sid` 函数对 `actor_id` 参数的支持，实现了与前端手动点击节点一致的观察者用户个性化节点权重功能。
+
+---
+
+## `handle_node_click` 与 `get_event_by_sid` 函数对比分析
+
+### 1. 功能定位对比
+
+| 函数 | 定位 | 主要职责 |
+|------|------|----------|
+| `get_event_by_sid` | **查询函数** | 根据 serial_id 查询节点信息，返回数据（只读操作） |
+| `handle_node_click` | **操作函数** | 处理节点点击事件，执行权重提升等操作（写入操作） |
+
+### 2. 权重处理对比
+
+| 函数 | 权重读取 | 权重更新 | 用户权重表影响 |
+|------|----------|----------|----------------|
+| `get_event_by_sid` | ✅ 读取全局权重或用户权重 | ❌ 不更新任何权重 | ❌ 不影响 `ains_user_weights` 表 |
+| `handle_node_click` | ✅ 读取权重（通过 `get_event_by_sid`） | ✅ 提升权重到60%（大股东模式） | ✅ 更新 `ains_user_weights` 表 |
+
+### 3. Socket.IO 数据发送对比
+
+| 函数 | Socket.IO 发送 | 发送的事件类型 | 实时更新前端 |
+|------|----------------|----------------|--------------|
+| `get_event_by_sid` | ❌ 不发送 | 无 | ❌ 不更新前端显示 |
+| `handle_node_click` | ✅ 发送 | `node_updated` | ✅ 实时更新所有客户端 |
+
+### 4. 地宫恢复功能对比
+
+| 函数 | 地宫恢复 | 恢复逻辑 |
+|------|----------|----------|
+| `get_event_by_sid` | ❌ 不执行 | 无 |
+| `handle_node_click` | ✅ 执行 | 从 `ains_archive_necropolis` 恢复 `event_tuple` 和 `full_image_url` |
+
+### 5. 参数传递对比
+
+| 函数 | 必需参数 | 可选参数 | 参数用途 |
+|------|----------|----------|----------|
+| `get_event_by_sid` | `serial_id` | `actor_id` | 查询时使用用户个性化权重 |
+| `handle_node_click` | `serial_id` | `actor_id`, `owner_id` | 完整的事件处理流程 |
+
+### 6. 调用关系
+
+`handle_node_click` **内部调用** `get_event_by_sid`：
+1. 首先调用 `get_event_by_sid(serial_id, actor_id)` 获取节点基本信息
+2. 然后执行地宫恢复、权重提升、Socket.IO 广播等操作
+
+### 7. 关键区别总结
+
+1. **操作类型**：
+   - `get_event_by_sid`：纯查询，不修改任何数据
+   - `handle_node_click`：完整操作，包含查询、恢复、更新、广播
+
+2. **数据影响**：
+   - `get_event_by_sid`：不影响数据库状态
+   - `handle_node_click`：更新 `ains_user_weights` 表，可能更新 `ains_active_nodes` 表
+
+3. **实时性**：
+   - `get_event_by_sid`：返回静态数据
+   - `handle_node_click`：触发实时更新，所有客户端同步
+
+4. **业务逻辑完整性**：
+   - `get_event_by_sid`：只完成"查询"职责
+   - `handle_node_click`：完成"点击-恢复-提升-广播"完整业务链
+
+### 8. 设计意图分析
+
+这种设计分离了**查询**和**操作**职责：
+- `get_event_by_sid`：专注于高效、准确地查询节点数据
+- `handle_node_click`：专注于处理用户交互，维护系统状态一致性
+
+### 9. 潜在问题与建议
+
+**当前问题**：
+- 前端搜索后点击节点，可能期望获得与手动点击相同的效果（权重提升、实时更新）
+- 但当前 `get_event_by_sid` 只返回数据，不执行操作
+
+**建议解决方案**：
+1. **方案A**：修改前端，搜索点击时调用 `/api/v1/causal/click` 而非 `/api/v1/causal/search/serial`
+2. **方案B**：扩展 `get_event_by_sid` 功能，增加可选参数控制是否执行点击操作
+3. **方案C**：保持现状，明确区分"查看"和"操作"两种用户意图
+
+**推荐方案**：**方案A**，因为：
+- 保持函数职责单一性
+- 前端意图明确：查看用搜索，操作用点击
+- 避免查询函数承担过多职责

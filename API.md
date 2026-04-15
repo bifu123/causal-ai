@@ -493,10 +493,136 @@ curl -X POST "http://192.168.66.39:8094/api/v1/causal/search/serial" \
 curl -X POST "http://192.168.66.39:8094/api/v1/causal/search/serial" \
      -H "Content-Type: application/json" \
      -d '{
-           "serial_id": 1,
+           "serial_id": 313,
            "actor_id": "user2"
          }'
 ```
+
+### 9. 点击事件
+**Python 示例**:
+```python
+import requests
+
+def handle_node_click(serial_id, actor_id=None, owner_id="default"):
+    """
+    处理节点点击事件
+    
+    参数:
+    - serial_id (int): 事件节点的物理ID
+    - actor_id (str, optional): 用户ID，用于个性化权重更新
+    - owner_id (str, optional): 事件拥有者ID，默认为"default"
+    
+    返回:
+    - dict: API响应结果，包含更新后的事件数据
+    
+    注意:
+    - 此接口执行完整的点击事件处理流程：
+      1. 获取节点基本信息（调用 get_event_by_sid）
+      2. 从地宫恢复内容（如果存在）
+      3. 提升节点权重到60%（大股东模式）
+      4. 重新计算其他节点权重
+      5. 通过Socket.IO实时更新到前端
+    - 如果提供actor_id参数，权重更新只影响用户权重表（ains_user_weights），
+      不影响全局权重表（ains_active_nodes）
+    - 此接口会触发实时更新，所有连接到观测站的客户端都会收到更新通知
+    
+    示例:
+    # 处理serial_id为123的节点点击（全局权重更新）
+    result = handle_node_click(123)
+    if result.get('status') == 'success':
+        event = result.get('data')
+        print(f"节点 {event['node_id']} 权重已提升到60%")
+        print(f"共更新了 {result.get('updated_count', 0)} 个节点")
+    
+    # 处理serial_id为123的节点点击（用户个性化权重更新）
+    result = handle_node_click(123, actor_id="user2", owner_id="cbf")
+    if result.get('status') == 'success':
+        event = result.get('data')
+        print(f"用户 user2 的节点 {event['node_id']} 权重已提升到60%")
+        print(f"观察者用户: {event.get('actor_id')}")
+        print(f"事件拥有者: {event.get('owner_id')}")
+    else:
+        print(f"点击处理失败: {result.get('message')}")
+    """
+    url = "http://192.168.66.39:8094/api/v1/causal/click"
+    
+    payload = {
+        "serial_id": serial_id,
+        "owner_id": owner_id
+    }
+    
+    if actor_id is not None:
+        payload["actor_id"] = actor_id
+    
+    response = requests.post(url, json=payload)
+    result = response.json()
+    
+    if result.get('status') == 'success':
+        event = result.get('data', {})
+        print(f"点击处理成功: {event.get('node_id', '未知节点')}")
+        print(f"权重提升到: {event.get('survival_weight', 0):.2%}")
+        print(f"更新节点数: {result.get('updated_count', 0)}")
+        if actor_id:
+            print(f"用户个性化权重已更新")
+    else:
+        print(f"点击处理失败: {result.get('message')}")
+    
+    return result
+
+# 示例：处理节点点击
+if __name__ == "__main__":
+    # 处理serial_id为1的节点点击（全局权重更新）
+    result = handle_node_click(1)
+    
+    # 处理serial_id为1的节点点击（用户个性化权重更新）
+    result = handle_node_click(1, actor_id="user2", owner_id="cbf")
+```
+
+**Curl 示例**:
+```bash
+# 处理serial_id为123的节点点击（全局权重更新）
+curl -X POST "http://192.168.66.39:8094/api/v1/causal/click" \
+     -H "Content-Type: application/json" \
+     -d '{
+           "serial_id": 313,
+           "owner_id": "cbf"
+         }'
+
+# 处理serial_id为123的节点点击（用户个性化权重更新）
+curl -X POST "http://192.168.66.39:8094/api/v1/causal/click" \
+     -H "Content-Type: application/json" \
+     -d '{
+           "serial_id": 313,
+           "actor_id": "user2",
+           "owner_id": "cbf"
+         }'
+```
+
+**功能说明**:
+1. **权重提升机制**：被点击的节点权重提升到所有节点总权重的60%（大股东模式），
+   其他节点按现有权重比例分配剩余的40%。
+
+2. **用户个性化权重**：如果提供`actor_id`参数，权重更新只影响`ains_user_weights`表，
+   实现多用户环境下的个性化权重管理。
+
+3. **地宫恢复**：如果节点在地宫表（`ains_archive_necropolis`）中有历史记录，
+   会自动恢复最新的`event_tuple`和`full_image_url`。
+
+4. **实时同步**：通过Socket.IO广播`node_updated`事件，所有连接到观测站的客户端
+   都会实时收到更新，确保多用户环境下的数据一致性。
+
+5. **权重隔离**：不同用户的权重数据完全隔离，每个用户有独立的权重视图，
+   点击操作只影响当前用户的权重，不影响其他用户。
+
+**与搜索接口的区别**：
+- `/api/v1/causal/search/serial`：只查询节点信息，不修改任何数据
+- `/api/v1/causal/click`：查询+恢复+更新+广播完整操作链
+
+**推荐使用场景**：
+- 前端用户手动点击节点时调用此接口
+- 需要实时更新权重并同步到所有客户端的场景
+- 需要恢复节点历史内容的场景
+- 多用户环境下需要个性化权重管理的场景
 
 ### 参数说明
 | 字段 | 类型 | 必填 | 说明 |
