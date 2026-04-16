@@ -774,6 +774,42 @@ async def handle_node_click(click_data: dict):
         print(f"[API 错误] 点击事件处理失败: {e}")
         return {"status": "error", "message": str(e)}
 
+# --- 因果链骨架接口 ---
+@app.post("/api/v1/causal/skeleton")
+async def get_causal_skeleton(skeleton_data: dict):
+    """
+    职责：获取事件的因果链全息图骨架
+    支持参数：
+        serial_id: 事件的物理序列ID（必需）
+        actor_id: 用户ID（可选），如果提供则返回用户个性化权重
+    """
+    try:
+        serial_id = skeleton_data.get('serial_id')
+        actor_id = skeleton_data.get('actor_id')
+        
+        if serial_id is None:
+            return {"status": "error", "message": "缺少序列ID"}
+        
+        # 导入搜索模块
+        from core.search import get_event_skeleton
+        
+        # 执行因果链骨架查询
+        skeleton = get_event_skeleton(serial_id, actor_id=actor_id)
+        
+        if not skeleton:
+            return {"status": "error", "message": f"找不到serial_id为{serial_id}的节点或因果链为空"}
+        
+        return {
+            "status": "success",
+            "data": skeleton,
+            "serial_id": serial_id,
+            "actor_id": actor_id,
+            "count": len(skeleton)
+        }
+    except Exception as e:
+        print(f"[API 错误] 因果链骨架查询失败: {e}")
+        return {"status": "error", "message": str(e)}
+
 # --- 核心接口：Genesis (首贞/又贞/对贞) ---
 @app.post("/api/v1/causal/genesis")
 async def create_genesis_node(node: CausalNodeRequest):

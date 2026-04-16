@@ -302,3 +302,33 @@ def delete_causal_node(node_id, owner_id="cbf"):
     result = response.json()
     print(f"删除状态: {result}")
     return result
+
+## 因果链骨架查询
+def get_causal_skeleton(serial_id, actor_id=None, owner_id="cbf"):
+    """
+    获取事件的因果链全息图骨架
+    
+    参数:
+    - serial_id (int): 事件的物理序列ID（必需）
+    - actor_id (str, optional): 用户ID，如果提供则返回用户个性化权重
+    - owner_id (str, optional): 事件拥有者ID，默认为"cbf"
+    
+    返回:
+    - dict: API响应结果
+    
+    示例:
+    result = get_causal_skeleton(312)
+    """
+    import requests
+    url = "http://192.168.66.39:8094/api/v1/causal/skeleton"
+    
+    payload = {
+        "serial_id": serial_id,
+        "owner_id": owner_id
+    }
+    
+    if actor_id is not None:
+        payload["actor_id"] = actor_id
+    
+    response = requests.post(url, json=payload)
+    return response.json()

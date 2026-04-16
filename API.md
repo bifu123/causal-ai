@@ -624,6 +624,38 @@ curl -X POST "http://192.168.66.39:8094/api/v1/causal/click" \
 - 需要恢复节点历史内容的场景
 - 多用户环境下需要个性化权重管理的场景
 
+### 10. 因果链骨架查询
+**Python 示例**:
+```python
+import requests
+
+def get_causal_skeleton(serial_id, actor_id=None):
+    url = "http://192.168.66.39:8094/api/v1/causal/skeleton"
+    
+    payload = {
+        "serial_id": serial_id
+    }
+    
+    if actor_id is not None:
+        payload["actor_id"] = actor_id
+    
+    response = requests.post(url, json=payload)
+    return response.json()
+
+# 示例：获取serial_id为312的因果链骨架
+result = get_causal_skeleton(312)
+print(result)
+```
+
+**Curl 示例**:
+```bash
+curl -X POST "http://192.168.66.39:8094/api/v1/causal/skeleton" \
+     -H "Content-Type: application/json" \
+     -d '{
+           "serial_id": 312
+         }'
+```
+
 ### 参数说明
 | 字段 | 类型 | 必填 | 说明 |
 | :--- | :--- | :--- | :--- |
