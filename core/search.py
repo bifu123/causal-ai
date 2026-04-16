@@ -20,7 +20,7 @@ load_dotenv()
 # 创建算法实例
 v5 = V5Relev()
 
-
+# 以关键字搜索获取相关事件节点
 def get_event_with_params(keyword: str, owner_id: str = None, limit: int = None) -> List[Dict[str, Any]]:
     """
     用关键字搜索瞄定事件节点，并输出 Agent 友好型格式
@@ -146,6 +146,7 @@ FROM final_nodes AS root
         print(f"[搜索错误] 执行搜索失败: {e}")
         return []
 
+# 以事件ID为参数获取事件详情和前后事件ID
 def get_event_by_sid(serial_id: int, actor_id: str = None) -> Dict[str, Any]:
     """
     根据 serial_id 获取 Agent 友好型节点数据
@@ -202,6 +203,99 @@ WHERE root.serial_id = {serial_id};
     except Exception as e:
         print(f"[搜索错误] 根据serial_id获取失败: {e}")
         return {}
+
+# 以事件ID为参数获取事件链因果骨架
+def get_event_skeleton(serial_id: int, actor_id: str = None) -> List[Dict[str, Any]]:
+    """
+    因果链事件节点全息图（因果链骨架）。有助于 Agent 了解某因事链总体结构，从而决定获取事件数据的策略
+    程序实现逻辑：1. 溯源全连通图 -> 2. 映射字段并剔除冗余 -> 3. 识别根节点（首层）-> 4. 递归嵌套-> 5. 返回因果骨架
+
+    Args:
+        serial_id: int - 事件的物理序号ID
+        actor_id: 观察者ID（意志主体），为 None 时没有观察者注入的主观权重
+    Return:
+        因果链全息图骨架
+    """
+    # 1. 递归 SQL：全向抓取该连通图内所有的 serial_id (分段递归避开 PostgreSQL 语法限制)
+    sql = f'''
+    WITH RECURSIVE 
+    ancestors AS (
+        SELECT node_id, parent_id, serial_id FROM ains_active_nodes WHERE serial_id = {serial_id}
+        UNION
+        SELECT n.node_id, n.parent_id, n.serial_id FROM ains_active_nodes n
+        JOIN ancestors a ON n.node_id = a.parent_id
+    ),
+    all_related AS (
+        SELECT * FROM ancestors
+        UNION
+        SELECT n.node_id, n.parent_id, n.serial_id FROM ains_active_nodes n
+        JOIN all_related ar ON n.parent_id = ar.node_id
+    )
+    SELECT DISTINCT serial_id FROM all_related;
+    '''
+
+    try:
+        with db.conn.cursor() as cur:
+            cur.execute(sql)
+            all_sids = [row[0] for row in cur.fetchall()]
+            
+            if not all_sids:
+                return []
+
+            # 2. 映射字段并精简数据量
+            nodes_data = []
+            for sid in all_sids:
+                # 严格调用 get_event_by_sid
+                node_detail = get_event_by_sid(sid, actor_id)
+                if node_detail:
+                    # 职责：剔除长文本描述，大幅节省返回 Token
+                    node_detail.pop("事件二元组描述", None)
+                    # 初始化骨架嵌套容器
+                    node_detail["子事件列表"] = [] 
+                    nodes_data.append(node_detail)
+
+            # 3. 构建内存索引
+            node_map = {n["本事件ID"]: n for n in nodes_data}
+            roots = []
+
+            # 4. 执行层级组装
+            for node in sorted(nodes_data, key=lambda x: x["本事件ID"]):
+                curr_id = node["本事件ID"]
+                
+                # --- 统一化处理：确保“前事件ID列表”始终为数字列表 ---
+                raw_p_ids = node.get("前事件ID列表")
+                
+                if isinstance(raw_p_ids, (int, float)):
+                    p_ids = [int(raw_p_ids)] if raw_p_ids != 0 else []
+                elif isinstance(raw_p_ids, list):
+                    # 过滤掉 0 或 None，确保元素为纯数字
+                    p_ids = [int(p) for p in raw_p_ids if p and p != 0]
+                else:
+                    p_ids = []
+                
+                # 更新节点数据中的“前事件ID列表”，统一 NULL/0 为 []
+                node["前事件ID列表"] = p_ids
+
+                # 判定是否为“首层根节点”：
+                # 条件：前事件列表为空，或者父 ID 均不在本次抓取的网络中
+                if not p_ids or not any(p_id in node_map for p_id in p_ids):
+                    if node not in roots:
+                        roots.append(node)
+                else:
+                    # 递归嵌套：挂载到所有有效的父节点下
+                    for p_id in p_ids:
+                        if p_id in node_map:
+                            parent_node = node_map[p_id]
+                            # 避免多因交汇导致的子节点重复挂载
+                            if not any(child["本事件ID"] == curr_id for child in parent_node["子事件列表"]):
+                                parent_node["子事件列表"].append(node)
+
+            return roots 
+
+    except Exception as e:
+        print(f"[寻龙递归错误] 无法构建 serial_id {serial_id} 的嵌套 JSON: {e}")
+        return []
+
 
 if __name__ == "__main__":
     while True:

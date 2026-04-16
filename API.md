@@ -7,14 +7,14 @@
 - **Method**: `POST`
 - **Content-Type**: `application/json`
 
-### 1. 发起“首贞”（因果链的起点事件）
+### 1. 记录因果链事件
 **Python 示例**:
 ```python
 import requests
 
 def trigger_causal_node(node_id, action_tag, block_tag, event_tuple, parent_id=None, full_image_url=None, owner_id="default"):
     """
-    发起因果推演请求
+    记录因果链事件
     
     参数:
     - node_id (str): 事件的唯一标识（建议使用因果描述）
