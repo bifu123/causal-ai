@@ -750,6 +750,13 @@ function collapseDrawer() {
     if (searchToggle) {
         searchToggle.style.display = 'flex';
     }
+    
+    // 触发逆向还原动画（相机回中）
+    if (selectedNodeObj && Graph) {
+        lastLocalActionTime = Date.now(); // 更新保护时间，避免动画被打断
+        const { camPos, lookAt } = calculateOffsetView(selectedNodeObj, 350);
+        Graph.cameraPosition(camPos, lookAt, 800); // 800ms 平滑回中
+    }
 }
 
 function expandDrawer() {
@@ -761,6 +768,13 @@ function expandDrawer() {
     const searchToggle = document.querySelector('#btn-toggle-search.search-toggle');
     if (searchToggle) {
         searchToggle.style.display = 'none';
+    }
+    
+    // 触发避让动画（相机向左偏）
+    if (selectedNodeObj && Graph) {
+        lastLocalActionTime = Date.now(); // 更新保护时间，避免动画被打断
+        const { camPos, lookAt } = calculateOffsetView(selectedNodeObj, 350);
+        Graph.cameraPosition(camPos, lookAt, 800); // 800ms 平滑避让
     }
 }
 
