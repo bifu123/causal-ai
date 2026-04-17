@@ -59,8 +59,9 @@ function showSelectionHint(msg) {
 }
 
 /**
- * 视觉特效：神圣光柱（Divine Beam）
- * 当节点居中时，从正上方降下一束神圣光柱聚焦于该节点
+ * 视觉特效：神圣光柱（Divine Beam）与 全局光晕爆发
+ * 当节点居中时，从正上方降下一束神圣光柱聚焦于该节点，并引起全屏幕的背景中心光晕闪亮
+ * @param {Object} node 目标节点
  */
 function showDivineBeam(node) {
     const THREE = getThreeInstance();
@@ -70,6 +71,35 @@ function showDivineBeam(node) {
     if (activeBeam) {
         Graph.scene().remove(activeBeam);
     }
+    
+    // --- 爆发中心光晕特效（引起整个背景/中心变亮） ---
+    // 利用 CSS 创建一层覆盖全局画面的高能耀斑，放在 3D 画布的上层
+    const bgFlare = document.createElement('div');
+    bgFlare.style.position = 'absolute';
+    bgFlare.style.top = '0';
+    bgFlare.style.left = '0';
+    bgFlare.style.width = '100vw';
+    bgFlare.style.height = '100vh';
+    bgFlare.style.pointerEvents = 'none';
+    bgFlare.style.zIndex = '999'; 
+    // 辐射状光晕，中心亮白并逐渐向边缘扩散
+    bgFlare.style.background = 'radial-gradient(circle at center, rgba(100, 180, 255, 0.25) 0%, rgba(255, 255, 255, 0.05) 40%, transparent 80%)';
+    bgFlare.style.mixBlendMode = 'screen'; // 让光晕更柔和地叠加照亮背后的星空和节点
+    bgFlare.style.opacity = '0';
+    bgFlare.style.transition = 'opacity 0.4s ease-out';
+    document.body.appendChild(bgFlare);
+    
+    // 下一帧触发淡入变亮
+    requestAnimationFrame(() => {
+        bgFlare.style.opacity = '1';
+        // 维持短暂峰值后，缓慢淡出恢复原状
+        setTimeout(() => {
+            bgFlare.style.transition = 'opacity 1.5s ease-in';
+            bgFlare.style.opacity = '0';
+            // 动画彻底结束后销毁
+            setTimeout(() => bgFlare.remove(), 1600);
+        }, 600);
+    });
     
     // 光柱高度和半径
     const beamHeight = 600;
