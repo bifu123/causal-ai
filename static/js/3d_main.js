@@ -35,6 +35,10 @@ let gravityFocusEnabled = false;
 let gravityFocusNode = null;
 let originalForces = { charge: -600, link: 180 };
 
+// 神圣光柱动画相关
+let activeBeam = null;
+let beamAnimationId = null;
+
 // 抽屉避让常量
 const DRAWER_WIDTH = 384; // 抽屉宽度 (w-96 = 24rem = 384px)
 const FOCUS_DIST = 200;   // 聚焦距离
@@ -52,6 +56,88 @@ function showSelectionHint(msg) {
     hint.textContent = msg;
     hint.classList.remove('hidden');
     setTimeout(() => hint.classList.add('hidden'), 3000);
+}
+
+/**
+ * 视觉特效：神圣光柱（Divine Beam）
+ * 当节点居中时，从正上方降下一束神圣光柱聚焦于该节点
+ */
+function showDivineBeam(node) {
+    const THREE = getThreeInstance();
+    if (!THREE || !Graph) return;
+    
+    // 如果已有光柱，移除它，确保全场只有一束追光
+    if (activeBeam) {
+        Graph.scene().remove(activeBeam);
+    }
+    
+    // 光柱高度和半径
+    const beamHeight = 600;
+    const topRadius = 35;
+    const bottomRadius = 5; 
+    
+    // 创建一个逐渐变细的圆柱体，顶部大底部小，像探照灯
+    const geometry = new THREE.CylinderGeometry(topRadius, bottomRadius, beamHeight, 32, 1, true);
+    
+    // 将几何体中心点向上偏移，使其原点对齐底部
+    geometry.translate(0, beamHeight / 2, 0);
+
+    const material = new THREE.MeshBasicMaterial({
+        color: 0x44aaff,       // 科幻感的青蓝色光芒
+        transparent: true,
+        opacity: 0.0,          // 初始透明度0，准备淡入
+        blending: THREE.AdditiveBlending, // 加法混合，让光柱叠加更加耀眼
+        depthWrite: false,     // 不遮挡背后的星星
+        side: THREE.DoubleSide
+    });
+
+    const beam = new THREE.Mesh(geometry, material);
+    
+    // 创建一盏聚光灯绑定在光柱顶部，真实照亮下方的球体
+    const spotLight = new THREE.SpotLight(0xffffff, 0); // 初始亮度0
+    spotLight.position.set(0, beamHeight, 0); // 相对光柱内部的顶部
+    spotLight.target = beam;                  // 指向光柱底部原点
+    spotLight.angle = Math.PI / 10;
+    spotLight.penumbra = 0.5;
+    spotLight.distance = beamHeight * 1.5;
+    beam.add(spotLight); 
+
+    const startTime = Date.now();
+    const duration = 2500; // 持续 2.5 秒
+
+    beam.userData.animate = function() {
+        const elapsed = Date.now() - startTime;
+        if (elapsed > duration) {
+            Graph.scene().remove(beam);
+            return false; // 动画结束，销毁光柱
+        }
+        
+        let p = elapsed / duration;
+        // 前 20% 时间(0.5秒)从 0 变到 0.35 极限透明度；后 80% 时间逐渐变暗
+        let targetOpacity = p < 0.2 ? (p / 0.2) * 0.35 : (1 - (p - 0.2) / 0.8) * 0.35;
+        beam.material.opacity = targetOpacity;
+        spotLight.intensity = targetOpacity * 50; // 同步照亮底下的球体
+        
+        // 实时跟随节点的坐标，防止节点在物理引擎中晃动时光柱脱离
+        beam.position.set(node.x, node.y, node.z);
+        
+        return true;
+    };
+    
+    Graph.scene().add(beam);
+    activeBeam = beam;
+    
+    // 挂载到统一的动画循环中
+    if (!beamAnimationId) {
+        function renderLoop() {
+            if (activeBeam) {
+                const isAlive = activeBeam.userData.animate();
+                if (!isAlive) activeBeam = null;
+            }
+            beamAnimationId = requestAnimationFrame(renderLoop);
+        }
+        renderLoop();
+    }
 }
 
 /**
@@ -540,6 +626,9 @@ function updateNodeIncremental(data) {
                             2000
                         );
                         
+                        // 给这颗跃迁的星星降下一束神圣光柱
+                        showDivineBeam(gNode);
+                        
                         // 给这颗跃迁的星星来点高亮视觉反馈
                         highlightNodes.clear();
                         highlightNodes.add(gNode);
@@ -1011,6 +1100,9 @@ async function startDragonCruise() {
         console.log(`[因果巡航] 相机目标位置:`, camPos);
         console.log(`[因果巡航] 开始移动相机到节点 ${node.id}...`);
         
+        // 给当前巡航的星星降下一束神圣光柱
+        showDivineBeam(node);
+
         await new Promise(resolve => {
             Graph.cameraPosition(
                 camPos, 
@@ -1215,6 +1307,9 @@ function handleNodeClick(node) {
     // 使用全局精确坐标偏移计算
     const { camPos, lookAt } = calculateOffsetView(node, 350);
     
+    // 降下一束神圣光柱
+    showDivineBeam(node);
+
     Graph.cameraPosition(
         camPos, 
         lookAt, 
@@ -1975,6 +2070,9 @@ window.addEventListener('load', () => {
             // 聚焦到该节点（但不打开抽屉）
             const { camPos, lookAt } = calculateOffsetView(targetNode, 350);
             
+            // 降下一束神圣光柱
+            showDivineBeam(targetNode);
+
             Graph.cameraPosition(camPos, lookAt, 1200);
             
             // 添加高亮效果
