@@ -1478,7 +1478,7 @@ function showSelectionHint(message) {
                 hintDiv.parentNode.removeChild(hintDiv);
             }
         }, 500);
-    }, 5000);
+    }, 2000); // 从5000毫秒缩短到2000毫秒（2秒）
 }
 
 // 隐藏选择提示
