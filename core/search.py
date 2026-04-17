@@ -20,10 +20,225 @@ load_dotenv()
 # 创建算法实例
 v5 = V5Relev()
 
-# 以关键字搜索获取相关事件节点
+# # 以关键字搜索获取相关事件节点
+# def get_event_with_params(keyword: str, owner_id: str = None, limit: int = None) -> List[Dict[str, Any]]:
+#     """
+#     用关键字搜索瞄定事件节点，并输出 Agent 友好型格式
+#     """
+#     keyword = keyword.strip()
+#     if not keyword:
+#         return []
+    
+#     # 构建owner_id过滤条件
+#     owner_filter = ""
+#     if owner_id:
+#         owner_filter = f" AND root.owner_id = '{owner_id}'"
+    
+#     # 保持底层 SQL 高效运行
+
+
+
+# #     sql = f"""
+# # WITH target_val AS (
+# #     -- 搜索职责定义：支持 & 逻辑与
+# #     SELECT '{keyword}'::text as raw_keyword
+# # ),
+# # primary_search AS (
+# #     -- 第一职责：全文检索（合并 node_id 和 event_tuple）
+# #     SELECT root.* FROM ains_active_nodes root, target_val
+# #     WHERE to_tsvector('chinese', root.node_id || ' ' || root.event_tuple) 
+# #        @@ to_tsquery('chinese', target_val.raw_keyword)
+# #        {owner_filter}
+# # ),
+# # fallback_search AS (
+# #     -- 第二职责：LIKE 物理保底（处理逻辑与的顺序匹配，同时检索 ID 和原文）
+# #     SELECT root.* FROM ains_active_nodes root, target_val
+# #     WHERE (
+# #         root.event_tuple LIKE '%' || REPLACE(target_val.raw_keyword, ' & ', '%') || '%'
+# #         OR 
+# #         root.node_id LIKE '%' || REPLACE(target_val.raw_keyword, ' & ', '%') || '%'
+# #     )
+# #     {owner_filter}
+# #     AND NOT EXISTS (SELECT 1 FROM primary_search)
+# # ),
+# # final_nodes AS (
+# #     SELECT * FROM primary_search
+# #     UNION ALL
+# #     SELECT * FROM fallback_search
+# # )
+# # SELECT 
+# #     root.serial_id,          -- 当前事件物理 ID
+# #     -- 物理溯源：父节点的 serial_id
+# #     COALESCE(
+# #         (SELECT parent.serial_id::text 
+# #          FROM ains_active_nodes parent 
+# #          WHERE parent.node_id = root.parent_id), 
+# #         '根节点'
+# #     ) AS preview_id, 
+# #     root.block_tag,          -- 板块标签
+# #     root.action_tag,         -- 职责属性
+# #     root.event_tuple,        -- 动态笔记原文
+# #     -- 物理演化：所有子节点的 serial_id 列表
+# #     COALESCE((
+# #         SELECT STRING_AGG(sub.serial_id::text, ', ') 
+# #         FROM ains_active_nodes AS sub
+# #         WHERE sub.parent_id = root.node_id
+# #     ) , '末端') AS next_id_list,
+# #     root.node_id,
+# #     root.parent_id,
+# #     root.survival_weight,
+# #     root.full_image_url,
+# #     root.owner_id
+# # FROM final_nodes AS root
+# # """
+
+
+
+
+
+#     sql = f"""
+# WITH target_val AS (
+#     -- 搜索职责定义：预处理关键词，支持逻辑与（将空格替换为 &）
+#     SELECT REPLACE('{keyword}', ' ', ' & ')::text as ts_query_val,
+#            '{keyword}'::text as raw_keyword
+# ),
+# search_base AS (
+#     -- 基础业务职责：关联活跃层与地宫层，标记提炼状态
+#     SELECT 
+#         root.*,
+#         archive.raw_content,
+#         (root.event_tuple LIKE '%[已提炼]') AS is_refined
+#     FROM ains_active_nodes root
+#     LEFT JOIN ains_archive_necropolis archive ON root.necropolis_id = archive.necropolis_id
+#     WHERE 1=1 {owner_filter}
+# ),
+# primary_search AS (
+#     -- 第一职责：全文检索。根据 is_refined 状态决定检索 event_tuple 还是 raw_content
+#     SELECT sb.* FROM search_base sb, target_val
+#     WHERE (
+#         to_tsvector('chinese', sb.node_id) @@ to_tsquery('chinese', target_val.ts_query_val)
+#     ) OR (
+#         sb.is_refined 
+#         AND to_tsvector('chinese', COALESCE(sb.raw_content, '')) @@ to_tsquery('chinese', target_val.ts_query_val)
+#     ) OR (
+#         NOT sb.is_refined 
+#         AND to_tsvector('chinese', COALESCE(sb.event_tuple, '')) @@ to_tsquery('chinese', target_val.ts_query_val)
+#     )
+# ),
+# fallback_search AS (
+#     -- 第二职责：LIKE 物理保底。处理逻辑与的顺序匹配
+#     SELECT sb.* FROM search_base sb, target_val
+#     WHERE (
+#         sb.node_id LIKE '%' || REPLACE(target_val.raw_keyword, ' ', '%') || '%'
+#         OR (
+#             sb.is_refined AND sb.raw_content LIKE '%' || REPLACE(target_val.raw_keyword, ' ', '%') || '%'
+#         )
+#         OR (
+#             NOT sb.is_refined AND sb.event_tuple LIKE '%' || REPLACE(target_val.raw_keyword, ' ', '%') || '%'
+#         )
+#     )
+#     AND NOT EXISTS (SELECT 1 FROM primary_search)
+# ),
+# final_nodes AS (
+#     SELECT * FROM primary_search
+#     UNION ALL
+#     SELECT * FROM fallback_search
+# )
+# SELECT 
+#     root.serial_id,
+#     -- 物理溯源：父节点追溯
+#     COALESCE(
+#         (SELECT parent.serial_id::text 
+#          FROM ains_active_nodes parent 
+#          WHERE parent.node_id = root.parent_id), 
+#         '根节点'
+#     ) AS preview_id, 
+#     root.block_tag, 
+#     root.action_tag, -- 职责属性
+#     -- 内容呈现职责：如果已提炼，则返回地宫原文，否则返回活跃层摘要
+#     CASE 
+#         WHEN root.is_refined THEN root.raw_content 
+#         ELSE root.event_tuple 
+#     END AS display_content,
+#     root.event_tuple AS active_note, -- 保留活跃层原始笔记备份
+#     -- 物理演化：子节点聚合
+#     COALESCE((
+#         SELECT STRING_AGG(sub.serial_id::text, ', ') 
+#         FROM ains_active_nodes AS sub
+#         WHERE sub.parent_id = root.node_id
+#     ) , '末端') AS next_id_list,
+#     root.node_id,
+#     root.parent_id,
+#     root.survival_weight,
+#     root.full_image_url,
+#     root.owner_id
+# FROM final_nodes AS root
+# ORDER BY root.survival_weight DESC
+#     """
+
+
+#     if limit:
+#         sql += f"\nLIMIT {limit};"
+#     else:
+#         sql += ";"
+      
+#     try:
+#         with db.conn.cursor() as cur:
+#             cur.execute(sql)
+#             columns = [desc[0] for desc in cur.description]
+#             raw_results = cur.fetchall()
+            
+#             agent_results = []
+#             for row in raw_results:
+#                 raw_dict = dict(zip(columns, row))
+                     
+#                 item = {
+#                     "本事件ID": raw_dict['serial_id'],
+#                     "前事件ID列表": raw_dict['preview_id'] if raw_dict['preview_id'] != '根节点' else '',
+#                     "因缘标签": raw_dict['block_tag'],
+#                     "动作标签": raw_dict['action_tag'],
+#                     "事件二元组描述": raw_dict['event_tuple'],
+#                     "后续事件ID列表": [int(x.strip()) for x in raw_dict['next_id_list'].split(',') if x.strip().isdigit()] if raw_dict['next_id_list'] and raw_dict['next_id_list'] != '末端' else [],
+#                     "本事件权重": float(raw_dict['survival_weight']) if isinstance(raw_dict['survival_weight'], Decimal) else raw_dict['survival_weight'],
+#                     "本事件标题": raw_dict['node_id'],
+#                     "截图": raw_dict['full_image_url'],
+#                     "事件拥有者": raw_dict['owner_id']
+#                 }
+
+                
+
+#                 # 处理父节点（前事件标题列表）
+#                 if raw_dict.get('parent_id'):
+#                     item["前事件标题列表"] = db._string_to_parents(raw_dict['parent_id'])
+#                 else:
+#                     item["前事件标题列表"] = []
+                    
+#                 # 计算算法相关度
+#                 res_score = v5.calculate_relevance_score(raw_dict['event_tuple'], keyword)
+#                 item["本事件相关度"] = float(res_score) if isinstance(res_score, Decimal) else res_score
+                
+#                 agent_results.append(item)
+            
+#             # 排序职责：按 Agent 最关心的相关度排列
+#             agent_results.sort(key=lambda x: x['本事件相关度'], reverse=True)
+            
+#             # 环境容量控制
+#             max_chats = int(os.getenv("MAX_CHATS", 30))
+#             while len(agent_results) > max_chats and len(agent_results) > 1:
+#                 min_idx = min(range(len(agent_results)), key=lambda i: agent_results[i]['本事件相关度'])
+#                 agent_results.pop(min_idx)
+                    
+#             return agent_results
+        
+#     except Exception as e:
+#         print(f"[搜索错误] 执行搜索失败: {e}")
+#         return []
+
+
+
 def get_event_with_params(keyword: str, owner_id: str = None, limit: int = None) -> List[Dict[str, Any]]:
     """
-    用关键字搜索瞄定事件节点，并输出 Agent 友好型格式
+    用关键字搜索瞄定事件节点，支持跨层（活跃/地宫）全息搜索。
     """
     keyword = keyword.strip()
     if not keyword:
@@ -34,28 +249,48 @@ def get_event_with_params(keyword: str, owner_id: str = None, limit: int = None)
     if owner_id:
         owner_filter = f" AND root.owner_id = '{owner_id}'"
     
-    # 保持底层 SQL 高效运行
+    # 核心优化逻辑：
+    # 1. 使用 plainto_tsquery 代替手动 REPLACE，自动处理空格并提高分词容错。
+    # 2. 搜索域扩充：即使标记了 [已提炼]，也同步检索 node_id 以保召回。
+    # 3. 结果对齐：确保 '事件二元组描述' 字段动态指向最全的内容。
+    
     sql = f"""
 WITH target_val AS (
-    -- 搜索职责定义：支持 & 逻辑与
-    SELECT '{keyword}'::text as raw_keyword
+    -- 使用 plainto_tsquery 将自然语言转为搜索向量，容错性更高
+    SELECT plainto_tsquery('chinese', '{keyword}') as ts_query,
+           '{keyword}'::text as raw_keyword
+),
+search_base AS (
+    -- 关联职责：打通活跃感知与地宫证据
+    SELECT 
+        root.*,
+        archive.raw_content,
+        (root.event_tuple LIKE '%[已提炼]') AS is_refined
+    FROM ains_active_nodes root
+    LEFT JOIN ains_archive_necropolis archive ON root.necropolis_id = archive.necropolis_id
+    WHERE 1=1 {owner_filter}
 ),
 primary_search AS (
-    -- 第一职责：全文检索（合并 node_id 和 event_tuple）
-    SELECT root.* FROM ains_active_nodes root, target_val
-    WHERE to_tsvector('chinese', root.node_id || ' ' || root.event_tuple) 
-       @@ to_tsquery('chinese', target_val.raw_keyword)
-       {owner_filter}
+    -- 第一职责：全文检索
+    SELECT sb.* FROM search_base sb, target_val
+    WHERE 
+        -- A. 始终检索 node_id (最高优先级)
+        to_tsvector('chinese', sb.node_id) @@ target_val.ts_query
+        OR 
+        -- B. 根据状态切换文本检索域
+        (CASE 
+            WHEN sb.is_refined THEN to_tsvector('chinese', COALESCE(sb.raw_content, '')) @@ target_val.ts_query
+            ELSE to_tsvector('chinese', COALESCE(sb.event_tuple, '')) @@ target_val.ts_query
+         END)
 ),
 fallback_search AS (
-    -- 第二职责：LIKE 物理保底（处理逻辑与的顺序匹配，同时检索 ID 和原文）
-    SELECT root.* FROM ains_active_nodes root, target_val
+    -- 第二职责：LIKE 模糊保底（处理全词匹配或非标字符）
+    SELECT sb.* FROM search_base sb, target_val
     WHERE (
-        root.event_tuple LIKE '%' || REPLACE(target_val.raw_keyword, ' & ', '%') || '%'
-        OR 
-        root.node_id LIKE '%' || REPLACE(target_val.raw_keyword, ' & ', '%') || '%'
+        sb.node_id LIKE '%' || target_val.raw_keyword || '%'
+        OR (sb.is_refined AND sb.raw_content LIKE '%' || target_val.raw_keyword || '%')
+        OR (NOT sb.is_refined AND sb.event_tuple LIKE '%' || target_val.raw_keyword || '%')
     )
-    {owner_filter}
     AND NOT EXISTS (SELECT 1 FROM primary_search)
 ),
 final_nodes AS (
@@ -64,31 +299,30 @@ final_nodes AS (
     SELECT * FROM fallback_search
 )
 SELECT 
-    root.serial_id,          -- 当前事件物理 ID
-    -- 物理溯源：父节点的 serial_id
+    root.serial_id,
     COALESCE(
-        (SELECT parent.serial_id::text 
-         FROM ains_active_nodes parent 
-         WHERE parent.node_id = root.parent_id), 
+        (SELECT parent.serial_id::text FROM ains_active_nodes parent WHERE parent.node_id = root.parent_id), 
         '根节点'
     ) AS preview_id, 
-    root.block_tag,          -- 板块标签
-    root.action_tag,         -- 职责属性
-    root.event_tuple,        -- 动态笔记原文
-    -- 物理演化：所有子节点的 serial_id 列表
-    COALESCE((
-        SELECT STRING_AGG(sub.serial_id::text, ', ') 
-        FROM ains_active_nodes AS sub
-        WHERE sub.parent_id = root.node_id
-    ) , '末端') AS next_id_list,
+    root.block_tag, 
+    root.action_tag, 
+    -- 职责：动态输出最全内容作为 display_content
+    CASE 
+        WHEN root.is_refined AND root.raw_content IS NOT NULL THEN root.raw_content 
+        ELSE root.event_tuple 
+    END AS display_content,
     root.node_id,
     root.parent_id,
     root.survival_weight,
     root.full_image_url,
-    root.owner_id
+    root.owner_id,
+    COALESCE((
+        SELECT STRING_AGG(sub.serial_id::text, ', ') FROM ains_active_nodes AS sub WHERE sub.parent_id = root.node_id
+    ) , '末端') AS next_id_list
 FROM final_nodes AS root
-"""
-    
+ORDER BY root.survival_weight DESC
+    """
+
     if limit:
         sql += f"\nLIMIT {limit};"
     else:
@@ -109,7 +343,8 @@ FROM final_nodes AS root
                     "前事件ID列表": raw_dict['preview_id'] if raw_dict['preview_id'] != '根节点' else '',
                     "因缘标签": raw_dict['block_tag'],
                     "动作标签": raw_dict['action_tag'],
-                    "事件二元组描述": raw_dict['event_tuple'],
+                    # 关键修改：此处映射必须使用 SQL 中计算出的 display_content，而非原始 event_tuple
+                    "事件二元组描述": raw_dict['display_content'], 
                     "后续事件ID列表": [int(x.strip()) for x in raw_dict['next_id_list'].split(',') if x.strip().isdigit()] if raw_dict['next_id_list'] and raw_dict['next_id_list'] != '末端' else [],
                     "本事件权重": float(raw_dict['survival_weight']) if isinstance(raw_dict['survival_weight'], Decimal) else raw_dict['survival_weight'],
                     "本事件标题": raw_dict['node_id'],
@@ -117,34 +352,44 @@ FROM final_nodes AS root
                     "事件拥有者": raw_dict['owner_id']
                 }
 
-                
-
-                # 处理父节点（前事件标题列表）
                 if raw_dict.get('parent_id'):
                     item["前事件标题列表"] = db._string_to_parents(raw_dict['parent_id'])
                 else:
                     item["前事件标题列表"] = []
                     
-                # 计算算法相关度
-                res_score = v5.calculate_relevance_score(raw_dict['event_tuple'], keyword)
+                # 相关度计算职责：基于最终显示的完整内容进行评分
+                res_score = v5.calculate_relevance_score(raw_dict['display_content'], keyword)
                 item["本事件相关度"] = float(res_score) if isinstance(res_score, Decimal) else res_score
                 
                 agent_results.append(item)
             
-            # 排序职责：按 Agent 最关心的相关度排列
             agent_results.sort(key=lambda x: x['本事件相关度'], reverse=True)
-            
-            # 环境容量控制
-            max_chats = int(os.getenv("MAX_CHATS", 30))
-            while len(agent_results) > max_chats and len(agent_results) > 1:
-                min_idx = min(range(len(agent_results)), key=lambda i: agent_results[i]['本事件相关度'])
-                agent_results.pop(min_idx)
-                    
             return agent_results
         
     except Exception as e:
         print(f"[搜索错误] 执行搜索失败: {e}")
         return []
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 # 以事件ID为参数获取事件详情和前后事件ID
 def get_event_by_sid(serial_id: int, actor_id: str = None) -> Dict[str, Any]:
