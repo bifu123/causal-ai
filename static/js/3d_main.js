@@ -124,9 +124,22 @@ function showDivineBeam(node, colorType = 'divine') {
     
     const beamHeight = 800; 
     
-    // 2. 动态计算顶部和底部半径
-    const bottomRadius = actualPhysicalRadius * 0.95;
-    const topRadius = Math.max(120, bottomRadius * 5.0);
+    // 2. 动态计算光柱尺寸：根据节点类型采用三种不同的算法策略
+    let bottomRadius, topRadius;
+
+    if (colorType === 'golden') {
+        // (1) 新生节点（创世金光）：强调神圣天降，底部几乎完全包裹星体，顶部极其宏大
+        bottomRadius = actualPhysicalRadius * 0.98;
+        topRadius = Math.max(220, bottomRadius * 6.0);
+    } else if (weight >= 0.6) {
+        // (2) 大股东节点：巨星需要巨大的光幕笼罩，避免光柱变成“牙签”
+        bottomRadius = actualPhysicalRadius * 0.92;
+        topRadius = Math.max(180, bottomRadius * 4.8);
+    } else {
+        // (3) 普通节点：使用刚好合适的内敛比例
+        bottomRadius = actualPhysicalRadius * 0.82;
+        topRadius = Math.max(90, bottomRadius * 3.5);
+    }
 
     const geo = new THREE.CylinderGeometry(topRadius, bottomRadius, beamHeight, 32, 1, true);
     geo.translate(0, beamHeight / 2, 0);
@@ -201,8 +214,8 @@ function showDivineBeam(node, colorType = 'divine') {
         // 传递透明度到 Shader
         customMaterial.uniforms.globalOpacity.value = intensityFactor * 0.9;
         
-        // 同步照亮球体
-        spotLight.intensity = intensityFactor * 80; 
+        // 同步照亮球体：恢复光照强度，平衡明暗视觉冲击力
+        spotLight.intensity = intensityFactor * 65; 
         
         beamMesh.position.set(node.x, node.y, node.z);
         
