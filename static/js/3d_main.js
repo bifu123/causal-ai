@@ -128,17 +128,18 @@ function showDivineBeam(node, colorType = 'divine') {
     let bottomRadius, topRadius;
 
     if (colorType === 'golden') {
-        // (1) 新生节点（创世金光）：强调神圣天降，底部几乎完全包裹星体，顶部极其宏大
-        bottomRadius = actualPhysicalRadius * 0.98;
+        // (1) 新生节点（创世金光）：强调神圣天降，底部包裹星体但保留边缘余量防止溢出，顶部极其宏大
+        bottomRadius = actualPhysicalRadius * 0.88;
         topRadius = Math.max(220, bottomRadius * 6.0);
     } else if (weight >= 0.6) {
-        // (2) 大股东节点：巨星需要巨大的光幕笼罩，避免光柱变成“牙签”
-        bottomRadius = actualPhysicalRadius * 0.92;
-        topRadius = Math.max(180, bottomRadius * 4.8);
+        // (2) 大股东节点：巨星需要极其庞大的光幕笼罩，彻底杜绝“牙签”感，凸显大体量
+        // 因为 Shader 有边缘羽化衰减，视觉上会显小，所以物理半径需要直接达到甚至略微超出球体半径
+        bottomRadius = actualPhysicalRadius * 1.1;
+        topRadius = Math.max(300, bottomRadius * 7.0);
     } else {
         // (3) 普通节点：使用刚好合适的内敛比例
-        bottomRadius = actualPhysicalRadius * 0.82;
-        topRadius = Math.max(90, bottomRadius * 3.5);
+        bottomRadius = actualPhysicalRadius * 0.9;
+        topRadius = Math.max(120, bottomRadius * 4.5);
     }
 
     const geo = new THREE.CylinderGeometry(topRadius, bottomRadius, beamHeight, 32, 1, true);
