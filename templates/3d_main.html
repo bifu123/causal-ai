@@ -109,8 +109,15 @@
     <!-- 抽屉：节点增删改功能 -->
     <div id="drawer" class="drawer drawer-hidden">
         <div class="drawer-header">
-            <h2>龙穴详情</h2>
-            <button id="btn-close-drawer" class="drawer-close">✕</button>
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <h2>龙穴详情</h2>
+                <button id="btn-collapse-drawer" class="drawer-collapse-btn" title="折叠抽屉">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
+                    </svg>
+                </button>
+            </div>
+            <button id="btn-close-drawer" class="drawer-close" title="关闭并取消选择">✕</button>
         </div>
         
         <div class="drawer-content">
@@ -192,6 +199,13 @@
             </div>
         </div>
     </div>
+
+    <!-- 抽屉展开按钮（默认隐藏） -->
+    <button id="btn-expand-drawer" class="drawer-expand-btn hidden" title="展开抽屉">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
+        </svg>
+    </button>
 
     <!-- 模态框：创建新节点 -->
     <div id="create-modal" class="modal modal-hidden">

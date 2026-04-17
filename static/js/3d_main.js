@@ -657,6 +657,10 @@ function openDrawer(nodeId) {
     // 打开抽屉
     document.getElementById('drawer').classList.remove('drawer-hidden');
     
+    // 隐藏展开按钮
+    const expandBtn = document.getElementById('btn-expand-drawer');
+    if (expandBtn) expandBtn.classList.add('hidden');
+    
     // 调试输出：抽屉打开时的状态
     console.log(`[抽屉调试] 抽屉已打开，节点ID: ${nodeId}`);
     // 隐藏btn-toggle-search按钮，确保抽屉打开时搜索图标不可见
@@ -686,6 +690,10 @@ function openDrawer(nodeId) {
 function closeDrawer() {
     document.getElementById('drawer').classList.add('drawer-hidden');
     
+    // 隐藏展开按钮
+    const expandBtn = document.getElementById('btn-expand-drawer');
+    if (expandBtn) expandBtn.classList.add('hidden');
+    
     if (selectedNodeObj) {
         // 彻底释放物理锚定
         const node = selectedNodeObj;
@@ -710,6 +718,30 @@ function closeDrawer() {
         searchToggle.style.display = 'flex'; // 强制显示搜索图标按钮，确保抽屉关闭时可见
     }
 
+}
+
+function collapseDrawer() {
+    document.getElementById('drawer').classList.add('drawer-hidden');
+    const expandBtn = document.getElementById('btn-expand-drawer');
+    if (expandBtn) expandBtn.classList.remove('hidden');
+    
+    // 恢复搜索图标按钮显示
+    const searchToggle = document.querySelector('#btn-toggle-search.search-toggle');
+    if (searchToggle) {
+        searchToggle.style.display = 'flex';
+    }
+}
+
+function expandDrawer() {
+    document.getElementById('drawer').classList.remove('drawer-hidden');
+    const expandBtn = document.getElementById('btn-expand-drawer');
+    if (expandBtn) expandBtn.classList.add('hidden');
+    
+    // 隐藏搜索图标按钮
+    const searchToggle = document.querySelector('#btn-toggle-search.search-toggle');
+    if (searchToggle) {
+        searchToggle.style.display = 'none';
+    }
 }
 
 async function handleSaveNode() {
@@ -1598,6 +1630,14 @@ window.addEventListener('load', () => {
     document.getElementById('btn-save-node').onclick = handleSaveNode;
     document.getElementById('btn-delete-node').onclick = handleDeleteNode;
     document.getElementById('btn-close-drawer').onclick = closeDrawer;
+    
+    // 绑定折叠/展开按钮
+    const collapseBtn = document.getElementById('btn-collapse-drawer');
+    if (collapseBtn) collapseBtn.onclick = collapseDrawer;
+    
+    const expandBtn = document.getElementById('btn-expand-drawer');
+    if (expandBtn) expandBtn.onclick = expandDrawer;
+    
     document.getElementById('btn-fit-view').onclick = () => Graph.zoomToFit(800);
     
     // 绑定因果巡航按钮

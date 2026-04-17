@@ -37,6 +37,56 @@
     margin: 0;
 }
 
+/* 抽屉折叠按钮 */
+.drawer-collapse-btn {
+    background: none;
+    border: none;
+    color: #9ca3af;
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.drawer-collapse-btn:hover {
+    color: #ffffff;
+    background: rgba(255, 255, 255, 0.1);
+}
+
+/* 抽屉展开按钮 */
+.drawer-expand-btn {
+    position: fixed;
+    right: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    background: rgba(31, 41, 55, 0.9);
+    border: 1px solid rgba(75, 85, 99, 0.5);
+    border-right: none;
+    border-radius: 8px 0 0 8px;
+    color: #60a5fa;
+    padding: 12px 8px;
+    cursor: pointer;
+    z-index: 999;
+    box-shadow: -2px 0 10px rgba(0, 0, 0, 0.5);
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.drawer-expand-btn:hover {
+    background: rgba(55, 65, 81, 0.9);
+    color: #93c5fd;
+    padding-right: 12px;
+}
+
+.drawer-expand-btn.hidden {
+    display: none !important;
+}
+
 .drawer-close {
     background: none;
     border: none;
