@@ -16,15 +16,14 @@ if %errorlevel% neq 0 (
 
 echo [INFO] 当前工作目录已切换至: %CD%
 
-:: 3. 临时设置 Git 代理并直接克隆到当前目录
+:: 3. 临时设置 Git 代理（仅对当前克隆进程生效，不污染全局配置）
 echo [INFO] 正在克隆仓库 (使用代理: %PROXY_URL%)...
-:: 注意末尾的 "."，代表直接将代码克隆到当前工作目录
-git clone -c http.proxy=%PROXY_URL% -c https.proxy=%PROXY_URL% %REPO_URL% .
+git clone -c http.proxy=%PROXY_URL% -c https.proxy=%PROXY_URL% %REPO_URL%
 
 if %errorlevel% eq 0 (
     echo [SUCCESS] 仓库克隆成功！
 ) else (
-    echo [ERROR] 克隆失败，请检查网络、代理设置，或确保当前目录为空。
+    echo [ERROR] 克隆失败，请检查网络或代理设置。
 )
 
 :: 4. 清理：卸载临时盘符并返回原目录
