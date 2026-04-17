@@ -2065,8 +2065,30 @@ window.addEventListener('load', () => {
     }
 
     // --- [9. 视图自适应业务] ---
+    let resizeTimeout = null;
     window.addEventListener('resize', () => {
         if (!Graph) return;
+
+        // 清除尚未执行的延迟 resize 任务
+        if (resizeTimeout) {
+            clearTimeout(resizeTimeout);
+            resizeTimeout = null;
+        }
+
+        // 【关键修复】：防抖与动画保护机制
+        // 发现：Graph.width() 和 Graph.height() 的调用会瞬间中断正在进行的 Graph.cameraPosition 动画！
+        // 当抽屉首次打开时，可能因出现滚动条导致细微的 resize，从而立刻中断了飞行，导致需要“双击”。
+        const now = Date.now();
+        const timeSinceAction = now - lastLocalActionTime;
+        
+        if (timeSinceAction < 1500) {
+            // 如果距离上次点击不到 1.5 秒（意味着 1200ms 的相机动画正在进行中）
+            // 我们将把 resize 动作延后到动画彻底结束之后再执行，绝不让它强行中断飞行！
+            resizeTimeout = setTimeout(() => {
+                window.dispatchEvent(new Event('resize'));
+            }, 1500 - timeSinceAction);
+            return; 
+        }
 
         const newWidth = window.innerWidth;
         const newHeight = window.innerHeight;
@@ -2077,18 +2099,11 @@ window.addEventListener('load', () => {
         // 2. 如果此时抽屉是展开状态且有选中的节点，需要重新校准相机的偏移量
         const drawer = document.getElementById('drawer');
         
-        // 【关键修复】：防抖机制，避免抽屉打开瞬间触发的 resize 打断相机的平滑飞行
-        const now = Date.now();
-        if (now - lastLocalActionTime < 1500) {
-            return; // 如果距离上次点击不到 1.5 秒（动画正在进行中），则不干预相机
-        }
-        
         if (drawer && !drawer.classList.contains('drawer-hidden') && selectedNodeObj) {
-            
             // 重新获取当前的屏幕宽度，并套用最新的精确偏移模型
             const { camPos, lookAt } = calculateOffsetView(selectedNodeObj, 350);
             
-            // 使用过渡时间 0（瞬间完成）或极短时间，以避免拖拽窗口时产生严重的视觉延迟
+            // 使用过渡时间 0（瞬间完成），以避免拖拽窗口时产生严重的视觉延迟
             Graph.cameraPosition(camPos, lookAt, 0); 
         }
     });
