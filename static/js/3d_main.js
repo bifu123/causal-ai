@@ -60,20 +60,19 @@ function showSelectionHint(msg) {
 
 /**
  * 视觉特效：神圣光柱（Divine Beam）与 全局光晕爆发
- * 当节点居中时，从正上方降下一束神圣光柱聚焦于该节点，并引起全屏幕的背景中心光晕闪亮
+ * 当节点居中时，从正上方降下一束强力神圣光柱聚焦于该节点，并引起全屏幕的背景变亮
  * @param {Object} node 目标节点
  */
 function showDivineBeam(node) {
     const THREE = getThreeInstance();
     if (!THREE || !Graph) return;
     
-    // 如果已有光柱，移除它，确保全场只有一束追光
+    // 如果已有光柱，移除它
     if (activeBeam) {
         Graph.scene().remove(activeBeam);
     }
     
-    // --- 爆发中心光晕特效（引起整个背景/中心变亮） ---
-    // 利用 CSS 创建一层覆盖全局画面的高能耀斑，放在 3D 画布的上层
+    // --- 爆发中心光晕特效 ---
     const bgFlare = document.createElement('div');
     bgFlare.style.position = 'absolute';
     bgFlare.style.top = '0';
@@ -82,82 +81,123 @@ function showDivineBeam(node) {
     bgFlare.style.height = '100vh';
     bgFlare.style.pointerEvents = 'none';
     bgFlare.style.zIndex = '999'; 
-    // 辐射状光晕，中心亮白并逐渐向边缘扩散
-    bgFlare.style.background = 'radial-gradient(circle at center, rgba(100, 180, 255, 0.25) 0%, rgba(255, 255, 255, 0.05) 40%, transparent 80%)';
-    bgFlare.style.mixBlendMode = 'screen'; // 让光晕更柔和地叠加照亮背后的星空和节点
+    bgFlare.style.background = 'radial-gradient(circle at center, rgba(80, 160, 255, 0.25) 0%, rgba(60, 100, 255, 0.08) 40%, transparent 80%)';
+    bgFlare.style.mixBlendMode = 'screen'; 
     bgFlare.style.opacity = '0';
     bgFlare.style.transition = 'opacity 0.4s ease-out';
     document.body.appendChild(bgFlare);
     
-    // 下一帧触发淡入变亮
     requestAnimationFrame(() => {
         bgFlare.style.opacity = '1';
-        // 维持短暂峰值后，缓慢淡出恢复原状
         setTimeout(() => {
-            bgFlare.style.transition = 'opacity 1.5s ease-in';
+            bgFlare.style.transition = 'opacity 2.0s ease-in';
             bgFlare.style.opacity = '0';
-            // 动画彻底结束后销毁
-            setTimeout(() => bgFlare.remove(), 1600);
-        }, 600);
+            setTimeout(() => bgFlare.remove(), 2100);
+        }, 800);
     });
     
-    // 光柱高度和半径
-    const beamHeight = 600;
-    const topRadius = 35;
-    const bottomRadius = 5; 
+    // --- 动态自适应光柱与物理引擎完美贴合 ---
     
-    // 创建一个逐渐变细的圆柱体，顶部大底部小，像探照灯
-    const geometry = new THREE.CylinderGeometry(topRadius, bottomRadius, beamHeight, 32, 1, true);
+    // 1. 获取目标节点在引擎中的确切物理半径
+    const MIN_RADIUS = 1.2;
+    const MAX_RADIUS = 9.0;
+    const REL_SIZE = 7;
+    const weight = Math.max(0, Math.min(1, node.survival_weight || 0));
+    const targetRadius = MIN_RADIUS + (weight * (MAX_RADIUS - MIN_RADIUS));
+    const actualPhysicalRadius = targetRadius * REL_SIZE; // 这个值在 8.4 到 63 之间变化
     
-    // 将几何体中心点向上偏移，使其原点对齐底部
-    geometry.translate(0, beamHeight / 2, 0);
+    const beamHeight = 800; 
+    
+    // 2. 动态计算顶部和底部半径
+    // 底部：使其完美贴合星体直径边缘的 95%（略微向内收敛，这样绝无漏光溢出可能）
+    const bottomRadius = actualPhysicalRadius * 0.95;
+    // 顶部：成比例放大，保证无论小星球还是大星球都保持雄浑庞大的锥角倒三角形视觉冲击，设置个保底尺寸 120
+    const topRadius = Math.max(120, bottomRadius * 5.0);
 
-    const material = new THREE.MeshBasicMaterial({
-        color: 0x44aaff,       // 科幻感的青蓝色光芒
+    const geo = new THREE.CylinderGeometry(topRadius, bottomRadius, beamHeight, 32, 1, true);
+    geo.translate(0, beamHeight / 2, 0);
+
+    // 关键核心：利用自定义 Shader 产生基于法线视角的“边缘渐变羽化”效果
+    const customMaterial = new THREE.ShaderMaterial({
+        uniforms: {
+            color: { value: new THREE.Color(0xaaccff) },
+            coreColor: { value: new THREE.Color(0xffffff) },
+            globalOpacity: { value: 0.0 }
+        },
+        vertexShader: `
+            varying vec3 vNormal;
+            varying vec3 vViewPosition;
+            void main() {
+                vNormal = normalize(normalMatrix * normal);
+                vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+                vViewPosition = -mvPosition.xyz;
+                gl_Position = projectionMatrix * mvPosition;
+            }
+        `,
+        fragmentShader: `
+            uniform vec3 color;
+            uniform vec3 coreColor;
+            uniform float globalOpacity;
+            varying vec3 vNormal;
+            varying vec3 vViewPosition;
+            void main() {
+                vec3 normal = normalize(vNormal);
+                vec3 viewDir = normalize(vViewPosition);
+                float dotVal = max(0.0, dot(normal, viewDir));
+                float intensity = pow(dotVal, 1.0);
+                vec3 finalColor = mix(color, coreColor, pow(dotVal, 1.8));
+                gl_FragColor = vec4(finalColor, intensity * globalOpacity);
+            }
+        `,
         transparent: true,
-        opacity: 0.0,          // 初始透明度0，准备淡入
-        blending: THREE.AdditiveBlending, // 加法混合，让光柱叠加更加耀眼
-        depthWrite: false,     // 不遮挡背后的星星
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
         side: THREE.DoubleSide
     });
 
-    const beam = new THREE.Mesh(geometry, material);
+    const beamMesh = new THREE.Mesh(geo, customMaterial);
     
-    // 创建一盏聚光灯绑定在光柱顶部，真实照亮下方的球体
-    const spotLight = new THREE.SpotLight(0xffffff, 0); // 初始亮度0
-    spotLight.position.set(0, beamHeight, 0); // 相对光柱内部的顶部
-    spotLight.target = beam;                  // 指向光柱底部原点
-    spotLight.angle = Math.PI / 10;
-    spotLight.penumbra = 0.5;
+    // 3. 动态精准计算聚光灯照射角
+    // 使用三角函数精确计算：为了完美覆盖目标半径区域（不溢出），灯光张开弧度的一半为 atan(bottomRadius / beamHeight)
+    const exactLightAngle = Math.atan(bottomRadius / beamHeight);
+    
+    // 聚光灯：仅用于照亮下方的星球。边缘极限柔和
+    const spotLight = new THREE.SpotLight(0xffffff, 0); 
+    spotLight.position.set(0, beamHeight, 0); 
+    spotLight.target = beamMesh;                  
+    spotLight.angle = exactLightAngle; 
+    spotLight.penumbra = 1.0;       // 照射边缘极限柔和衰减，杜绝生硬切割感
     spotLight.distance = beamHeight * 1.5;
-    beam.add(spotLight); 
+    beamMesh.add(spotLight); 
 
     const startTime = Date.now();
-    const duration = 2500; // 持续 2.5 秒
+    const duration = 3500; 
 
-    beam.userData.animate = function() {
+    beamMesh.userData.animate = function() {
         const elapsed = Date.now() - startTime;
         if (elapsed > duration) {
-            Graph.scene().remove(beam);
-            return false; // 动画结束，销毁光柱
+            Graph.scene().remove(beamMesh);
+            return false; 
         }
         
         let p = elapsed / duration;
-        // 前 20% 时间(0.5秒)从 0 变到 0.35 极限透明度；后 80% 时间逐渐变暗
-        let targetOpacity = p < 0.2 ? (p / 0.2) * 0.35 : (1 - (p - 0.2) / 0.8) * 0.35;
-        beam.material.opacity = targetOpacity;
-        spotLight.intensity = targetOpacity * 50; // 同步照亮底下的球体
+        // 呼吸感：0.5秒爆发至 1.0 的最大不透明度，后缓慢变暗
+        let intensityFactor = p < 0.15 ? (p / 0.15) : (1 - (p - 0.15) / 0.85);
         
-        // 实时跟随节点的坐标，防止节点在物理引擎中晃动时光柱脱离
-        beam.position.set(node.x, node.y, node.z);
+        // 传递透明度到 Shader
+        customMaterial.uniforms.globalOpacity.value = intensityFactor * 0.9;
+        
+        // 同步照亮球体
+        spotLight.intensity = intensityFactor * 80; 
+        
+        beamMesh.position.set(node.x, node.y, node.z);
         
         return true;
     };
     
-    Graph.scene().add(beam);
-    activeBeam = beam;
+    Graph.scene().add(beamMesh);
+    activeBeam = beamMesh;
     
-    // 挂载到统一的动画循环中
     if (!beamAnimationId) {
         function renderLoop() {
             if (activeBeam) {
@@ -1649,6 +1689,9 @@ window.addEventListener('load', () => {
             
             selectedNodeObj = node; 
             openDrawer(node.id); // 唤起右侧抽屉
+            
+            // 降下一束神圣探照光柱
+            showDivineBeam(node);
             
             // 使用精确坐标偏移计算
             const { camPos, lookAt } = calculateOffsetView(node, 350);
