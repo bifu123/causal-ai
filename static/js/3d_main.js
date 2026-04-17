@@ -43,6 +43,9 @@ let beamAnimationId = null;
 const DRAWER_WIDTH = 384; // 抽屉宽度 (w-96 = 24rem = 384px)
 const FOCUS_DIST = 200;   // 聚焦距离
 
+// 创世金光动画标记
+window.pendingGenesisNodeId = null;
+
 // --- [2. 核心辅助工具] ---
 
 function getThreeInstance() {
@@ -63,7 +66,7 @@ function showSelectionHint(msg) {
  * 当节点居中时，从正上方降下一束强力神圣光柱聚焦于该节点，并引起全屏幕的背景变亮
  * @param {Object} node 目标节点
  */
-function showDivineBeam(node) {
+function showDivineBeam(node, colorType = 'divine') {
     const THREE = getThreeInstance();
     if (!THREE || !Graph) return;
     
@@ -72,6 +75,19 @@ function showDivineBeam(node) {
         Graph.scene().remove(activeBeam);
     }
     
+    // --- 根据颜色类型决定主题色 ---
+    let flareGradient = 'radial-gradient(circle at center, rgba(80, 160, 255, 0.25) 0%, rgba(60, 100, 255, 0.08) 40%, transparent 80%)';
+    let outerColor = new THREE.Color(0xaaccff);
+    let innerColor = new THREE.Color(0xffffff);
+    let spotLightColor = 0xffffff;
+    
+    if (colorType === 'golden') {
+        flareGradient = 'radial-gradient(circle at center, rgba(255, 215, 0, 0.35) 0%, rgba(255, 140, 0, 0.15) 40%, transparent 80%)';
+        outerColor = new THREE.Color(0xffaa00); // 雄浑的纯金色
+        innerColor = new THREE.Color(0xffffee); // 耀眼白金内核
+        spotLightColor = 0xffcc00;              // 星体表面打金光
+    }
+
     // --- 爆发中心光晕特效 ---
     const bgFlare = document.createElement('div');
     bgFlare.style.position = 'absolute';
@@ -81,7 +97,7 @@ function showDivineBeam(node) {
     bgFlare.style.height = '100vh';
     bgFlare.style.pointerEvents = 'none';
     bgFlare.style.zIndex = '999'; 
-    bgFlare.style.background = 'radial-gradient(circle at center, rgba(80, 160, 255, 0.25) 0%, rgba(60, 100, 255, 0.08) 40%, transparent 80%)';
+    bgFlare.style.background = flareGradient;
     bgFlare.style.mixBlendMode = 'screen'; 
     bgFlare.style.opacity = '0';
     bgFlare.style.transition = 'opacity 0.4s ease-out';
@@ -109,9 +125,7 @@ function showDivineBeam(node) {
     const beamHeight = 800; 
     
     // 2. 动态计算顶部和底部半径
-    // 底部：使其完美贴合星体直径边缘的 95%（略微向内收敛，这样绝无漏光溢出可能）
     const bottomRadius = actualPhysicalRadius * 0.95;
-    // 顶部：成比例放大，保证无论小星球还是大星球都保持雄浑庞大的锥角倒三角形视觉冲击，设置个保底尺寸 120
     const topRadius = Math.max(120, bottomRadius * 5.0);
 
     const geo = new THREE.CylinderGeometry(topRadius, bottomRadius, beamHeight, 32, 1, true);
@@ -120,8 +134,8 @@ function showDivineBeam(node) {
     // 关键核心：利用自定义 Shader 产生基于法线视角的“边缘渐变羽化”效果
     const customMaterial = new THREE.ShaderMaterial({
         uniforms: {
-            color: { value: new THREE.Color(0xaaccff) },
-            coreColor: { value: new THREE.Color(0xffffff) },
+            color: { value: outerColor },
+            coreColor: { value: innerColor },
             globalOpacity: { value: 0.0 }
         },
         vertexShader: `
@@ -162,7 +176,7 @@ function showDivineBeam(node) {
     const exactLightAngle = Math.atan(bottomRadius / beamHeight);
     
     // 聚光灯：仅用于照亮下方的星球。边缘极限柔和
-    const spotLight = new THREE.SpotLight(0xffffff, 0); 
+    const spotLight = new THREE.SpotLight(spotLightColor, 0); 
     spotLight.position.set(0, beamHeight, 0); 
     spotLight.target = beamMesh;                  
     spotLight.angle = exactLightAngle; 
@@ -568,8 +582,40 @@ async function loadInitialData() {
 
             Graph.graphData({ nodes, links });
             
-            // 防跳跃逻辑：如果没有选中任何节点，才执行全局缩放适应
-            if (!selectedNodeObj) {
+            // 触发创世金光降临判断
+            if (window.pendingGenesisNodeId) {
+                const targetNodeId = window.pendingGenesisNodeId;
+                window.pendingGenesisNodeId = null;
+                // 引擎需要几百毫秒将数据转换为三维对象并赋予坐标
+                setTimeout(() => {
+                    const latestNodes = Graph.graphData().nodes;
+                    const gNode = latestNodes.find(n => n.id === targetNodeId || n.node_id === targetNodeId);
+                    if (gNode) {
+                        selectedNodeObj = gNode; // 锁定为选中状态，防止防跳跃逻辑触发
+                        
+                        // 物理锁定它，不让它乱飞，防止它撞到镜头上
+                        const sim = Graph.d3Force('charge') ? Graph.d3Force('charge').simulation : null;
+                        if (sim) { sim.alpha(0); sim.alphaTarget(0); }
+                        gNode.fx = gNode.x; gNode.fy = gNode.y; gNode.fz = gNode.z;
+                        
+                        const { camPos, lookAt } = calculateOffsetView(gNode, 350);
+                        Graph.cameraPosition(camPos, lookAt, 2000);
+                        
+                        // 赐予创世金色圣光！
+                        showDivineBeam(gNode, 'golden');
+                        
+                        // 高亮反馈
+                        highlightNodes.clear();
+                        highlightNodes.add(gNode);
+                        updateHighlight();
+                        setTimeout(() => { 
+                            highlightNodes.clear(); 
+                            updateHighlight(); 
+                        }, 4000);
+                    }
+                }, 800);
+            } else if (!selectedNodeObj) {
+                // 防跳跃逻辑：如果没有选中任何节点，才执行全局缩放适应
                 setTimeout(() => {
                     Graph.zoomToFit(1200, 150);
                 }, 600);
@@ -649,16 +695,17 @@ function updateNodeIncremental(data) {
                 // 【核心修复3：平滑的三维视觉缩放】直接操作 Three.js Mesh，杜绝全图重绘导致抖动
                 if (gNode.__threeObj) {
                     const MIN_RADIUS = 1.2;
-                    const MAX_RADIUS = 7;
+                    const MAX_RADIUS = 9.0; // 统一为全局一致的 9.0
                     const REL_SIZE = 7;
                     const w = Math.max(0, Math.min(1, parseFloat(gNode.survival_weight || 0)));
-                    const newRadius = MIN_RADIUS + (w * (MAX_RADIUS - MIN_RADIUS));
-                    const targetPhysicalRadius = newRadius * REL_SIZE;
+                    const targetRadius = MIN_RADIUS + (w * (MAX_RADIUS - MIN_RADIUS));
+                    const targetPhysicalRadius = targetRadius * REL_SIZE;
                     
                     const sphere = gNode.__threeObj.children[0];
                     if (sphere && sphere.geometry) {
                         const originalRadius = sphere.geometry.parameters.radius;
                         const scale = targetPhysicalRadius / originalRadius;
+                        // 因为是 relative 到原始生成的几何体大小，这样是安全且平滑的
                         sphere.scale.set(scale, scale, scale);
                     }
                     
@@ -666,6 +713,7 @@ function updateNodeIncremental(data) {
                     if (sprite && sprite.material && sprite.material.map) {
                         const baseScale = Math.max(0.3, Math.min(0.6, 0.55 - (w * 0.2)));
                         sprite.scale.set(sprite.material.map.baseWidth * baseScale, sprite.material.map.baseHeight * baseScale, 1);
+                        sprite.position.y = targetPhysicalRadius + 14;
                     }
                 }
 
@@ -727,6 +775,7 @@ function initSocketHandlers() {
     
     window.socket.on('node_created', (data) => {
         nodeCache[data.node_id] = data;
+        window.pendingGenesisNodeId = data.node_id; // 标记待播发创世金光的节点
         loadInitialData(); // 新节点增加需要拓扑刷新
     });
 
