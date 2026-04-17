@@ -17,6 +17,10 @@ let nodeCache = {};
 let parentIdSelectionMode = false; // 是否处于父ID选择模式
 let activeParentIdField = null; // 当前活动的父ID输入框
 
+// 远端协同与视角锁定机制
+let lastLocalActionTime = 0; // 记录本地最近一次交互操作的时间戳
+let lastRemoteJumpTime = 0;  // 记录最近一次远端跃迁的时间戳
+
 // 巡航与控制状态
 let isPhysicsEnabled = true;
 let isDragonCruising = false;
@@ -55,8 +59,7 @@ function showSelectionHint(msg) {
  * 计算带偏移的相机位置和观察点
  * 目的是让节点显示在 (屏幕宽度 - 抽屉宽度) 的中心
  */
-function calculateOffsetView(node, distance = FOCUS_DIST) {
-    const camPos = Graph.cameraPosition();
+function calculateOffsetView(node, distance = 350) {
     const { x, y, z } = node;
 
     // 1. 计算从原点到节点的单位向量（方向）
@@ -71,31 +74,44 @@ function calculateOffsetView(node, distance = FOCUS_DIST) {
     };
 
     // 3. 计算水平偏移量
-    // 原理：在 3D 空间中，我们需要将 lookAt 点向右偏移，使节点在屏幕上向左移动
     const screenWidth = window.innerWidth;
-    const drawerVisible = !document.getElementById('drawer').classList.contains('drawer-hidden');
+    const drawerElement = document.getElementById('drawer');
+    const drawerVisible = drawerElement && !drawerElement.classList.contains('drawer-hidden');
     
     let lookAtPos = { x, y, z };
 
     if (drawerVisible && screenWidth > DRAWER_WIDTH) {
-        // 计算抽屉占屏幕的比例
-        const offsetRatio = DRAWER_WIDTH / screenWidth;
+        // 目标：节点向左移动 抽屉宽度的一半
+        const offsetRatio = (DRAWER_WIDTH / 2) / screenWidth;
         
-        // 基于相机距离和FOV计算世界坐标系下的偏移宽度
-        // 这里的 0.65 是一个经验补偿系数，确保节点位于左侧区域的几何中心
-        const fovRad = (Graph.camera().fov * Math.PI) / 180;
-        const visibleWidthAtDist = 2 * Math.tan(fovRad / 2) * distance;
-        const worldOffset = visibleWidthAtDist * offsetRatio * 0.5;
-
-        // 获取相机右向量（Right Vector），使偏移垂直于视线
+        // 计算相机当前视锥宽度
         const camera = Graph.camera();
-        const rightVec = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+        if (camera) {
+            const fovRad = (camera.fov * Math.PI) / 180;
+            const viewHeight = 2 * Math.tan(fovRad / 2) * distance;
+            const viewWidth = viewHeight * camera.aspect;
 
-        lookAtPos = {
-            x: x + rightVec.x * worldOffset,
-            y: y + rightVec.y * worldOffset,
-            z: z + rightVec.z * worldOffset
-        };
+            const worldOffset = viewWidth * offsetRatio;
+
+            // 计算 right 向量
+            const lookDir = new THREE.Vector3(-dir.x, -dir.y, -dir.z); // 假设相机从外看向原点方向
+            const up = new THREE.Vector3(0, 1, 0);
+            let right = new THREE.Vector3().crossVectors(lookDir, up).normalize();
+            if (right.lengthSq() < 0.01) {
+                right.crossVectors(lookDir, new THREE.Vector3(1, 0, 0)).normalize();
+            }
+
+            // lookAt 向右偏移，同时相机也向右偏移，保证视线垂直于屏幕
+            lookAtPos = {
+                x: x + right.x * worldOffset,
+                y: y + right.y * worldOffset,
+                z: z + right.z * worldOffset
+            };
+            
+            newCamPos.x += right.x * worldOffset;
+            newCamPos.y += right.y * worldOffset;
+            newCamPos.z += right.z * worldOffset;
+        }
     }
 
     return { camPos: newCamPos, lookAt: lookAtPos };
@@ -497,40 +513,44 @@ function updateNodeIncremental(data) {
                     }
                 }
 
-                // 【核心修复4：全局寻踪视角跃迁】
-                // 如果收到节点更新消息，且该节点并不是当前用户正打开抽屉查看的节点（大概率是远端API调用）
-                // 则触发类似“因果巡航”的聚焦放大动画效果！
-                if (!isCurrentlySelected && Graph) {
-                    // 把该节点标为选中（以便防跳跃处理和其它机制识别）
-                    selectedNodeObj = gNode; 
+                // 【核心修复4：全局寻踪视角跃迁与防抖机制】
+                // 仅当：当前无抽屉处于打开状态，且不在寻龙中，且距离上次本地手动操作已超过 3 秒，才允许远端API驱动的相机跃迁
+                const now = Date.now();
+                const isLocalActionCooling = (now - lastLocalActionTime) < 3000;
+                const drawerElement = document.getElementById('drawer');
+                const isDrawerOpen = drawerElement && !drawerElement.classList.contains('drawer-hidden');
+                
+                // 为了避免被轻微的权重提升误导，仅对权重显著增加的节点触发远端跃迁
+                const isSignificantWeight = (parseFloat(newWeight || 0) >= 0.4);
+                
+                if (!isCurrentlySelected && !isDrawerOpen && !isDragonCruising && !isLocalActionCooling && isSignificantWeight && Graph) {
                     
-                    const dist = 160;
-                    const distance = Math.hypot(gNode.x, gNode.y, gNode.z) || 1;
-                    const ratio = 1 + dist / distance;
-                    
-                    const targetPosition = { 
-                        x: gNode.x * ratio, 
-                        y: gNode.y * ratio, 
-                        z: gNode.z * ratio 
-                    };
-                    
-                    // 2秒的平滑相机移动
-                    Graph.cameraPosition(
-                        targetPosition, 
-                        gNode, 
-                        2000
-                    );
-                    
-                    // 给这颗跃迁的星星来点高亮视觉反馈
-                    highlightNodes.clear();
-                    highlightNodes.add(gNode);
-                    updateHighlight();
-                    
-                    // 3秒后自动取消高亮
-                    setTimeout(() => {
+                    // 防抖：如果2秒内已经跃迁过，则忽略，避免链路上的批量更新引发视角震荡
+                    if (now - lastRemoteJumpTime > 2000) {
+                        lastRemoteJumpTime = now;
+                        
+                        selectedNodeObj = gNode; 
+                        
+                        const { camPos, lookAt } = calculateOffsetView(gNode, 350);
+                        
+                        // 2秒的平滑相机移动
+                        Graph.cameraPosition(
+                            camPos, 
+                            lookAt, 
+                            2000
+                        );
+                        
+                        // 给这颗跃迁的星星来点高亮视觉反馈
                         highlightNodes.clear();
+                        highlightNodes.add(gNode);
                         updateHighlight();
-                    }, 3000);
+                        
+                        // 3秒后自动取消高亮
+                        setTimeout(() => {
+                            highlightNodes.clear();
+                            updateHighlight();
+                        }, 3000);
+                    }
                 }
             }
         }
@@ -972,25 +992,15 @@ async function startDragonCruise() {
             coordinates: { x: node.x, y: node.y, z: node.z }
         });
         
-        const dist = 160;
-        const distance = Math.hypot(node.x, node.y, node.z);
-        const ratio = 1 + dist / distance;
+        const { camPos, lookAt } = calculateOffsetView(node, 350);
         
-        console.log(`[因果巡航] 相机计算: 距离=${distance.toFixed(2)}, 比例=${ratio.toFixed(2)}`);
-        
-        const targetPosition = { 
-            x: node.x * ratio, 
-            y: node.y * ratio, 
-            z: node.z * ratio 
-        };
-        
-        console.log(`[因果巡航] 相机目标位置:`, targetPosition);
+        console.log(`[因果巡航] 相机目标位置:`, camPos);
         console.log(`[因果巡航] 开始移动相机到节点 ${node.id}...`);
         
         await new Promise(resolve => {
             Graph.cameraPosition(
-                targetPosition, 
-                node, 
+                camPos, 
+                lookAt, 
                 2000
             );
             
@@ -1157,6 +1167,8 @@ async function submitCreateNode() {
 function handleNodeClick(node) {
     if (!node) return;
 
+    lastLocalActionTime = Date.now(); // 记录操作时间，屏蔽远端跃迁干扰
+
     // --- 1. 物理锁定与冷却 ---
     const sim = Graph.d3Force('charge') ? Graph.d3Force('charge').simulation : null;
     if (sim) {
@@ -1186,38 +1198,12 @@ function handleNodeClick(node) {
     openDrawer(node.id);
     
     // --- 3. 动态偏移中心聚焦 ---
-    // 【数学模型】：计算视口偏移
-    // 目标：让节点显示在 (屏幕总宽 - 抽屉宽度) 的几何中心
-    const screenWidth = window.innerWidth;
-    const offsetRatio = (450 / screenWidth) * 0.7; // 偏移系数，使用与onNodeClick一致的算法
-
-    const distance = 350; // 使用FOCUS_DIST常量值
-    const distRatio = 1 + distance / Math.hypot(node.x, node.y, node.z);
-    const camPos = { x: node.x * distRatio, y: node.y * distRatio, z: node.z * distRatio };
-
-    // 计算注视点：为了让节点在左侧居中，注视点需向右偏移
-    const targetLookAt = {
-        x: node.x + (Math.abs(node.x) + 200) * offsetRatio, 
-        y: node.y,
-        z: node.z
-    };
-    
-    // 调试输出：相机偏移计算
-    console.log(`[handleNodeClick调试] 相机偏移计算:`, {
-        drawerWidth: 450,
-        screenWidth,
-        offsetRatio,
-        distance,
-        distRatio,
-        nodePosition: { x: node.x, y: node.y, z: node.z },
-        cameraPosition: camPos,
-        targetLookAt,
-        offsetCalculation: `node.x + (Math.abs(node.x) + 200) * offsetRatio = ${node.x} + (${Math.abs(node.x)} + 200) * ${offsetRatio} = ${targetLookAt.x}`
-    });
+    // 使用全局精确坐标偏移计算
+    const { camPos, lookAt } = calculateOffsetView(node, 350);
     
     Graph.cameraPosition(
         camPos, 
-        targetLookAt, 
+        lookAt, 
         1200
     );
 
@@ -1446,13 +1432,13 @@ window.addEventListener('load', () => {
 
             // 分类建模逻辑
             if (duty === '贞') {
-                // --- 恒星 (Star)：核心、发光、不受色调映射影响以保持耀眼 ---
+                // --- 恒星 (Star)：核心、发光、保留立体感与高光 ---
                 material = new THREE.MeshStandardMaterial({
                     color: '#ffcc00',
-                    emissive: '#ff9900',
-                    emissiveIntensity: 2.5,
-                    toneMapped: false, // 视觉增强：允许亮度突破常规限制
-                    roughness: 0.1
+                    emissive: '#ff6600',    // 自发光用偏橙色
+                    emissiveIntensity: 0.4, // 降低自发光强度，避免掩盖明暗变化
+                    metalness: 0.3,         // 增加金属感以反射光线
+                    roughness: 0.2          // 降低粗糙度以获得明显高光
                 });
             } else if (duty === '又贞') {
                 // --- 气态行星 (Gas Giant)：轻盈、半透明、高反光 ---
@@ -1505,6 +1491,8 @@ window.addEventListener('load', () => {
         .onNodeClick(node => {
             if (!node) return;
 
+            lastLocalActionTime = Date.now(); // 记录操作时间，屏蔽远端跃迁干扰
+
             // 物理锁定
             const sim = Graph.d3Force('charge') ? Graph.d3Force('charge').simulation : null;
             if (sim) { sim.alpha(0); sim.alphaTarget(0); }
@@ -1526,17 +1514,7 @@ window.addEventListener('load', () => {
             openDrawer(node.id); // 唤起右侧抽屉
             
             // 使用精确坐标偏移计算
-            const { camPos, lookAt } = calculateOffsetView(node, FOCUS_DIST);
-            
-            // 调试输出：相机偏移计算
-            console.log(`[onNodeClick调试] 相机偏移计算:`, {
-                DRAWER_WIDTH,
-                screenWidth: window.innerWidth,
-                FOCUS_DIST,
-                nodePosition: { x: node.x, y: node.y, z: node.z },
-                cameraPosition: camPos,
-                targetLookAt: lookAt
-            });
+            const { camPos, lookAt } = calculateOffsetView(node, 350);
             
             Graph.cameraPosition(camPos, lookAt, 1200);
 
@@ -1914,6 +1892,7 @@ window.addEventListener('load', () => {
     // 处理搜索结果点击事件 - 定义为全局函数
     window.handleSearchResultClick = async function(serialId, nodeId) {
         console.log(`[搜索点击] 点击搜索结果: serial_id=${serialId}, node_id=${nodeId}`);
+        lastLocalActionTime = Date.now(); // 记录操作时间，屏蔽远端跃迁干扰
         
         try {
             // 调用点击事件API
@@ -1982,15 +1961,9 @@ window.addEventListener('load', () => {
             targetNode.fz = targetNode.z;
             
             // 聚焦到该节点（但不打开抽屉）
-            const distance = 600;
-            const distRatio = 1 + distance / Math.hypot(targetNode.x, targetNode.y, targetNode.z);
-            const camPos = { 
-                x: targetNode.x * distRatio, 
-                y: targetNode.y * distRatio, 
-                z: targetNode.z * distRatio 
-            };
+            const { camPos, lookAt } = calculateOffsetView(targetNode, 350);
             
-            Graph.cameraPosition(camPos, targetNode, 1200);
+            Graph.cameraPosition(camPos, lookAt, 1200);
             
             // 添加高亮效果
             highlightNodes.clear();
@@ -2103,26 +2076,20 @@ window.addEventListener('load', () => {
 
         // 2. 如果此时抽屉是展开状态且有选中的节点，需要重新校准相机的偏移量
         const drawer = document.getElementById('drawer');
+        
+        // 【关键修复】：防抖机制，避免抽屉打开瞬间触发的 resize 打断相机的平滑飞行
+        const now = Date.now();
+        if (now - lastLocalActionTime < 1500) {
+            return; // 如果距离上次点击不到 1.5 秒（动画正在进行中），则不干预相机
+        }
+        
         if (drawer && !drawer.classList.contains('drawer-hidden') && selectedNodeObj) {
             
-            // 重新获取当前的屏幕宽度，并套用已有的偏移数学模型
-            const offsetRatio = (DRAWER_WIDTH / newWidth) * 0.7;
-            
-            const distRatio = 1 + FOCUS_DIST / Math.hypot(selectedNodeObj.x, selectedNodeObj.y, selectedNodeObj.z);
-            const camPos = { 
-                x: selectedNodeObj.x * distRatio, 
-                y: selectedNodeObj.y * distRatio, 
-                z: selectedNodeObj.z * distRatio 
-            };
-
-            const targetLookAt = {
-                x: selectedNodeObj.x + (Math.abs(selectedNodeObj.x) + 200) * offsetRatio, 
-                y: selectedNodeObj.y,
-                z: selectedNodeObj.z
-            };
+            // 重新获取当前的屏幕宽度，并套用最新的精确偏移模型
+            const { camPos, lookAt } = calculateOffsetView(selectedNodeObj, 350);
             
             // 使用过渡时间 0（瞬间完成）或极短时间，以避免拖拽窗口时产生严重的视觉延迟
-            Graph.cameraPosition(camPos, targetLookAt, 0); 
+            Graph.cameraPosition(camPos, lookAt, 0); 
         }
     });
 });
