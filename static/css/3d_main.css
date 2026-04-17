@@ -930,7 +930,7 @@ body::after {
 
 /* tooltip标题样式 - 极简 */
 .force-graph-tooltip .tooltip-title {
-    color: #3f3788 !important; /* 纯白色 */
+    color: #6f6b91 !important; /* 纯白色 */
     font-weight: bold !important; /* 加粗 */
     margin-bottom: 14px !important; /* 增加边距 */
     font-size: 14px !important; /* 增大字号（原13px -> 16px） */
@@ -964,8 +964,8 @@ body::after {
 
 /* 简化值样式 */
 .force-graph-tooltip .tooltip-value {
-    color: #7c7a7a !important; /* 纯白色值 */
-    font-size: 12px !important; /* 增大字号 */
+    color: #a8a5a5 !important; /* 纯白色值 */
+    font-size: 14px !important; /* 增大字号 */
     font-weight: normal !important; /* 正常粗细 */
 }
 

@@ -624,6 +624,17 @@ async function loadInitialData() {
                         setTimeout(() => { 
                             highlightNodes.clear(); 
                             updateHighlight(); 
+                            
+                            // 创世光束消失后，释放物理锁定并执行一次适应视图
+                            gNode.fx = null;
+                            gNode.fy = null;
+                            gNode.fz = null;
+                            selectedNodeObj = null;
+                            
+                            // 平滑过渡到全景视图
+                            setTimeout(() => {
+                                Graph.zoomToFit(1200, 150);
+                            }, 500);
                         }, 4000);
                     }
                 }, 800);
@@ -1781,6 +1792,7 @@ window.addEventListener('load', () => {
         // --- [5. 连线与细节配置] ---
         .nodeLabel(node => {
             const weight = typeof node.survival_weight === 'number' ? node.survival_weight.toFixed(10) : '0.00';
+            const serialId = node.serial_id || node.本事件ID || '未知';
             let eventTuple = node.event_tuple || node.content || '无事件叙述';
             // 获取权重状态描述（参照index.html中的getWeightStatus函数）
             const weightValue = parseFloat(weight);
@@ -1800,6 +1812,10 @@ window.addEventListener('load', () => {
             return `<div class="force-graph-tooltip">
                 <div class="tooltip-title">${node.id}</div>
                 <div class="tooltip-simple">
+                    <div class="tooltip-row">
+                        <span class="tooltip-label">序列:</span>
+                        <span class="tooltip-value" style="color: #7fb4f5ff;">${serialId}</span>
+                    </div>
                     <div class="tooltip-row">
                         <span class="tooltip-label">权重:</span>
                         <span class="tooltip-value weight-value">${weight}</span>
