@@ -668,6 +668,26 @@ header {
     font-family: 'monospace';
 }
 
+/* 移动端tooltip优化 */
+@media (max-width: 768px) {
+    .vis-tooltip-custom {
+        max-width: 70vw !important;    /* 移动端最大宽度为视口宽度的90% */
+        max-height: 50vh !important;   /* 移动端最大高度为视口高度的60% */
+        padding: 12px !important;
+        font-size: 14px !important;
+        /* margin: 80px !important; 加150px的margin，避免tooltip占据太多屏幕空间 */
+    }
+    
+    .tooltip-node-id {
+        font-size: 14px !important;
+    }
+    
+    .tooltip-weight-row,
+    .tooltip-abstract-row .value-abstract {
+        font-size: 12px !important;
+    }
+}
+
 /* 样式：node_id (标题感) */
 .tooltip-node-id {
     color: #60a5fa; /* 亮蓝色 */
@@ -769,4 +789,74 @@ header {
 
 .editor-statusbar {
     color: #6b7280 !important; /* text-gray-500 */
+}
+
+/* ===== 抽屉折叠/展开功能样式 ===== */
+.drawer-collapsed {
+    transform: translateX(384px) !important; /* 向右移动一个抽屉的距离 */
+}
+
+.drawer-collapse-btn {
+    background: transparent;
+    border: none;
+    color: #94a3b8;
+    cursor: pointer;
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    transition: all 0.2s;
+    margin-left: 8px;
+}
+
+.drawer-collapse-btn:hover {
+    background: rgba(96, 165, 250, 0.2);
+    color: #60a5fa;
+}
+
+.drawer-expand-btn {
+    position: fixed;
+    right: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    background: rgba(17, 24, 39, 0.95);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(96, 165, 250, 0.3);
+    border-right: none;
+    border-radius: 8px 0 0 8px;
+    color: #60a5fa;
+    cursor: pointer;
+    width: 32px;
+    height: 64px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 60;
+    transition: all 0.3s ease;
+    box-shadow: -2px 0 10px rgba(0, 0, 0, 0.3);
+}
+
+.drawer-expand-btn:hover {
+    background: rgba(96, 165, 250, 0.2);
+    width: 36px;
+    box-shadow: -3px 0 15px rgba(96, 165, 250, 0.2);
+}
+
+.drawer-expand-btn.hidden {
+    display: none;
+}
+
+/* 当抽屉折叠时，网络图向右移动一个抽屉的距离 */
+.drawer-collapsed ~ #network {
+    width: calc(100% - 384px) !important;
+    transform: translateX(384px);
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* 抽屉折叠时的背景透明度变化 */
+.drawer-collapsed {
+    background: rgba(17, 24, 39, 0.7) !important;
+    backdrop-filter: blur(5px);
 }

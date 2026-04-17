@@ -728,114 +728,6 @@ function updateDrawerBlockTagOptions() {
     }
 }
 
-function openDrawer(nodeId) {
-    currentSelectedNode = nodeId;
-    const data = nodeCache[nodeId];
-    
-    console.log('打开抽屉，节点数据:', data);
-    
-    // 填充表单字段
-    document.getElementById('d-node-id').value = nodeId;
-    document.getElementById('d-event-tuple').value = data ? data.event_tuple : '';
-    document.getElementById('d-full-image-url').value = data ? (data.full_image_url || '') : '';
-    
-    // 填充动作标签和因缘标签
-    if (data) {
-        // 动作标签 - 调试输出
-        console.log('节点动作标签:', data.action_tag, '类型:', typeof data.action_tag);
-        // 如果动作标签不存在或为空字符串，使用默认值'贞'
-        const actionTag = (data.action_tag && data.action_tag.trim()) ? data.action_tag : '贞';
-        document.getElementById('d-action-tag').value = actionTag;
-        
-        // 因缘标签 - 调试输出
-        console.log('节点因缘标签:', data.block_tag, '类型:', typeof data.block_tag);
-        // 如果因缘标签不存在或为空字符串，使用默认值'因'
-        const blockTag = (data.block_tag && data.block_tag.trim()) ? data.block_tag : '因';
-        
-        // 先更新因缘标签选项（根据动作标签）
-        updateDrawerBlockTagOptions();
-        
-        // 然后设置因缘标签的值（在更新选项之后）
-        document.getElementById('d-block-tag').value = blockTag;
-    } else {
-        // 默认值
-        console.log('节点数据为空，使用默认值');
-        document.getElementById('d-action-tag').value = '贞';
-        updateDrawerBlockTagOptions();
-        document.getElementById('d-block-tag').value = '因';
-    }
-    
-    // 填充父ID字段
-    if (data) {
-        let parentIds = [];
-        if (data.parent_ids && data.parent_ids.length > 0) {
-            parentIds = data.parent_ids;
-        } else if (data.parent_id) {
-            parentIds = [data.parent_id];
-        }
-        document.getElementById('d-parent-ids').value = parentIds.join(' | ');
-    } else {
-        document.getElementById('d-parent-ids').value = '';
-    }
-    
-    // 修复权重处理：确保权重为0时正确显示为0%
-    const rawWeight = data ? data.survival_weight : 0;
-    const weight = (rawWeight === null || rawWeight === undefined) ? 0.0 : parseFloat(rawWeight);
-    document.getElementById('d-weight-bar').style.width = `${weight * 100}%`;
-    document.getElementById('d-weight-value').textContent = weight.toFixed(10);
-    
-    // 显示事件图片（如果存在）
-    const imagePreview = document.getElementById('d-image-preview');
-    const previewImg = document.getElementById('d-preview-img');
-    if (data && data.full_image_url) {
-        // 显示现有图片
-        previewImg.src = data.full_image_url;
-        imagePreview.classList.remove('hidden');
-    } else {
-        // 隐藏图片预览
-        imagePreview.classList.add('hidden');
-        previewImg.src = '';
-    }
-    
-    document.getElementById('drawer').classList.remove('drawer-hidden');
-    
-    // 抽屉打开时，调整网格图位置，避免被抽屉遮挡
-    const networkContainer = document.getElementById('network');
-    if (networkContainer) {
-        networkContainer.style.right = '384px'; // 抽屉宽度 w-96 = 384px
-        networkContainer.style.transition = 'right 0.3s ease';
-        console.log('抽屉打开，网格图 right = 384px（抽屉宽度）');
-    }
-    
-    // 抽屉打开时，重新调整网络图使其适应新的可用空间
-    setTimeout(() => {
-        network.fit();
-        console.log('抽屉打开，重新调整网络图');
-        
-        // 默认让d-event-tuple获得焦点
-        const eventTupleField = document.getElementById('d-event-tuple');
-        if (eventTupleField) {
-            eventTupleField.focus();
-            console.log('抽屉打开，d-event-tuple获得焦点');
-        }
-    }, 100);
-}
-
-function closeDrawer() {
-    document.getElementById('drawer').classList.add('drawer-hidden');
-    currentSelectedNode = null;
-    
-    // 抽屉关闭时，移除网格图的 right 属性
-    const networkContainer = document.getElementById('network');
-    if (networkContainer) {
-        networkContainer.style.right = '';
-        console.log('抽屉关闭，移除网格图 right 属性');
-    }
-    
-    // 抽屉关闭时，设置 is_change = true
-    is_change = true;
-    console.log('抽屉关闭，设置 is_change = true');
-}
 
 
 // 为事件上传图片
@@ -2112,6 +2004,207 @@ socket.on('node_updated', (data) => {
     }
 });
 
+// ===== 抽屉折叠/展开功能 =====
+function initDrawerCollapse() {
+    const collapseBtn = document.getElementById('drawer-collapse-btn');
+    const expandBtn = document.getElementById('drawer-expand-btn');
+    const drawer = document.getElementById('drawer');
+    
+    if (collapseBtn) {
+        collapseBtn.addEventListener('click', function(e) {
+            e.stopPropagation(); // 防止事件冒泡
+            collapseDrawer();
+        });
+    }
+    
+    if (expandBtn) {
+        expandBtn.addEventListener('click', function(e) {
+            e.stopPropagation(); // 防止事件冒泡
+            expandDrawer();
+        });
+    }
+}
+
+function collapseDrawer() {
+    const drawer = document.getElementById('drawer');
+    const expandBtn = document.getElementById('drawer-expand-btn');
+    const networkContainer = document.getElementById('network');
+    
+    if (!drawer || drawer.classList.contains('drawer-hidden')) {
+        return; // 如果抽屉已经隐藏，不执行折叠
+    }
+    
+    // 添加折叠类
+    drawer.classList.add('drawer-collapsed');
+    
+    // 显示展开按钮
+    if (expandBtn) {
+        expandBtn.classList.remove('hidden');
+    }
+    
+    // 调整网络图位置
+    if (networkContainer) {
+        networkContainer.style.transform = 'translateX(384px)';
+        networkContainer.style.transition = 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)';
+    }
+    
+    console.log('抽屉已折叠');
+}
+
+function expandDrawer() {
+    const drawer = document.getElementById('drawer');
+    const expandBtn = document.getElementById('drawer-expand-btn');
+    const networkContainer = document.getElementById('network');
+    
+    if (!drawer || drawer.classList.contains('drawer-hidden')) {
+        return; // 如果抽屉已经隐藏，不执行展开
+    }
+    
+    // 移除折叠类
+    drawer.classList.remove('drawer-collapsed');
+    
+    // 隐藏展开按钮
+    if (expandBtn) {
+        expandBtn.classList.add('hidden');
+    }
+    
+    // 恢复网络图位置
+    if (networkContainer) {
+        networkContainer.style.transform = '';
+        networkContainer.style.transition = 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)';
+    }
+    
+    console.log('抽屉已展开');
+}
+
+// 修改closeDrawer函数，确保展开按钮在抽屉关闭时也隐藏
+function closeDrawer() {
+    document.getElementById('drawer').classList.add('drawer-hidden');
+    currentSelectedNode = null;
+    
+    // 抽屉关闭时，移除网格图的 right 属性
+    const networkContainer = document.getElementById('network');
+    if (networkContainer) {
+        networkContainer.style.right = '';
+        networkContainer.style.transform = '';
+        console.log('抽屉关闭，移除网格图 right 和 transform 属性');
+    }
+    
+    // 抽屉关闭时，隐藏展开按钮
+    const expandBtn = document.getElementById('drawer-expand-btn');
+    if (expandBtn) {
+        expandBtn.classList.add('hidden');
+    }
+    
+    // 抽屉关闭时，设置 is_change = true
+    is_change = true;
+    console.log('抽屉关闭，设置 is_change = true');
+}
+
+// 修改openDrawer函数，确保展开按钮在抽屉打开时隐藏
+function openDrawer(nodeId) {
+    currentSelectedNode = nodeId;
+    const data = nodeCache[nodeId];
+    
+    console.log('打开抽屉，节点数据:', data);
+    
+    // 填充表单字段
+    document.getElementById('d-node-id').value = nodeId;
+    document.getElementById('d-event-tuple').value = data ? data.event_tuple : '';
+    document.getElementById('d-full-image-url').value = data ? (data.full_image_url || '') : '';
+    
+    // 填充动作标签和因缘标签
+    if (data) {
+        // 动作标签 - 调试输出
+        console.log('节点动作标签:', data.action_tag, '类型:', typeof data.action_tag);
+        // 如果动作标签不存在或为空字符串，使用默认值'贞'
+        const actionTag = (data.action_tag && data.action_tag.trim()) ? data.action_tag : '贞';
+        document.getElementById('d-action-tag').value = actionTag;
+        
+        // 因缘标签 - 调试输出
+        console.log('节点因缘标签:', data.block_tag, '类型:', typeof data.block_tag);
+        // 如果因缘标签不存在或为空字符串，使用默认值'因'
+        const blockTag = (data.block_tag && data.block_tag.trim()) ? data.block_tag : '因';
+        
+        // 先更新因缘标签选项（根据动作标签）
+        updateDrawerBlockTagOptions();
+        
+        // 然后设置因缘标签的值（在更新选项之后）
+        document.getElementById('d-block-tag').value = blockTag;
+    } else {
+        // 默认值
+        console.log('节点数据为空，使用默认值');
+        document.getElementById('d-action-tag').value = '贞';
+        updateDrawerBlockTagOptions();
+        document.getElementById('d-block-tag').value = '因';
+    }
+    
+    // 填充父ID字段
+    if (data) {
+        let parentIds = [];
+        if (data.parent_ids && data.parent_ids.length > 0) {
+            parentIds = data.parent_ids;
+        } else if (data.parent_id) {
+            parentIds = [data.parent_id];
+        }
+        document.getElementById('d-parent-ids').value = parentIds.join(' | ');
+    } else {
+        document.getElementById('d-parent-ids').value = '';
+    }
+    
+    // 修复权重处理：确保权重为0时正确显示为0%
+    const rawWeight = data ? data.survival_weight : 0;
+    const weight = (rawWeight === null || rawWeight === undefined) ? 0.0 : parseFloat(rawWeight);
+    document.getElementById('d-weight-bar').style.width = `${weight * 100}%`;
+    document.getElementById('d-weight-value').textContent = weight.toFixed(10);
+    
+    // 显示事件图片（如果存在）
+    const imagePreview = document.getElementById('d-image-preview');
+    const previewImg = document.getElementById('d-preview-img');
+    if (data && data.full_image_url) {
+        // 显示现有图片
+        previewImg.src = data.full_image_url;
+        imagePreview.classList.remove('hidden');
+    } else {
+        // 隐藏图片预览
+        imagePreview.classList.add('hidden');
+        previewImg.src = '';
+    }
+    
+    document.getElementById('drawer').classList.remove('drawer-hidden');
+    
+    // 确保展开按钮隐藏
+    const expandBtn = document.getElementById('drawer-expand-btn');
+    if (expandBtn) {
+        expandBtn.classList.add('hidden');
+    }
+    
+    // 确保抽屉没有折叠状态
+    document.getElementById('drawer').classList.remove('drawer-collapsed');
+    
+    // 抽屉打开时，调整网格图位置，避免被抽屉遮挡
+    const networkContainer = document.getElementById('network');
+    if (networkContainer) {
+        networkContainer.style.right = '384px'; // 抽屉宽度 w-96 = 384px
+        networkContainer.style.transform = '';
+        networkContainer.style.transition = 'right 0.3s ease, transform 0.3s ease';
+        console.log('抽屉打开，网格图 right = 384px（抽屉宽度）');
+    }
+    
+    // 抽屉打开时，重新调整网络图使其适应新的可用空间
+    setTimeout(() => {
+        network.fit();
+        console.log('抽屉打开，重新调整网络图');
+        
+        // 默认让d-event-tuple获得焦点
+        const eventTupleField = document.getElementById('d-event-tuple');
+        if (eventTupleField) {
+            eventTupleField.focus();
+            console.log('抽屉打开，d-event-tuple获得焦点');
+        }
+    }, 100);
+}
+
 // 页面启动点亮
 window.onload = function() {
     initCausalGraph();
@@ -2122,6 +2215,9 @@ window.onload = function() {
     
     // 初始化Markdown编辑器逻辑
     initEventTupleEditor();
+    
+    // 初始化抽屉折叠/展开功能
+    initDrawerCollapse();
 };
 
 // 搜索功能实现

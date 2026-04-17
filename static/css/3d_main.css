@@ -1116,6 +1116,7 @@ body::after {
     align-items: center !important;
     justify-content: center !important;
     z-index: 9999 !important;
+    max-height: 100%;
 }
 
 .event-tuple-modal.hidden {
@@ -1128,7 +1129,7 @@ body::after {
     border-radius: 8px !important;
     width: 90% !important;
     max-width: 64rem !important;
-    max-height: 90vh !important;
+    max-height: 95vh !important;
     display: flex !important;
     flex-direction: column !important;
     position: relative !important;
