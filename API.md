@@ -493,7 +493,7 @@ curl -X POST "http://192.168.66.39:8094/api/v1/causal/search/serial" \
 curl -X POST "http://192.168.66.39:8094/api/v1/causal/search/serial" \
      -H "Content-Type: application/json" \
      -d '{
-           "serial_id": 313,
+           "serial_id": 256,
            "actor_id": "user2"
          }'
 ```

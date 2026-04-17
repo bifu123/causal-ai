@@ -14,72 +14,8 @@
     border-left: 1px solid rgba(75, 85, 99, 0.5);
     box-shadow: -4px 0 20px rgba(0, 0, 0, 0.5);
     z-index: 1000;
-    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), width 0.3s ease;
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     overflow-y: auto;
-}
-
-/* 折叠状态：宽度变窄，背景完全透明，只有折叠按钮可见 */
-.drawer.collapsed {
-    width: 60px !important; /* 仅保留图标宽度 */
-    overflow: hidden;
-    background: transparent !important;
-    backdrop-filter: none !important;
-    border-left: none !important;
-    box-shadow: none !important;
-}
-
-/* 折叠时隐藏头部和表单体 */
-.drawer.collapsed .drawer-header h2,
-.drawer.collapsed .drawer-content {
-    display: none;
-}
-
-/* 折叠时隐藏关闭按钮，只保留折叠按钮 */
-.drawer.collapsed .drawer-close {
-    display: none;
-}
-
-/* 折叠时确保只有折叠按钮可见 */
-.drawer.collapsed .drawer-header {
-    background: transparent;
-    border-bottom: none;
-    padding: 12px 8px;
-}
-
-/* 折叠按钮在折叠状态下保持可见 */
-.drawer.collapsed #drawer-toggle-btn {
-    background: rgba(17, 24, 39, 0.7);
-    border: 1px solid rgba(75, 85, 99, 0.5);
-    border-radius: 50%;
-    width: 36px;
-    height: 36px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-
-/* 切换按钮：固定在抽屉左侧边沿或头部 */
-#drawer-toggle-btn {
-    cursor: pointer;
-    transition: all 0.3s;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 1001;
-    background: none;
-    border: none;
-    color: #60a5fa;
-    padding: 4px;
-    border-radius: 4px;
-}
-
-#drawer-toggle-btn:hover {
-    background: rgba(255, 255, 255, 0.1);
-}
-
-/* 旋转图标逻辑 */
-.drawer.collapsed #drawer-toggle-btn {
-    transform: rotate(180deg); /* 折叠时图标反转 */
 }
 
 .drawer-hidden {
@@ -628,6 +564,159 @@
     gap: 8px;
 }
 
+/* 事件叙述放大模态框 */
+.event-tuple-modal {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.75);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2500;
+    opacity: 1;
+    transition: opacity 0.3s;
+    backdrop-filter: blur(4px);
+}
+
+.event-tuple-modal.hidden {
+    opacity: 0;
+    pointer-events: none;
+}
+
+.event-tuple-modal-content {
+    background: rgba(17, 24, 39, 0.95);
+    border: 1px solid rgba(75, 85, 99, 0.5);
+    border-radius: 8px;
+    width: 80vw;
+    height: 80vh;
+    max-width: 1200px;
+    max-height: 900px;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);
+    overflow: hidden;
+}
+
+.event-tuple-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 24px;
+    border-bottom: 1px solid rgba(75, 85, 99, 0.5);
+    background: rgba(31, 41, 55, 0.8);
+}
+
+.event-tuple-modal-header h3 {
+    margin: 0;
+    color: #60a5fa;
+    font-size: 18px;
+    font-weight: bold;
+}
+
+.event-tuple-modal-buttons {
+    display: flex;
+    gap: 12px;
+}
+
+.event-tuple-modal-button {
+    background: rgba(55, 65, 81, 0.8);
+    border: 1px solid rgba(75, 85, 99, 0.7);
+    border-radius: 4px;
+    color: #d1d5db;
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.event-tuple-modal-button:hover {
+    background: rgba(75, 85, 99, 0.9);
+    color: #ffffff;
+}
+
+.event-tuple-modal-button.copy-button:hover {
+    border-color: #10b981;
+    color: #10b981;
+}
+
+.event-tuple-modal-button.close-button:hover {
+    border-color: #3b82f6;
+    color: #3b82f6;
+}
+
+.event-tuple-modal-icon {
+    width: 20px;
+    height: 20px;
+}
+
+.event-tuple-modal-body {
+    flex: 1;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: transparent;
+}
+
+.event-tuple-editor-textarea {
+    flex: 1;
+    width: 100%;
+    border: none;
+    resize: none;
+}
+
+.event-tuple-modal-footer {
+    padding: 12px 24px;
+    background: rgba(31, 41, 55, 0.8);
+    border-top: 1px solid rgba(75, 85, 99, 0.5);
+    color: #9ca3af;
+    font-size: 12px;
+    text-align: center;
+}
+
+/* 覆盖 EasyMDE 样式以适应深色模态框 */
+.event-tuple-modal-body .EasyMDEContainer {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    border: none !important;
+}
+
+.event-tuple-modal-body .CodeMirror {
+    flex: 1;
+    border: none !important;
+    border-radius: 0 !important;
+    font-family: monospace;
+    font-size: 14px;
+    background: transparent !important;
+    color: #d1d5db !important;
+}
+
+.event-tuple-modal-body .editor-toolbar {
+    border: none !important;
+    border-bottom: 1px solid rgba(75, 85, 99, 0.5) !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    opacity: 1;
+}
+
+.event-tuple-modal-body .editor-toolbar > button {
+    color: #d1d5db !important;
+}
+
+.event-tuple-modal-body .editor-toolbar > button:hover,
+.event-tuple-modal-body .editor-toolbar > button.active {
+    background: rgba(75, 85, 99, 0.5) !important;
+    border-color: transparent !important;
+}
+
+.event-tuple-modal-body .editor-statusbar {
+    padding: 8px 12px;
+}
+
 /* 工具类 */
 .hidden {
     display: none !important;
@@ -653,5 +742,63 @@
     .modal-content {
         width: 90%;
         padding: 16px;
+    }
+
+    /* 事件叙述模态框移动端适配 */
+    .event-tuple-modal-content {
+        width: 100vw;
+        height: 100vh;
+        max-width: 100vw;
+        max-height: 100vh;
+        border-radius: 0;
+        border: none;
+    }
+
+    .event-tuple-modal-header {
+        padding: 8px 12px;
+        flex-direction: row;
+        align-items: center;
+    }
+
+    .event-tuple-modal-header h3 {
+        font-size: 14px;
+        margin: 0;
+    }
+
+    .event-tuple-modal-buttons {
+        gap: 8px;
+    }
+
+    .event-tuple-modal-button {
+        width: 28px;
+        height: 28px;
+        font-size: 12px;
+    }
+
+    .event-tuple-modal-footer {
+        display: none; /* 移动端隐藏底部提示以节省空间 */
+    }
+
+    /* EasyMDE 移动端适配 */
+    .event-tuple-modal-body .editor-toolbar {
+        padding: 4px;
+        overflow-x: auto;
+        white-space: nowrap;
+        display: flex;
+        flex-wrap: nowrap;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .event-tuple-modal-body .editor-toolbar button {
+        flex-shrink: 0;
+        width: 30px;
+        height: 30px;
+        padding: 0;
+        margin: 0 2px;
+    }
+
+    .event-tuple-modal-body .editor-toolbar::before,
+    .event-tuple-modal-body .editor-toolbar::after {
+        display: none;
     }
 }

@@ -32,50 +32,13 @@ let gravityFocusNode = null;
 let originalForces = { charge: -600, link: 180 };
 
 // 抽屉避让常量
-let DRAWER_WIDTH = 384; // 默认宽度改为变量
-const FULL_DRAWER_WIDTH = 384;
-const COLLAPSED_DRAWER_WIDTH = 60;
+const DRAWER_WIDTH = 384; // 抽屉宽度 (w-96 = 24rem = 384px)
 const FOCUS_DIST = 200;   // 聚焦距离
 
 // --- [2. 核心辅助工具] ---
 
 function getThreeInstance() {
     return window.THREE || (Graph && Graph.scene() ? Graph.scene().__threeObj : null);
-}
-
-/**
- * 初始化抽屉折叠按钮功能
- */
-function initDrawerToggle() {
-    const drawer = document.getElementById('drawer');
-    const toggleBtn = document.getElementById('drawer-toggle-btn');
-    
-    if (!toggleBtn || !drawer) return;
-
-    toggleBtn.onclick = (e) => {
-        e.stopPropagation(); // 防止触发 3D 场景点击
-        
-        const isCollapsed = drawer.classList.toggle('collapsed');
-        
-        // 1. 更新当前的逻辑宽度，供相机偏移计算使用
-        DRAWER_WIDTH = isCollapsed ? COLLAPSED_DRAWER_WIDTH : FULL_DRAWER_WIDTH;
-        
-        // 2. 如果当前有选中的节点，重新平滑校准相机位置
-        if (selectedNodeObj) {
-            // 触发一次 resize 逻辑中的相机重校准
-            window.dispatchEvent(new Event('resize'));
-        }
-
-        // 3. 调用适应视图，让3D场景重新适应新的布局
-        if (Graph) {
-            // 延迟一点时间，确保CSS过渡完成后再调用适应视图
-            setTimeout(() => {
-                Graph.zoomToFit(800);
-            }, 300);
-        }
-
-        console.log(`[抽屉业务] 状态: ${isCollapsed ? '折叠' : '展开'}, 当前宽度: ${DRAWER_WIDTH}`);
-    };
 }
 
 /** 视觉反馈：在界面显示简短提示 */
@@ -445,38 +408,152 @@ async function loadInitialData() {
     }
 }
 
+/**
+ * 增量更新函数：修复不长胖的核心
+ */
+function updateNodeIncremental(data) {
+    if (!data) return;
+    const list = Array.isArray(data) ? data : [data];
+    
+    // 获取当前图表中的节点
+    let graphNodes = [];
+    if (Graph) {
+        graphNodes = Graph.graphData().nodes;
+    }
+    
+    list.forEach(uNode => {
+        // 1. 首先尝试使用serial_id
+        const sid = uNode.serial_id || uNode["本事件ID"];
+        // 2. 如果找不到，尝试使用node_id
+        const nid = uNode.node_id || uNode["本事件标题"];
+        const newWeight = uNode.survival_weight || uNode["本事件权重"];
+        
+        // 尝试多种查找方式更新缓存
+        let cacheNode = nodeCache[sid] || nodeCache[nid];
+        if (!cacheNode) {
+            for (const key in nodeCache) {
+                const cachedNode = nodeCache[key];
+                if (cachedNode.serial_id === sid || cachedNode.node_id === nid) {
+                    cacheNode = cachedNode;
+                    break;
+                }
+            }
+        }
+        
+        if (cacheNode) {
+            if (newWeight !== undefined) {
+                console.log(`[SocketIO] 增量更新缓存节点: ${cacheNode.node_id}，权重变为: ${newWeight}`);
+                cacheNode.survival_weight = parseFloat(newWeight);
+            }
+            cacheNode.node_id = nid;
+            cacheNode.serial_id = sid;
+            if (uNode.event_tuple) cacheNode.event_tuple = uNode.event_tuple;
+            if (uNode.action_tag) cacheNode.action_tag = uNode.action_tag;
+            if (uNode.block_tag) cacheNode.block_tag = uNode.block_tag;
+        } else {
+            console.warn(`[SocketIO] 警告：未找到缓存节点，serial_id: ${sid}, node_id: ${nid}`);
+        }
+        
+        // 【关键修复1】同步更新 Graph 内部的节点数据引用，否则引擎读取的永远是旧数据
+        if (graphNodes.length > 0) {
+            const gNode = graphNodes.find(n => n.serial_id === sid || n.id === nid || n.node_id === nid);
+            if (gNode) {
+                if (newWeight !== undefined) {
+                    gNode.survival_weight = parseFloat(newWeight);
+                }
+                if (uNode.event_tuple) gNode.event_tuple = uNode.event_tuple;
+                if (uNode.action_tag) gNode.action_tag = uNode.action_tag;
+                if (uNode.block_tag) gNode.block_tag = uNode.block_tag;
+                
+                // 如果当前节点正显示在抽屉里，同时更新抽屉界面的进度条
+                const isCurrentlySelected = (currentSelectedNodeId === gNode.id || currentSelectedNodeId === gNode.node_id);
+                if (isCurrentlySelected) {
+                    const weightValueField = document.getElementById('d-weight-value');
+                    if (weightValueField) weightValueField.textContent = parseFloat(gNode.survival_weight || 0).toFixed(4);
+                    const weightBar = document.getElementById('d-weight-bar');
+                    if (weightBar) weightBar.style.width = `${Math.min((gNode.survival_weight || 0) * 100, 100)}%`;
+                }
+
+                // 【核心修复3：平滑的三维视觉缩放】直接操作 Three.js Mesh，杜绝全图重绘导致抖动
+                if (gNode.__threeObj) {
+                    const MIN_RADIUS = 1.5;
+                    const MAX_RADIUS = 5.5;
+                    const REL_SIZE = 7;
+                    const w = Math.max(0, Math.min(1, parseFloat(gNode.survival_weight || 0)));
+                    const newRadius = MIN_RADIUS + (w * (MAX_RADIUS - MIN_RADIUS));
+                    const targetPhysicalRadius = newRadius * REL_SIZE;
+                    
+                    const sphere = gNode.__threeObj.children[0];
+                    if (sphere && sphere.geometry) {
+                        const originalRadius = sphere.geometry.parameters.radius;
+                        const scale = targetPhysicalRadius / originalRadius;
+                        sphere.scale.set(scale, scale, scale);
+                    }
+                    
+                    const sprite = gNode.__threeObj.children[1];
+                    if (sprite && sprite.material && sprite.material.map) {
+                        const baseScale = Math.max(0.3, Math.min(0.6, 0.55 - (w * 0.2)));
+                        sprite.scale.set(sprite.material.map.baseWidth * baseScale, sprite.material.map.baseHeight * baseScale, 1);
+                    }
+                }
+
+                // 【核心修复4：全局寻踪视角跃迁】
+                // 如果收到节点更新消息，且该节点并不是当前用户正打开抽屉查看的节点（大概率是远端API调用）
+                // 则触发类似“因果巡航”的聚焦放大动画效果！
+                if (!isCurrentlySelected && Graph) {
+                    // 把该节点标为选中（以便防跳跃处理和其它机制识别）
+                    selectedNodeObj = gNode; 
+                    
+                    const dist = 160;
+                    const distance = Math.hypot(gNode.x, gNode.y, gNode.z) || 1;
+                    const ratio = 1 + dist / distance;
+                    
+                    const targetPosition = { 
+                        x: gNode.x * ratio, 
+                        y: gNode.y * ratio, 
+                        z: gNode.z * ratio 
+                    };
+                    
+                    // 2秒的平滑相机移动
+                    Graph.cameraPosition(
+                        targetPosition, 
+                        gNode, 
+                        2000
+                    );
+                    
+                    // 给这颗跃迁的星星来点高亮视觉反馈
+                    highlightNodes.clear();
+                    highlightNodes.add(gNode);
+                    updateHighlight();
+                    
+                    // 3秒后自动取消高亮
+                    setTimeout(() => {
+                        highlightNodes.clear();
+                        updateHighlight();
+                    }, 3000);
+                }
+            }
+        }
+    });
+}
+
 function initSocketHandlers() {
     if (!window.socket) return;
     
     window.socket.on('node_updated', (data) => {
         nodeCache[data.node_id] = data;
-        
-        // 使用增量更新而不是全量刷新，保留节点坐标
+        // 使用增量更新而不是全量刷新，保留节点坐标，防止重绘抖动
         updateNodeIncremental(data);
-        
-        // 如果这是当前选中的节点，更新selectedNodeObj
-        if (selectedNodeObj && selectedNodeObj.id === data.node_id) {
-            // 从当前graphData中查找更新后的节点
-            const { nodes } = Graph.graphData();
-            const updatedNode = nodes.find(n => n.id === data.node_id);
-            if (updatedNode) {
-                selectedNodeObj = updatedNode;
-            }
-        }
-        
-        console.log(`[SocketIO] 增量更新节点: ${data.node_id}`);
     });
     
     window.socket.on('node_created', (data) => {
         nodeCache[data.node_id] = data;
-        // 新节点创建需要全量刷新，因为可能改变拓扑结构
-        loadInitialData();
+        loadInitialData(); // 新节点增加需要拓扑刷新
     });
 
     window.socket.on('node_deleted', (data) => {
         delete nodeCache[data.node_id];
         if (currentSelectedNodeId === data.node_id) closeDrawer();
-        // 节点删除需要全量刷新，因为会改变拓扑结构
         loadInitialData();
     });
 }
@@ -589,21 +666,6 @@ function openDrawer(nodeId) {
     // 检查搜索图标按钮的CSS样式
     const searchToggle = document.querySelector('#btn-toggle-search.search-toggle');
     searchToggle.style.display = 'none'; // 强制隐藏搜索图标按钮，确保抽屉打开时不可见
-    // if (searchToggle) {
-    //     const computedStyle = window.getComputedStyle(searchToggle);
-    //     console.log(`[CSS调试] 搜索图标按钮样式:`, {
-    //         element: searchToggle,
-    //         id: searchToggle.id,
-    //         className: searchToggle.className,
-    //         computedDisplay: computedStyle.display,
-    //         computedVisibility: computedStyle.visibility,
-    //         parentDisplay: window.getComputedStyle(searchToggle.parentElement).display,
-    //         isDrawerOpen: !document.getElementById('drawer').classList.contains('drawer-hidden'),
-    //         drawerClass: document.getElementById('drawer').className
-    //     });
-    // } else {
-    //     console.log(`[CSS调试] 未找到搜索图标按钮: #btn-toggle-search.search-toggle`);
-    // }
     
     console.log(`[抽屉调试] 搜索面板状态:`, {
         searchPanel: document.getElementById('search-panel'),
@@ -1311,8 +1373,6 @@ async function submitDeriveNode(tag, parentId) {
     }
 }
 
-
-
 window.addEventListener('load', () => {
     const container = document.getElementById('3d-graph');
 
@@ -1485,12 +1545,8 @@ window.addEventListener('load', () => {
             }
             
             // 简化tooltip：移除因缘标签、动作标签，移除装饰性样式
-            // 添加serial_id显示
-            const serialIdHtml = node.serial_id ? `<div class="tooltip-serial-id">序列ID: ${node.serial_id}</div>` : '';
-            
             return `<div class="force-graph-tooltip">
                 <div class="tooltip-title">${node.id}</div>
-                ${serialIdHtml}
                 <div class="tooltip-simple">
                     <div class="tooltip-row">
                         <span class="tooltip-label">权重:</span>
@@ -1869,162 +1925,47 @@ window.addEventListener('load', () => {
         }
     }
     
-// 增量更新节点数据，保留坐标和连线
-function updateNodeIncremental(nodeData) {
-    if (!Graph) return;
-    
-    // 确保权重是数值类型，而不是字符串
-    const processedData = { ...nodeData };
-    if (processedData.survival_weight !== undefined) {
-        processedData.survival_weight = Number(processedData.survival_weight);
-        if (isNaN(processedData.survival_weight)) {
-            processedData.survival_weight = 0;
-        }
-    }
-    
-    const currentData = Graph.graphData();
-    const existingNodeIndex = currentData.nodes.findIndex(n => n.id === processedData.node_id);
-    
-    if (existingNodeIndex !== -1) {
-        // 保留现有节点的坐标和物理锁定状态
-        const existingNode = currentData.nodes[existingNodeIndex];
-        const { x, y, z, fx, fy, fz } = existingNode;
+    // 在3D图中高亮显示搜索结果节点
+    function highlightSearchResultNode(nodeId) {
+        if (!Graph) return;
         
-        // 合并新数据，但保留坐标
-        currentData.nodes[existingNodeIndex] = {
-            ...processedData,
-            id: processedData.node_id,
-            x, y, z, fx, fy, fz  // 保留原有坐标
-        };
+        const { nodes } = Graph.graphData();
+        const targetNode = nodes.find(n => n.id === nodeId);
         
-        console.log(`[增量更新] 更新现有节点: ${processedData.node_id}`, { 
-            x, y, z, 
-            weight: processedData.survival_weight,
-            weightType: typeof processedData.survival_weight
-        });
-    } else {
-        // 添加新节点，使用默认坐标
-        currentData.nodes.push({
-            ...processedData,
-            id: processedData.node_id,
-            x: 0, y: 0, z: 0  // 默认坐标，力导引布局会调整
-        });
-        console.log(`[增量更新] 添加新节点: ${processedData.node_id}`, {
-            weight: processedData.survival_weight,
-            weightType: typeof processedData.survival_weight
-        });
-    }
-    
-    // 更新连线（如果需要）
-    // 注意：这里假设nodeData包含parent_ids信息
-    if (processedData.parent_ids && Array.isArray(processedData.parent_ids)) {
-        processedData.parent_ids.forEach(parentId => {
-            // 检查连线是否已存在
-            const linkExists = currentData.links.some(link => 
-                (link.source === parentId || (typeof link.source === 'object' && link.source.id === parentId)) &&
-                (link.target === processedData.node_id || (typeof link.target === 'object' && link.target.id === processedData.node_id))
-            );
+        if (targetNode) {
+            // 设置节点为选中状态
+            selectedNodeObj = targetNode;
             
-            if (!linkExists) {
-                currentData.links.push({ source: parentId, target: processedData.node_id });
-                console.log(`[增量更新] 添加连线: ${parentId} -> ${processedData.node_id}`);
-            }
-        });
-    }
-    
-    // 更新图表数据
-    Graph.graphData(currentData);
-}
-
-// 在3D图中高亮显示搜索结果节点
-function highlightSearchResultNode(nodeId) {
-    if (!Graph) return;
-    
-    const { nodes } = Graph.graphData();
-    const targetNode = nodes.find(n => n.id === nodeId);
-    
-    if (targetNode) {
-        // 设置节点为选中状态
-        selectedNodeObj = targetNode;
-        
-        // 确保节点有有效的坐标
-        if (targetNode.x === undefined || targetNode.y === undefined || targetNode.z === undefined) {
-            // 如果节点没有坐标，设置默认坐标
-            targetNode.x = targetNode.x || 0;
-            targetNode.y = targetNode.y || 0;
-            targetNode.z = targetNode.z || 0;
-            console.warn(`[搜索高亮] 节点 ${nodeId} 坐标缺失，使用默认坐标 (0,0,0)`);
+            // 物理锁定节点
+            targetNode.fx = targetNode.x;
+            targetNode.fy = targetNode.y;
+            targetNode.fz = targetNode.z;
+            
+            // 聚焦到该节点（但不打开抽屉）
+            const distance = 600;
+            const distRatio = 1 + distance / Math.hypot(targetNode.x, targetNode.y, targetNode.z);
+            const camPos = { 
+                x: targetNode.x * distRatio, 
+                y: targetNode.y * distRatio, 
+                z: targetNode.z * distRatio 
+            };
+            
+            Graph.cameraPosition(camPos, targetNode, 1200);
+            
+            // 添加高亮效果
+            highlightNodes.clear();
+            highlightNodes.add(targetNode);
+            updateHighlight();
+            
+            console.log(`[搜索高亮] 已高亮显示节点: ${nodeId}`);
+        } else {
+            console.warn(`[搜索高亮] 未在图中找到节点: ${nodeId}`);
         }
-        
-        // 物理锁定节点
-        targetNode.fx = targetNode.x;
-        targetNode.fy = targetNode.y;
-        targetNode.fz = targetNode.z;
-        
-        // 计算聚焦距离，确保节点在视图中可见
-        const distance = 600;
-        const nodeDistance = Math.hypot(targetNode.x, targetNode.y, targetNode.z);
-        const distRatio = 1 + distance / (nodeDistance || 1); // 避免除以0
-        
-        const camPos = { 
-            x: targetNode.x * distRatio, 
-            y: targetNode.y * distRatio, 
-            z: targetNode.z * distRatio 
-        };
-        
-        // 使用抽屉避让算法计算聚焦位置
-        const { camPos: offsetCamPos, lookAt } = calculateOffsetView(targetNode, distance);
-        
-        // 聚焦到该节点（但不打开抽屉）
-        Graph.cameraPosition(offsetCamPos, lookAt, 1200);
-        
-        // 添加高亮效果
-        highlightNodes.clear();
-        highlightNodes.add(targetNode);
-        updateHighlight();
-        
-        console.log(`[搜索高亮] 已高亮显示节点: ${nodeId}`, {
-            coordinates: { x: targetNode.x, y: targetNode.y, z: targetNode.z },
-            cameraPosition: offsetCamPos,
-            lookAt
-        });
-    } else {
-        console.warn(`[搜索高亮] 未在图中找到节点: ${nodeId}，尝试通过API获取`);
-        
-        // 如果图中没有该节点，通过API获取节点数据
-        fetch(`/api/v1/causal/search/serial`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-                serial_id: parseInt(nodeId.split('_').pop()) || 0,
-                actor_id: window.currentActorId || '',
-                owner_id: window.currentOwnerId || 'default'
-            })
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.status === 'success' && data.data) {
-                // 使用增量更新添加节点
-                updateNodeIncremental(data.data);
-                
-                // 重新尝试高亮
-                setTimeout(() => highlightSearchResultNode(nodeId), 100);
-            } else {
-                console.error(`[搜索高亮] 无法获取节点数据: ${data.message}`);
-            }
-        })
-        .catch(error => {
-            console.error(`[搜索高亮] API请求失败:`, error);
-        });
     }
-}
     
     // 初始化 Socket 与 数据
     initSocketHandlers();
     loadInitialData();
-    
-    // 初始化抽屉折叠按钮
-    initDrawerToggle();
 
     // --- [8. 父ID字段事件处理初始化] ---
     function setupParentIdFieldEvents() {

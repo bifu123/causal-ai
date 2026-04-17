@@ -337,29 +337,50 @@ ORDER BY root.survival_weight DESC
             agent_results = []
             for row in raw_results:
                 raw_dict = dict(zip(columns, row))
-                     
+                
+                # 核心修正：确保同时存在物理键和中文键
+                weight_val = float(raw_dict['survival_weight']) if isinstance(raw_dict['survival_weight'], Decimal) else raw_dict['survival_weight']
+                display_content = raw_dict.get('display_content', raw_dict.get('event_tuple', ''))
+                
                 item = {
+                    # 1. 引擎需要的物理键（保持与 DDL 一致）
+                    "serial_id": raw_dict['serial_id'],
+                    "survival_weight": weight_val,
+                    "node_id": raw_dict['node_id'],
+                    "event_tuple": display_content,
+                    "block_tag": raw_dict['block_tag'],
+                    "action_tag": raw_dict['action_tag'],
+                    "full_image_url": raw_dict['full_image_url'],
+                    "owner_id": raw_dict['owner_id'],
+                    "parent_id": raw_dict.get('parent_id'),
+                    
+                    # 2. Agent 需要的中文语义键
                     "本事件ID": raw_dict['serial_id'],
                     "前事件ID列表": raw_dict['preview_id'] if raw_dict['preview_id'] != '根节点' else '',
                     "因缘标签": raw_dict['block_tag'],
                     "动作标签": raw_dict['action_tag'],
-                    # 关键修改：此处映射必须使用 SQL 中计算出的 display_content，而非原始 event_tuple
-                    "事件二元组描述": raw_dict['display_content'], 
+                    "事件二元组描述": display_content,
                     "后续事件ID列表": [int(x.strip()) for x in raw_dict['next_id_list'].split(',') if x.strip().isdigit()] if raw_dict['next_id_list'] and raw_dict['next_id_list'] != '末端' else [],
-                    "本事件权重": float(raw_dict['survival_weight']) if isinstance(raw_dict['survival_weight'], Decimal) else raw_dict['survival_weight'],
+                    "本事件权重": weight_val,
                     "本事件标题": raw_dict['node_id'],
                     "截图": raw_dict['full_image_url'],
                     "事件拥有者": raw_dict['owner_id']
                 }
 
                 if raw_dict.get('parent_id'):
-                    item["前事件标题列表"] = db._string_to_parents(raw_dict['parent_id'])
+                    parent_titles = db._string_to_parents(raw_dict['parent_id'])
+                    item["前事件标题列表"] = parent_titles
+                    # 同时添加物理键名版本
+                    item["parent_ids"] = parent_titles
                 else:
                     item["前事件标题列表"] = []
+                    item["parent_ids"] = []
                     
                 # 相关度计算职责：基于最终显示的完整内容进行评分
-                res_score = v5.calculate_relevance_score(raw_dict['display_content'], keyword)
-                item["本事件相关度"] = float(res_score) if isinstance(res_score, Decimal) else res_score
+                res_score = v5.calculate_relevance_score(display_content, keyword)
+                relevance_score = float(res_score) if isinstance(res_score, Decimal) else res_score
+                item["本事件相关度"] = relevance_score
+                item["relevance_score"] = relevance_score
                 
                 agent_results.append(item)
             
@@ -369,26 +390,6 @@ ORDER BY root.survival_weight DESC
     except Exception as e:
         print(f"[搜索错误] 执行搜索失败: {e}")
         return []
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 # 以事件ID为参数获取事件详情和前后事件ID
@@ -430,18 +431,37 @@ WHERE root.serial_id = {serial_id};
                     else:
                         print(f"[搜索调试] 用户 {actor_id} 没有个性化权重，使用全局权重: {weight} (serial_id: {serial_id})")
                 
+                # 构建返回字典，同时包含物理键名和中文键名
+                parent_titles = db._string_to_parents(d['parent_id']) if d['parent_id'] else []
+                next_ids = [int(x) for x in d['next_id_list'].split(',')] if d['next_id_list'] else []
+                
                 return {
+                    # 1. 引擎需要的物理键（保持与 DDL 一致）
+                    "serial_id": d['serial_id'],
+                    "survival_weight": weight,
+                    "node_id": d['node_id'],
+                    "event_tuple": d['event_tuple'],
+                    "block_tag": d['block_tag'],
+                    "action_tag": d['action_tag'],
+                    "full_image_url": d['full_image_url'],
+                    "owner_id": d['owner_id'],
+                    "parent_id": d['parent_id'],
+                    "parent_ids": parent_titles,
+                    "next_ids": next_ids,
+                    "preview_id": d['preview_id'],
+                    
+                    # 2. Agent 需要的中文语义键
                     "本事件ID": d['serial_id'],
                     "前事件ID列表": d['preview_id'],
                     "因缘标签": d['block_tag'],
                     "动作标签": d['action_tag'],
                     "事件二元组描述": d['event_tuple'],
-                    "后续事件ID列表": [int(x) for x in d['next_id_list'].split(',')] if d['next_id_list'] else [],
+                    "后续事件ID列表": next_ids,
                     "本事件权重": weight,
                     "本事件标题": d['node_id'],
                     "截图": d['full_image_url'],
                     "事件拥有者": d['owner_id'],
-                    "前事件标题列表": db._string_to_parents(d['parent_id']) if d['parent_id'] else [],
+                    "前事件标题列表": parent_titles,
                     "观察者用户": actor_id if actor_id else None  # 添加观察者用户信息
                 }
             return {}

@@ -109,12 +109,7 @@
     <!-- 抽屉：节点增删改功能 -->
     <div id="drawer" class="drawer drawer-hidden">
         <div class="drawer-header">
-            <div class="flex items-center space-x-2">
-                <button id="drawer-toggle-btn" class="p-2 hover:bg-gray-700 rounded-full text-blue-400" title="折叠/展开">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
-                </button>
-                <h2 class="text-xl font-bold text-white">龙穴详情</h2>
-            </div>
+            <h2>龙穴详情</h2>
             <button id="btn-close-drawer" class="drawer-close">✕</button>
         </div>
         
@@ -158,11 +153,7 @@
                 <div class="relative">
                     <textarea id="d-event-tuple" class="drawer-textarea"></textarea>
                     <!-- 放大图标 -->
-                    <button id="expand-event-tuple-btn" class="absolute bottom-2 right-2 w-6 h-6 bg-gray-800 border border-gray-700 rounded flex items-center justify-center text-gray-400 hover:text-blue-400 hover:border-blue-500 transition-colors" title="放大编辑">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7" />
-                        </svg>
-                    </button>
+                    <button id="expand-event-tuple-btn" class="expand-btn" title="放大编辑">⛶</button>
                 </div>
             </section>
 
@@ -301,17 +292,9 @@
                 <h3>事件叙述编辑器</h3>
                 <div class="event-tuple-modal-buttons">
                     <!-- 复制按钮 -->
-                    <button id="copy-event-tuple-btn" class="event-tuple-modal-button copy-button" title="复制内容">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="event-tuple-modal-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                        </svg>
-                    </button>
+                    <button id="copy-event-tuple-btn" class="event-tuple-modal-button copy-button" title="复制内容">📋</button>
                     <!-- 关闭按钮 -->
-                    <button id="close-event-tuple-modal-btn" class="event-tuple-modal-button close-button" title="关闭并保存">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="event-tuple-modal-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-                        </svg>
-                    </button>
+                    <button id="close-event-tuple-modal-btn" class="event-tuple-modal-button close-button" title="保存并关闭">💾</button>
                 </div>
             </div>
             

@@ -26,6 +26,7 @@
 
         // 绑定打开事件，阻止事件冒泡
         expandBtn.addEventListener('click', (e) => {
+            e.preventDefault(); // 阻止默认行为
             e.stopPropagation(); // 阻止事件向上冒泡，防止被 3d_main.js 的全局点击拦截
             openEditor();
         });

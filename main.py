@@ -751,12 +751,32 @@ async def handle_node_click(click_data: dict):
             if 'created_at' in updated_node:
                 updated_node['created_at'] = str(updated_node['created_at'])
             
+            # 确保节点数据包含所有必要的物理键名
+            # 如果缺少某些字段，从当前节点数据中补充
+            if 'serial_id' not in updated_node and 'serial_id' in current_node:
+                updated_node['serial_id'] = current_node['serial_id']
+            if 'node_id' not in updated_node:
+                updated_node['node_id'] = current_node.get('node_id', '')
+            if 'event_tuple' not in updated_node and 'event_tuple' in current_node:
+                updated_node['event_tuple'] = current_node['event_tuple']
+            if 'block_tag' not in updated_node and 'block_tag' in current_node:
+                updated_node['block_tag'] = current_node['block_tag']
+            if 'action_tag' not in updated_node and 'action_tag' in current_node:
+                updated_node['action_tag'] = current_node['action_tag']
+            if 'full_image_url' not in updated_node and 'full_image_url' in current_node:
+                updated_node['full_image_url'] = current_node['full_image_url']
+            if 'parent_ids' not in updated_node and 'parent_ids' in current_node:
+                updated_node['parent_ids'] = current_node['parent_ids']
+            
             # 如果指定了actor_id，添加用户标识
             if actor_id:
                 updated_node['actor_id'] = actor_id
             
             # 添加owner_id标识
             updated_node['owner_id'] = owner_id
+            
+            # 添加调试日志
+            print(f"[点击事件广播] 节点 {updated_node.get('node_id')} 权重: {updated_node.get('survival_weight')}, 类型: {type(updated_node.get('survival_weight'))}")
             
             await sm.emit('node_updated', updated_node)
         

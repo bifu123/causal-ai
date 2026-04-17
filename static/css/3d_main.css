@@ -930,21 +930,12 @@ body::after {
 
 /* tooltip标题样式 - 极简 */
 .force-graph-tooltip .tooltip-title {
-    color: #7b6ef1 !important; /* 纯白色 */
+    color: #3f3788 !important; /* 纯白色 */
     font-weight: bold !important; /* 加粗 */
-    margin-bottom: 8px !important; /* 减少边距，为serial_id留空间 */
+    margin-bottom: 14px !important; /* 增加边距 */
     font-size: 14px !important; /* 增大字号（原13px -> 16px） */
     padding-bottom: 0 !important; /* 移除内边距 */
     border-bottom: none !important; /* 移除边框 */
-}
-
-/* serial_id样式 */
-.force-graph-tooltip .tooltip-serial-id {
-    color: #adb6c2 !important; /* 灰色 */
-    font-size: 13px !important; /* 稍小字号 */
-    margin-bottom: 10px !important; /* 与内容区域间距 */
-    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace !important;
-    padding-left: 2px !important;
 }
 
 /* 简化tooltip内容区域 */
@@ -960,14 +951,14 @@ body::after {
     align-items: flex-start !important;
     gap: 8px !important; /* 元素间距 */
     font-size: 12px !important; /* 增大字号 */
-    line-height: 1.2 !important; /* 增加行高 */
+    line-height: 1.4 !important; /* 增加行高 */
 }
 
 /* 简化标签样式 */
 .force-graph-tooltip .tooltip-label {
     color: #9e9a9a !important; /* 浅灰色标签 */
     font-size: 12px !important; /* 增大字号 */
-    font-weight: bold !important;
+    font-weight: normal !important; /* 正常粗细 */
     min-width: 40px !important; /* 固定标签宽度 */
 }
 
@@ -1125,7 +1116,6 @@ body::after {
     align-items: center !important;
     justify-content: center !important;
     z-index: 9999 !important;
-    max-height: 100%;
 }
 
 .event-tuple-modal.hidden {
@@ -1138,7 +1128,7 @@ body::after {
     border-radius: 8px !important;
     width: 90% !important;
     max-width: 64rem !important;
-    max-height: 95vh !important;
+    max-height: 90vh !important;
     display: flex !important;
     flex-direction: column !important;
     position: relative !important;
