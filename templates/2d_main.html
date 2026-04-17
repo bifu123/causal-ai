@@ -8,6 +8,9 @@
     <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
     <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- EasyMDE Markdown编辑器 -->
+    <link rel="stylesheet" href="https://unpkg.com/easymde/dist/easymde.min.css">
+    <script src="https://unpkg.com/easymde/dist/easymde.min.js"></script>
     <link rel="stylesheet" href="/static/css/2d_main.css">
 
 </head>
@@ -101,7 +104,15 @@
 
                 <section>
                     <label class="text-[10px] text-gray-600 uppercase tracking-tighter">事件叙述 (Event Tuple)</label>
-                    <textarea id="d-event-tuple" class="w-full h-48 bg-gray-800 border border-gray-700 rounded px-3 py-2 text-gray-300 text-sm focus:outline-none focus:border-blue-500 resize-y"></textarea>
+                    <div class="relative">
+                        <textarea id="d-event-tuple" class="w-full h-48 bg-gray-800 border border-gray-700 rounded px-3 py-2 text-gray-300 text-sm focus:outline-none focus:border-blue-500 resize-y"></textarea>
+                        <!-- 放大图标 -->
+                        <button id="expand-event-tuple-btn" class="absolute bottom-2 right-2 w-6 h-6 bg-gray-800 border border-gray-700 rounded flex items-center justify-center text-gray-400 hover:text-blue-400 hover:border-blue-500 transition-colors" title="放大编辑">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7" />
+                            </svg>
+                        </button>
+                    </div>
                 </section>
 
                 <section>
@@ -140,6 +151,41 @@
             </div>
         </div>
     </main>
+
+    <!-- 事件叙述放大模态框 -->
+    <div id="event-tuple-modal" class="fixed inset-0 bg-black/90 flex items-center justify-center z-[100] hidden">
+        <div class="bg-gray-900 border border-gray-700 rounded-lg w-11/12 max-w-4xl max-h-[90vh] flex flex-col">
+            <!-- 模态框头部 -->
+            <div class="flex justify-between items-center p-4 border-b border-gray-800">
+                <h3 class="text-lg font-bold text-blue-400">事件叙述编辑器</h3>
+                <div class="flex space-x-2">
+                    <!-- 复制按钮 -->
+                    <button id="copy-event-tuple-btn" class="w-8 h-8 bg-gray-800 border border-gray-700 rounded flex items-center justify-center text-gray-400 hover:text-green-400 hover:border-green-500 transition-colors" title="复制内容">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                        </svg>
+                    </button>
+                    <!-- 关闭按钮 -->
+                    <button id="close-event-tuple-modal-btn" class="w-8 h-8 bg-gray-800 border border-gray-700 rounded flex items-center justify-center text-gray-400 hover:text-red-400 hover:border-red-500 transition-colors" title="关闭并保存">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                        </svg>
+                    </button>
+                </div>
+            </div>
+            
+            <!-- 模态框内容区域 -->
+            <div class="flex-1 p-4 overflow-hidden">
+                <!-- EasyMDE编辑器容器 -->
+                <textarea id="modal-event-tuple-editor" class="w-full h-full"></textarea>
+            </div>
+            
+            <!-- 模态框底部提示 -->
+            <div class="p-3 border-t border-gray-800 text-xs text-gray-500 text-center">
+                使用Markdown编辑器编辑事件叙述，点击复制按钮复制内容，点击关闭按钮保存并返回
+            </div>
+        </div>
+    </div>
 
     <script src="/static/js/2d_main.js"></script>
 </body>

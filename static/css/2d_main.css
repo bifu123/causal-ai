@@ -726,3 +726,47 @@ header {
     flex-direction: column;
     gap: 10px;
 }
+
+/* ===== EasyMDE 暗黑主题适配 ===== */
+.editor-toolbar {
+    background-color: #1f2937 !important; /* bg-gray-800 */
+    border-color: #374151 !important; /* border-gray-700 */
+    border-radius: 6px 6px 0 0 !important;
+}
+
+.editor-toolbar button {
+    color: #9ca3af !important; /* text-gray-400 */
+}
+
+.editor-toolbar button:hover, .editor-toolbar button.active {
+    background-color: #374151 !important; /* hover:bg-gray-700 */
+    color: #60a5fa !important; /* hover:text-blue-400 */
+    border-color: transparent !important;
+}
+
+.editor-toolbar i.separator {
+    border-left: 1px solid #374151 !important;
+    border-right: none !important;
+}
+
+.CodeMirror {
+    background-color: #111827 !important; /* bg-gray-900 */
+    color: #d1d5db !important; /* text-gray-300 */
+    border-color: #374151 !important; /* border-gray-700 */
+    border-radius: 0 0 6px 6px !important;
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace !important;
+}
+
+.CodeMirror-cursor {
+    border-left: 2px solid #60a5fa !important; /* 光标颜色 */
+}
+
+.editor-preview, .editor-preview-side {
+    background-color: #111827 !important;
+    color: #d1d5db !important;
+    border-color: #374151 !important;
+}
+
+.editor-statusbar {
+    color: #6b7280 !important; /* text-gray-500 */
+}

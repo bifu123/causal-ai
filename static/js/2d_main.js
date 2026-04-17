@@ -2119,6 +2119,9 @@ window.onload = function() {
     
     // 初始化搜索面板交互功能
     initSearchPanel();
+    
+    // 初始化Markdown编辑器逻辑
+    initEventTupleEditor();
 };
 
 // 搜索功能实现
@@ -2410,4 +2413,102 @@ function highlightSearchResultNode(nodeId) {
     } else {
         console.warn(`[搜索高亮] 未在图中找到节点: ${nodeId}`);
     }
+}
+
+// ===== 事件叙述编辑器功能 =====
+// 全局存储编辑器实例
+let easyMDE = null;
+
+function initEventTupleEditor() {
+    const expandBtn = document.getElementById('expand-event-tuple-btn');
+    const closeBtn = document.getElementById('close-event-tuple-modal-btn');
+    const copyBtn = document.getElementById('copy-event-tuple-btn');
+    const modal = document.getElementById('event-tuple-modal');
+    const sourceTextarea = document.getElementById('d-event-tuple');
+
+    // 1. 打开模态框并同步内容
+    expandBtn.addEventListener('click', () => {
+        modal.classList.remove('hidden');
+        
+        // 延迟初始化 EasyMDE，确保模态框可见后再渲染，否则会导致尺寸计算错误
+        if (!easyMDE) {
+            easyMDE = new EasyMDE({
+                element: document.getElementById('modal-event-tuple-editor'),
+                spellChecker: false, // 禁用拼写检查（针对中文更友好）
+                autosave: { enabled: false },
+                status: ["lines", "words", "cursor"],
+                maxHeight: "50vh",
+                // 自定义工具栏
+                toolbar: ["bold", "italic", "heading", "|", "quote", "unordered-list", "ordered-list", "|", "link", "image", "|", "preview", "side-by-side", "fullscreen", "|", "guide"]
+            });
+        }
+        
+        // 将外层 textarea 的内容填入 Markdown 编辑器
+        easyMDE.value(sourceTextarea.value);
+    });
+
+    // 2. 关闭模态框并回写内容
+    closeBtn.addEventListener('click', () => {
+        // 将 Markdown 编辑器的内容覆盖回外层的 textarea
+        sourceTextarea.value = easyMDE.value();
+        
+        // 触发 input 事件以确保任何绑定的监听器都能察觉到变化（可选）
+        sourceTextarea.dispatchEvent(new Event('input', { bubbles: true }));
+        
+        modal.classList.add('hidden');
+    });
+
+    // 3. 复制内容功能
+    copyBtn.addEventListener('click', async () => {
+        const textToCopy = easyMDE.value();
+        
+        // 尝试使用现代剪贴板API
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            try {
+                await navigator.clipboard.writeText(textToCopy);
+                
+                // 视觉反馈：图标变成打勾，2秒后恢复
+                const originalHTML = copyBtn.innerHTML;
+                copyBtn.innerHTML = '✅';
+                setTimeout(() => { 
+                    copyBtn.innerHTML = originalHTML; 
+                }, 2000);
+                return;
+            } catch (err) {
+                console.warn('现代剪贴板API失败，尝试备用方法:', err);
+            }
+        }
+        
+        // 备用方法：使用document.execCommand
+        try {
+            // 创建临时textarea元素
+            const textArea = document.createElement('textarea');
+            textArea.value = textToCopy;
+            textArea.style.position = 'fixed';
+            textArea.style.left = '-999999px';
+            textArea.style.top = '-999999px';
+            document.body.appendChild(textArea);
+            textArea.focus();
+            textArea.select();
+            
+            // 执行复制命令
+            const successful = document.execCommand('copy');
+            document.body.removeChild(textArea);
+            
+            if (successful) {
+                // 视觉反馈：图标变成打勾，2秒后恢复
+                const originalHTML = copyBtn.innerHTML;
+                copyBtn.innerHTML = '✅';
+                setTimeout(() => { 
+                    copyBtn.innerHTML = originalHTML; 
+                }, 2000);
+            } else {
+                throw new Error('execCommand复制失败');
+            }
+        } catch (err) {
+            console.error('复制失败:', err);
+            // 如果所有方法都失败，提示用户手动复制
+            alert('自动复制失败，请手动全选复制编辑器中的内容。');
+        }
+    });
 }

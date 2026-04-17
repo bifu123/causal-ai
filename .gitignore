@@ -1,4 +1,5 @@
 .causal_ai/
+causal-ai/
 *.rar
 *.log
 __pycache__/
