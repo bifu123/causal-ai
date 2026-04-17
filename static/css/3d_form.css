@@ -18,16 +18,44 @@
     overflow-y: auto;
 }
 
-/* 折叠状态：宽度变窄，隐藏内容但保持 DOM 活跃 */
+/* 折叠状态：宽度变窄，背景完全透明，只有折叠按钮可见 */
 .drawer.collapsed {
     width: 60px !important; /* 仅保留图标宽度 */
     overflow: hidden;
+    background: transparent !important;
+    backdrop-filter: none !important;
+    border-left: none !important;
+    box-shadow: none !important;
 }
 
 /* 折叠时隐藏头部和表单体 */
 .drawer.collapsed .drawer-header h2,
 .drawer.collapsed .drawer-content {
     display: none;
+}
+
+/* 折叠时隐藏关闭按钮，只保留折叠按钮 */
+.drawer.collapsed .drawer-close {
+    display: none;
+}
+
+/* 折叠时确保只有折叠按钮可见 */
+.drawer.collapsed .drawer-header {
+    background: transparent;
+    border-bottom: none;
+    padding: 12px 8px;
+}
+
+/* 折叠按钮在折叠状态下保持可见 */
+.drawer.collapsed #drawer-toggle-btn {
+    background: rgba(17, 24, 39, 0.7);
+    border: 1px solid rgba(75, 85, 99, 0.5);
+    border-radius: 50%;
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
 /* 切换按钮：固定在抽屉左侧边沿或头部 */

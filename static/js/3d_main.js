@@ -66,6 +66,14 @@ function initDrawerToggle() {
             window.dispatchEvent(new Event('resize'));
         }
 
+        // 3. 调用适应视图，让3D场景重新适应新的布局
+        if (Graph) {
+            // 延迟一点时间，确保CSS过渡完成后再调用适应视图
+            setTimeout(() => {
+                Graph.zoomToFit(800);
+            }, 300);
+        }
+
         console.log(`[抽屉业务] 状态: ${isCollapsed ? '折叠' : '展开'}, 当前宽度: ${DRAWER_WIDTH}`);
     };
 }
