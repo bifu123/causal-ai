@@ -492,8 +492,8 @@ function updateNodeIncremental(data) {
 
                 // 【核心修复3：平滑的三维视觉缩放】直接操作 Three.js Mesh，杜绝全图重绘导致抖动
                 if (gNode.__threeObj) {
-                    const MIN_RADIUS = 1.5;
-                    const MAX_RADIUS = 5.5;
+                    const MIN_RADIUS = 1.2;
+                    const MAX_RADIUS = 7;
                     const REL_SIZE = 7;
                     const w = Math.max(0, Math.min(1, parseFloat(gNode.survival_weight || 0)));
                     const newRadius = MIN_RADIUS + (w * (MAX_RADIUS - MIN_RADIUS));
@@ -1409,8 +1409,8 @@ window.addEventListener('load', () => {
     const container = document.getElementById('3d-graph');
 
     // --- [1. 核心常量配置] ---
-    const MIN_RADIUS = 1.5;  // 最小半径
-    const MAX_RADIUS = 5.5;  // 最大半径
+    const MIN_RADIUS = 1.2;  // 最小半径（改小）
+    const MAX_RADIUS = 9.0;  // 最大半径（改大，增加视觉区分度）
     const REL_SIZE = 7;      // 引擎缩放系数
     const FOCUS_DIST = 350;  // 聚焦时的相机距离
     const DRAWER_WIDTH = 450; // 右侧抽屉宽度（像素）- 与正确版本一致
@@ -1491,10 +1491,8 @@ window.addEventListener('load', () => {
                 const baseScale = Math.max(0.3, Math.min(0.6, 0.55 - (weight * 0.2)));
                 sprite.scale.set(texture.baseWidth * baseScale, texture.baseHeight * baseScale, 1);
                 
-                // 位置 = 固定高度，不随节点半径增大而增高
-                // 使用最大半径5.5作为基准，确保所有标签在同一高度
-                const maxRadius = MAX_RADIUS * REL_SIZE;
-                sprite.position.y = maxRadius + 14; 
+                // 位置：紧贴在当前星球表面上方，让不同大小星球的标签高低错落，极具震撼的体积差异
+                sprite.position.y = actualPhysicalRadius + 14; 
                 group.add(sprite);
             }
 
