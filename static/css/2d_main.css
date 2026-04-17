@@ -702,7 +702,7 @@ header {
 /* 样式：serial_id (序列ID) */
 .tooltip-serial-id {
     color: #94a3b8; /* 灰色 */
-    font-size: 12px;
+    font-size: 14px;
     margin-bottom: 12px;
     padding-left: 4px;
     font-family: 'monospace';

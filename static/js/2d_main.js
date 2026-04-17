@@ -254,7 +254,7 @@ const nodeSize = 20 + (weight * weight * 40); // 20 + (0.0 * 0.0 * 40) = 20, 20 
     const tooltipHtml = `
     <div class="vis-tooltip-custom">
         <div class="tooltip-node-id">${escapeHtml(node.node_id)}</div>
-        ${node.serial_id ? `<div class="tooltip-serial-id">序列ID: #${escapeHtml(node.serial_id)}</div>` : ''}
+        ${node.serial_id ? `<div class="tooltip-serial-id">序列ID: ${escapeHtml(node.serial_id)}</div>` : ''}
         
         <div class="tooltip-content-body">
             <div class="tooltip-weight-row">
