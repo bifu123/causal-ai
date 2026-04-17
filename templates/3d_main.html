@@ -22,6 +22,9 @@
     
     <link rel="stylesheet" href="/static/css/3d_main.css">
     <link rel="stylesheet" href="/static/css/3d_form.css">
+    <!-- EasyMDE Markdown编辑器 -->
+    <link rel="stylesheet" href="https://unpkg.com/easymde/dist/easymde.min.css">
+    <script src="https://unpkg.com/easymde/dist/easymde.min.js"></script>
 </head>
 <body>
     <div id="3d-graph"></div>
@@ -148,7 +151,15 @@
 
             <section>
                 <label class="drawer-label">事件叙述 (Event Tuple)</label>
-                <textarea id="d-event-tuple" class="drawer-textarea"></textarea>
+                <div class="relative">
+                    <textarea id="d-event-tuple" class="drawer-textarea"></textarea>
+                    <!-- 放大图标 -->
+                    <button id="expand-event-tuple-btn" class="absolute bottom-2 right-2 w-6 h-6 bg-gray-800 border border-gray-700 rounded flex items-center justify-center text-gray-400 hover:text-blue-400 hover:border-blue-500 transition-colors" title="放大编辑">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7" />
+                        </svg>
+                    </button>
+                </div>
             </section>
 
             <section>
@@ -278,6 +289,41 @@
     <!-- 提示信息 -->
     <div id="selection-hint" class="hint hidden"></div>
 
+    <!-- 事件叙述放大模态框 -->
+    <div id="event-tuple-modal" class="event-tuple-modal hidden">
+        <div class="event-tuple-modal-content">
+            <!-- 模态框头部 -->
+            <div class="event-tuple-modal-header">
+                <h3>事件叙述编辑器</h3>
+                <div class="event-tuple-modal-buttons">
+                    <!-- 复制按钮 -->
+                    <button id="copy-event-tuple-btn" class="event-tuple-modal-button copy-button" title="复制内容">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="event-tuple-modal-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                        </svg>
+                    </button>
+                    <!-- 关闭按钮 -->
+                    <button id="close-event-tuple-modal-btn" class="event-tuple-modal-button close-button" title="关闭并保存">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="event-tuple-modal-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                        </svg>
+                    </button>
+                </div>
+            </div>
+            
+            <!-- 模态框内容区域 -->
+            <div class="event-tuple-modal-body">
+                <!-- EasyMDE编辑器容器 -->
+                <textarea id="modal-event-tuple-editor" class="event-tuple-editor-textarea"></textarea>
+            </div>
+            
+            <!-- 模态框底部提示 -->
+            <div class="event-tuple-modal-footer">
+                使用Markdown编辑器编辑事件叙述，点击复制按钮复制内容，点击关闭按钮保存并返回
+            </div>
+        </div>
+    </div>
+
     <script>
         // 从URL参数获取用户ID和拥有者ID
         function getActorIdFromURL() {
@@ -327,10 +373,8 @@
             console.log(`[用户初始化] 未指定用户ID和拥有者ID，使用默认视图`);
         }
     </script>
-    
-    <!-- <script src="/static/js/3d_force_graph.js"></script>
-    <script src="/static/js/controls.js"></script>
-    <script src="/static/js/3d_form.js"></script> -->
+
+    <script src="/static/js/3d_editor.js"></script>
     <script src="/static/js/3d_main.js"></script>
 </body>
 </html>

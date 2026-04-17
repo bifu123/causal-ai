@@ -13,6 +13,10 @@ let currentSelectedNodeId = null;
 let is_change = true; // true: 编辑模式, false: 链入父ID模式
 let nodeCache = {}; 
 
+// 父ID选择模式相关变量
+let parentIdSelectionMode = false; // 是否处于父ID选择模式
+let activeParentIdField = null; // 当前活动的父ID输入框
+
 // 巡航与控制状态
 let isPhysicsEnabled = true;
 let isDragonCruising = false;
