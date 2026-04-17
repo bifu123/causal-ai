@@ -1210,3 +1210,181 @@ body::after {
     color: #6b7280 !important;
     text-align: center !important;
 }
+
+/* 移动端适配 - 编辑器模态框 */
+@media (max-width: 768px) {
+    .event-tuple-modal-content {
+        width: 95% !important;
+        max-width: 95% !important;
+        max-height: 95vh !important;
+        border-radius: 12px !important;
+    }
+    
+    .event-tuple-modal-header {
+        padding: 0.75rem !important;
+        flex-direction: column !important;
+        align-items: flex-start !important;
+        gap: 0.5rem !important;
+    }
+    
+    .event-tuple-modal-header h3 {
+        font-size: 1rem !important;
+    }
+    
+    .event-tuple-modal-buttons {
+        align-self: flex-end !important;
+    }
+    
+    .event-tuple-modal-body {
+        padding: 0.75rem !important;
+        min-height: 300px !important;
+    }
+    
+    .event-tuple-editor-textarea {
+        min-height: 300px !important;
+    }
+    
+    /* 调整EasyMDE工具栏以适应移动端 */
+    .editor-toolbar {
+        flex-wrap: wrap !important;
+        padding: 4px !important;
+    }
+    
+    .editor-toolbar button {
+        width: 32px !important;
+        height: 32px !important;
+        margin: 2px !important;
+    }
+    
+    .CodeMirror {
+        height: 350px !important;
+        font-size: 14px !important;
+    }
+    
+    .event-tuple-modal-footer {
+        padding: 0.5rem !important;
+        font-size: 0.7rem !important;
+    }
+    
+    /* 增大移动端放大图标的点击区域 */
+    #expand-event-tuple-btn {
+        width: 32px !important;
+        height: 32px !important;
+        bottom: 8px !important;
+        right: 8px !important;
+    }
+    
+    #expand-event-tuple-btn svg {
+        width: 18px !important;
+        height: 18px !important;
+    }
+    
+    /* 模态框头部的关闭和复制按钮也相应放大 */
+    .event-tuple-modal-button {
+        width: 2.5rem !important;
+        height: 2.5rem !important;
+    }
+    
+    .event-tuple-modal-icon {
+        width: 1.125rem !important;
+        height: 1.125rem !important;
+    }
+}
+
+/* 小屏幕手机适配 */
+@media (max-width: 480px) {
+    .event-tuple-modal-content {
+        width: 98% !important;
+        max-width: 98% !important;
+        max-height: 98vh !important;
+    }
+    
+    .event-tuple-modal-header {
+        padding: 0.5rem !important;
+    }
+    
+    .event-tuple-modal-header h3 {
+        font-size: 0.9rem !important;
+    }
+    
+    .event-tuple-modal-button {
+        width: 2.25rem !important;
+        height: 2.25rem !important;
+    }
+    
+    .event-tuple-modal-icon {
+        width: 1rem !important;
+        height: 1rem !important;
+    }
+    
+    .event-tuple-modal-body {
+        padding: 0.5rem !important;
+        min-height: 250px !important;
+    }
+    
+    .event-tuple-editor-textarea {
+        min-height: 250px !important;
+    }
+    
+    .CodeMirror {
+        height: 300px !important;
+        font-size: 13px !important;
+    }
+    
+    /* 调整EasyMDE工具栏按钮大小 */
+    .editor-toolbar button {
+        width: 28px !important;
+        height: 28px !important;
+        margin: 1px !important;
+    }
+    
+    .editor-toolbar button i {
+        font-size: 12px !important;
+    }
+}
+
+/* 移动端适配 - 控制按钮组 */
+@media (max-width: 768px) {
+    #controls {
+        bottom: 15px;
+        left: 15px;
+        gap: 8px;
+    }
+    
+    .control-icon {
+        width: 56px;
+        height: 56px;
+    }
+    
+    .icon-zoom,
+    .icon-compass,
+    .icon-plus {
+        font-size: 24px;
+    }
+    
+    .control-icon::after {
+        font-size: 12px;
+        padding: 8px 12px;
+        bottom: calc(100% + 5px);
+    }
+}
+
+/* 超小屏幕手机适配 */
+@media (max-width: 480px) {
+    #controls {
+        bottom: 10px;
+        left: 10px;
+        gap: 6px;
+    }
+    
+    .control-icon {
+        width: 52px;
+        height: 52px;
+    }
+    
+    .icon-zoom,
+    .icon-compass,
+    .icon-plus {
+        font-size: 22px;
+    }
+}

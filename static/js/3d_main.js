@@ -32,13 +32,42 @@ let gravityFocusNode = null;
 let originalForces = { charge: -600, link: 180 };
 
 // 抽屉避让常量
-const DRAWER_WIDTH = 384; // 抽屉宽度 (w-96 = 24rem = 384px)
+let DRAWER_WIDTH = 384; // 默认宽度改为变量
+const FULL_DRAWER_WIDTH = 384;
+const COLLAPSED_DRAWER_WIDTH = 60;
 const FOCUS_DIST = 200;   // 聚焦距离
 
 // --- [2. 核心辅助工具] ---
 
 function getThreeInstance() {
     return window.THREE || (Graph && Graph.scene() ? Graph.scene().__threeObj : null);
+}
+
+/**
+ * 初始化抽屉折叠按钮功能
+ */
+function initDrawerToggle() {
+    const drawer = document.getElementById('drawer');
+    const toggleBtn = document.getElementById('drawer-toggle-btn');
+    
+    if (!toggleBtn || !drawer) return;
+
+    toggleBtn.onclick = (e) => {
+        e.stopPropagation(); // 防止触发 3D 场景点击
+        
+        const isCollapsed = drawer.classList.toggle('collapsed');
+        
+        // 1. 更新当前的逻辑宽度，供相机偏移计算使用
+        DRAWER_WIDTH = isCollapsed ? COLLAPSED_DRAWER_WIDTH : FULL_DRAWER_WIDTH;
+        
+        // 2. 如果当前有选中的节点，重新平滑校准相机位置
+        if (selectedNodeObj) {
+            // 触发一次 resize 逻辑中的相机重校准
+            window.dispatchEvent(new Event('resize'));
+        }
+
+        console.log(`[抽屉业务] 状态: ${isCollapsed ? '折叠' : '展开'}, 当前宽度: ${DRAWER_WIDTH}`);
+    };
 }
 
 /** 视觉反馈：在界面显示简短提示 */
@@ -2417,6 +2446,9 @@ window.addEventListener('load', () => {
     // 初始化 Socket 与 数据
     initSocketHandlers();
     loadInitialData();
+    
+    // 初始化抽屉折叠按钮
+    initDrawerToggle();
 
     // --- [8. 父ID字段事件处理初始化] ---
     function setupParentIdFieldEvents() {

@@ -1,8 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-
-
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
     <meta charset="UTF-8">
     <title>因果星空 - 3D 视觉实现 v1.0</title>
     <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
@@ -110,7 +109,12 @@
     <!-- 抽屉：节点增删改功能 -->
     <div id="drawer" class="drawer drawer-hidden">
         <div class="drawer-header">
-            <h2>龙穴详情</h2>
+            <div class="flex items-center space-x-2">
+                <button id="drawer-toggle-btn" class="p-2 hover:bg-gray-700 rounded-full text-blue-400" title="折叠/展开">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+                </button>
+                <h2 class="text-xl font-bold text-white">龙穴详情</h2>
+            </div>
             <button id="btn-close-drawer" class="drawer-close">✕</button>
         </div>
         

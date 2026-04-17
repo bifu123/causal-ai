@@ -14,8 +14,44 @@
     border-left: 1px solid rgba(75, 85, 99, 0.5);
     box-shadow: -4px 0 20px rgba(0, 0, 0, 0.5);
     z-index: 1000;
-    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), width 0.3s ease;
     overflow-y: auto;
+}
+
+/* 折叠状态：宽度变窄，隐藏内容但保持 DOM 活跃 */
+.drawer.collapsed {
+    width: 60px !important; /* 仅保留图标宽度 */
+    overflow: hidden;
+}
+
+/* 折叠时隐藏头部和表单体 */
+.drawer.collapsed .drawer-header h2,
+.drawer.collapsed .drawer-content {
+    display: none;
+}
+
+/* 切换按钮：固定在抽屉左侧边沿或头部 */
+#drawer-toggle-btn {
+    cursor: pointer;
+    transition: all 0.3s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1001;
+    background: none;
+    border: none;
+    color: #60a5fa;
+    padding: 4px;
+    border-radius: 4px;
+}
+
+#drawer-toggle-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+/* 旋转图标逻辑 */
+.drawer.collapsed #drawer-toggle-btn {
+    transform: rotate(180deg); /* 折叠时图标反转 */
 }
 
 .drawer-hidden {

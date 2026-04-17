@@ -87,27 +87,28 @@
                 return;
             }
             
+            // 检测是否为移动端
+            const isMobile = window.innerWidth < 768;
+            console.log('[3d_editor] 移动端检测:', isMobile, '屏幕宽度:', window.innerWidth);
+            
             try {
                 mdeInstance = new EasyMDE({
                     element: editorElement,
                     spellChecker: false,
                     autoDownloadFontAwesome: true, // 确保图标正常显示
-                    status: ["lines", "words"],
+                    status: isMobile ? false : ["lines", "words"], // 手机端隐藏状态栏节省空间
                     renderingConfig: {
                         codeSyntaxHighlighting: true
                     },
                     theme: "sober", // 使用更清晰的主题
-                    minHeight: "400px", // 确保高度能撑开
+                    minHeight: isMobile ? "200px" : "400px", // 移动端减少最小高度
                     placeholder: "在此输入 Markdown 内容...",
-                    toolbar: [
-                        "bold", "italic", "heading", "|",
-                        "quote", "unordered-list", "ordered-list", "|",
-                        "link", "image", "|",
-                        "preview", "side-by-side", "fullscreen", "|",
-                        "guide"
-                    ]
+                    // 移动端精简工具栏，只保留最核心的职责
+                    toolbar: isMobile 
+                        ? ["bold", "italic", "heading", "|", "link", "preview", "|", "guide"]
+                        : ["bold", "italic", "heading", "|", "quote", "unordered-list", "ordered-list", "|", "link", "image", "|", "preview", "side-by-side", "fullscreen", "|", "guide"]
                 });
-                console.log('[3d_editor] EasyMDE实例创建成功');
+                console.log('[3d_editor] EasyMDE实例创建成功，移动端:', isMobile);
             } catch (error) {
                 console.error('[3d_editor] EasyMDE初始化失败:', error);
                 console.error('[3d_editor] 错误详情:', error.message, error.stack);
