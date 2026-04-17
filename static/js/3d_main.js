@@ -450,17 +450,33 @@ function initSocketHandlers() {
     
     window.socket.on('node_updated', (data) => {
         nodeCache[data.node_id] = data;
-        loadInitialData(); // 拓扑可能变化，执行全量刷新
+        
+        // 使用增量更新而不是全量刷新，保留节点坐标
+        updateNodeIncremental(data);
+        
+        // 如果这是当前选中的节点，更新selectedNodeObj
+        if (selectedNodeObj && selectedNodeObj.id === data.node_id) {
+            // 从当前graphData中查找更新后的节点
+            const { nodes } = Graph.graphData();
+            const updatedNode = nodes.find(n => n.id === data.node_id);
+            if (updatedNode) {
+                selectedNodeObj = updatedNode;
+            }
+        }
+        
+        console.log(`[SocketIO] 增量更新节点: ${data.node_id}`);
     });
     
     window.socket.on('node_created', (data) => {
         nodeCache[data.node_id] = data;
+        // 新节点创建需要全量刷新，因为可能改变拓扑结构
         loadInitialData();
     });
 
     window.socket.on('node_deleted', (data) => {
         delete nodeCache[data.node_id];
         if (currentSelectedNodeId === data.node_id) closeDrawer();
+        // 节点删除需要全量刷新，因为会改变拓扑结构
         loadInitialData();
     });
 }
@@ -1853,43 +1869,155 @@ window.addEventListener('load', () => {
         }
     }
     
-    // 在3D图中高亮显示搜索结果节点
-    function highlightSearchResultNode(nodeId) {
-        if (!Graph) return;
-        
-        const { nodes } = Graph.graphData();
-        const targetNode = nodes.find(n => n.id === nodeId);
-        
-        if (targetNode) {
-            // 设置节点为选中状态
-            selectedNodeObj = targetNode;
-            
-            // 物理锁定节点
-            targetNode.fx = targetNode.x;
-            targetNode.fy = targetNode.y;
-            targetNode.fz = targetNode.z;
-            
-            // 聚焦到该节点（但不打开抽屉）
-            const distance = 600;
-            const distRatio = 1 + distance / Math.hypot(targetNode.x, targetNode.y, targetNode.z);
-            const camPos = { 
-                x: targetNode.x * distRatio, 
-                y: targetNode.y * distRatio, 
-                z: targetNode.z * distRatio 
-            };
-            
-            Graph.cameraPosition(camPos, targetNode, 1200);
-            
-            // 添加高亮效果
-            highlightNodes.clear();
-            highlightNodes.add(targetNode);
-            updateHighlight();
-            
-            console.log(`[搜索高亮] 已高亮显示节点: ${nodeId}`);
-        } else {
-            console.warn(`[搜索高亮] 未在图中找到节点: ${nodeId}`);
+// 增量更新节点数据，保留坐标和连线
+function updateNodeIncremental(nodeData) {
+    if (!Graph) return;
+    
+    // 确保权重是数值类型，而不是字符串
+    const processedData = { ...nodeData };
+    if (processedData.survival_weight !== undefined) {
+        processedData.survival_weight = Number(processedData.survival_weight);
+        if (isNaN(processedData.survival_weight)) {
+            processedData.survival_weight = 0;
         }
     }
+    
+    const currentData = Graph.graphData();
+    const existingNodeIndex = currentData.nodes.findIndex(n => n.id === processedData.node_id);
+    
+    if (existingNodeIndex !== -1) {
+        // 保留现有节点的坐标和物理锁定状态
+        const existingNode = currentData.nodes[existingNodeIndex];
+        const { x, y, z, fx, fy, fz } = existingNode;
+        
+        // 合并新数据，但保留坐标
+        currentData.nodes[existingNodeIndex] = {
+            ...processedData,
+            id: processedData.node_id,
+            x, y, z, fx, fy, fz  // 保留原有坐标
+        };
+        
+        console.log(`[增量更新] 更新现有节点: ${processedData.node_id}`, { 
+            x, y, z, 
+            weight: processedData.survival_weight,
+            weightType: typeof processedData.survival_weight
+        });
+    } else {
+        // 添加新节点，使用默认坐标
+        currentData.nodes.push({
+            ...processedData,
+            id: processedData.node_id,
+            x: 0, y: 0, z: 0  // 默认坐标，力导引布局会调整
+        });
+        console.log(`[增量更新] 添加新节点: ${processedData.node_id}`, {
+            weight: processedData.survival_weight,
+            weightType: typeof processedData.survival_weight
+        });
+    }
+    
+    // 更新连线（如果需要）
+    // 注意：这里假设nodeData包含parent_ids信息
+    if (processedData.parent_ids && Array.isArray(processedData.parent_ids)) {
+        processedData.parent_ids.forEach(parentId => {
+            // 检查连线是否已存在
+            const linkExists = currentData.links.some(link => 
+                (link.source === parentId || (typeof link.source === 'object' && link.source.id === parentId)) &&
+                (link.target === processedData.node_id || (typeof link.target === 'object' && link.target.id === processedData.node_id))
+            );
+            
+            if (!linkExists) {
+                currentData.links.push({ source: parentId, target: processedData.node_id });
+                console.log(`[增量更新] 添加连线: ${parentId} -> ${processedData.node_id}`);
+            }
+        });
+    }
+    
+    // 更新图表数据
+    Graph.graphData(currentData);
+}
+
+// 在3D图中高亮显示搜索结果节点
+function highlightSearchResultNode(nodeId) {
+    if (!Graph) return;
+    
+    const { nodes } = Graph.graphData();
+    const targetNode = nodes.find(n => n.id === nodeId);
+    
+    if (targetNode) {
+        // 设置节点为选中状态
+        selectedNodeObj = targetNode;
+        
+        // 确保节点有有效的坐标
+        if (targetNode.x === undefined || targetNode.y === undefined || targetNode.z === undefined) {
+            // 如果节点没有坐标，设置默认坐标
+            targetNode.x = targetNode.x || 0;
+            targetNode.y = targetNode.y || 0;
+            targetNode.z = targetNode.z || 0;
+            console.warn(`[搜索高亮] 节点 ${nodeId} 坐标缺失，使用默认坐标 (0,0,0)`);
+        }
+        
+        // 物理锁定节点
+        targetNode.fx = targetNode.x;
+        targetNode.fy = targetNode.y;
+        targetNode.fz = targetNode.z;
+        
+        // 计算聚焦距离，确保节点在视图中可见
+        const distance = 600;
+        const nodeDistance = Math.hypot(targetNode.x, targetNode.y, targetNode.z);
+        const distRatio = 1 + distance / (nodeDistance || 1); // 避免除以0
+        
+        const camPos = { 
+            x: targetNode.x * distRatio, 
+            y: targetNode.y * distRatio, 
+            z: targetNode.z * distRatio 
+        };
+        
+        // 使用抽屉避让算法计算聚焦位置
+        const { camPos: offsetCamPos, lookAt } = calculateOffsetView(targetNode, distance);
+        
+        // 聚焦到该节点（但不打开抽屉）
+        Graph.cameraPosition(offsetCamPos, lookAt, 1200);
+        
+        // 添加高亮效果
+        highlightNodes.clear();
+        highlightNodes.add(targetNode);
+        updateHighlight();
+        
+        console.log(`[搜索高亮] 已高亮显示节点: ${nodeId}`, {
+            coordinates: { x: targetNode.x, y: targetNode.y, z: targetNode.z },
+            cameraPosition: offsetCamPos,
+            lookAt
+        });
+    } else {
+        console.warn(`[搜索高亮] 未在图中找到节点: ${nodeId}，尝试通过API获取`);
+        
+        // 如果图中没有该节点，通过API获取节点数据
+        fetch(`/api/v1/causal/search/serial`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                serial_id: parseInt(nodeId.split('_').pop()) || 0,
+                actor_id: window.currentActorId || '',
+                owner_id: window.currentOwnerId || 'default'
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success' && data.data) {
+                // 使用增量更新添加节点
+                updateNodeIncremental(data.data);
+                
+                // 重新尝试高亮
+                setTimeout(() => highlightSearchResultNode(nodeId), 100);
+            } else {
+                console.error(`[搜索高亮] 无法获取节点数据: ${data.message}`);
+            }
+        })
+        .catch(error => {
+            console.error(`[搜索高亮] API请求失败:`, error);
+        });
+    }
+}
     
     // 初始化 Socket 与 数据
     initSocketHandlers();
