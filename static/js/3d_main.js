@@ -124,22 +124,28 @@ function showDivineBeam(node, colorType = 'divine') {
     
     const beamHeight = 800; 
     
-    // 2. 动态计算光柱尺寸：根据节点类型采用三种不同的算法策略
+    // 2. 动态计算光柱尺寸：根据节点类型与设备屏幕动态自适应算法
     let bottomRadius, topRadius;
+    const isMobile = window.innerWidth < 768; // 判断是否为移动端窄屏
 
     if (colorType === 'golden') {
-        // (1) 新生节点（创世金光）：强调神圣天降，底部包裹星体但保留边缘余量防止溢出，顶部极其宏大
+        // (1) 新生节点（创世金光）
         bottomRadius = actualPhysicalRadius * 0.88;
-        topRadius = Math.max(220, bottomRadius * 6.0);
+        topRadius = Math.max(isMobile ? 150 : 220, bottomRadius * (isMobile ? 4.0 : 6.0));
     } else if (weight >= 0.6) {
-        // (2) 大股东节点：巨星需要极其庞大的光幕笼罩，彻底杜绝“牙签”感，凸显大体量
-        // 因为 Shader 有边缘羽化衰减，视觉上会显小，所以物理半径需要直接达到甚至略微超出球体半径
-        bottomRadius = actualPhysicalRadius * 1.1;
-        topRadius = Math.max(300, bottomRadius * 7.0);
+        // (2) 大股东节点：巨星需要庞大的光幕笼罩
+        // 修正：底部回退至 0.95，防止在任何视角下溢出球体直径
+        bottomRadius = actualPhysicalRadius * 0.95;
+        // 修正：顶部在移动端大幅收缩，防止光幕宽过屏幕导致视觉杂乱
+        const topMultiplier = isMobile ? 3.5 : 5.0;
+        const topMin = isMobile ? 160 : 220;
+        topRadius = Math.max(topMin, bottomRadius * topMultiplier);
     } else {
-        // (3) 普通节点：使用刚好合适的内敛比例
-        bottomRadius = actualPhysicalRadius * 0.9;
-        topRadius = Math.max(120, bottomRadius * 4.5);
+        // (3) 普通节点
+        bottomRadius = actualPhysicalRadius * 0.88;
+        const topMultiplier = isMobile ? 2.8 : 4.0;
+        const topMin = isMobile ? 80 : 100;
+        topRadius = Math.max(topMin, bottomRadius * topMultiplier);
     }
 
     const geo = new THREE.CylinderGeometry(topRadius, bottomRadius, beamHeight, 32, 1, true);
@@ -244,6 +250,18 @@ function showDivineBeam(node, colorType = 'divine') {
  * 目的是让节点显示在 (屏幕宽度 - 抽屉宽度) 的中心
  */
 function calculateOffsetView(node, distance = 350) {
+    // 移动端自适应：仅在窄屏下自动拉远相机，防止巨星节点撑爆屏幕
+    const isMobile = window.innerWidth < 768;
+    let actualDistance = distance;
+    
+    if (isMobile) {
+        // 根据节点权重(大小)动态决定拉远距离：节点越大，拉得越远
+        const weight = Math.max(0, Math.min(1, node.survival_weight || 0));
+        // 移动端基础距离 450，满权重巨星最大拉远至 650
+        const mobileDistance = 450 + (weight * 200);
+        actualDistance = Math.max(distance, mobileDistance);
+    }
+
     const { x, y, z } = node;
 
     // 1. 计算从原点到节点的单位向量（方向）
@@ -252,9 +270,9 @@ function calculateOffsetView(node, distance = 350) {
 
     // 2. 目标相机位置（在节点方向上向外延伸固定距离）
     const newCamPos = {
-        x: x + dir.x * distance,
-        y: y + dir.y * distance,
-        z: z + dir.z * distance
+        x: x + dir.x * actualDistance,
+        y: y + dir.y * actualDistance,
+        z: z + dir.z * actualDistance
     };
 
     // 3. 计算水平偏移量
@@ -272,7 +290,7 @@ function calculateOffsetView(node, distance = 350) {
         const camera = Graph.camera();
         if (camera) {
             const fovRad = (camera.fov * Math.PI) / 180;
-            const viewHeight = 2 * Math.tan(fovRad / 2) * distance;
+            const viewHeight = 2 * Math.tan(fovRad / 2) * actualDistance;
             const viewWidth = viewHeight * camera.aspect;
 
             const worldOffset = viewWidth * offsetRatio;
