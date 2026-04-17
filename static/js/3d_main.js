@@ -1109,6 +1109,9 @@ async function handleSaveNode() {
             is_change = true;
             console.log('保存修改完成，重置 is_change = true');
             closeDrawer();
+            
+            // 【关键修复】表单保存后，由于可能修改了节点ID、连线关系(父ID)、动作标签(颜色)，必须强制重绘全图
+            loadInitialData();
         } else {
             showSelectionHint(`更新失败: ${result.message}`);
         }
