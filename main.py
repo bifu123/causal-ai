@@ -145,9 +145,13 @@ async def upload_file(file: UploadFile = File(...)):
         upload_dir = "uploads/raw"
         os.makedirs(upload_dir, exist_ok=True)
         
-        # 生成唯一文件名
-        file_ext = os.path.splitext(file.filename)[1] if '.' in file.filename else '.png'
-        unique_filename = f"{uuid.uuid4().hex}{file_ext}"
+        # # 生成唯一文件名
+        # file_ext = os.path.splitext(file.filename)[1] if '.' in file.filename else '.png'
+        # unique_filename = f"{uuid.uuid4().hex}{file_ext}"
+        # file_path = os.path.join(upload_dir, unique_filename)
+
+        # 直接使用源文件的文件名（使用 os.path.basename 确保安全，防止路径穿越）
+        unique_filename = os.path.basename(file.filename)
         file_path = os.path.join(upload_dir, unique_filename)
         
         # 保存文件

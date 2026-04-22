@@ -1029,6 +1029,64 @@ function expandDrawer() {
     }
 }
 
+// --- [4.5 抽屉图片上传与预览] ---
+function handleImagePreview(e) {
+    const file = e.target.files[0];
+    if (file) {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            document.getElementById('d-preview-img').src = e.target.result;
+            document.getElementById('d-image-preview').classList.remove('hidden');
+        };
+        reader.readAsDataURL(file);
+    } else {
+        document.getElementById('d-image-preview').classList.add('hidden');
+    }
+}
+
+async function handleUploadImage() {
+    const fileInput = document.getElementById('d-image-file');
+    const file = fileInput.files[0];
+    
+    if (!file) {
+        showSelectionHint('请先选择要上传的图片');
+        return;
+    }
+    
+    const btn = document.getElementById('btn-upload-image');
+    const originalText = btn.innerText;
+    btn.innerText = '上传中...';
+    btn.disabled = true;
+    
+    try {
+        const formData = new FormData();
+        formData.append('file', file);
+        
+        console.log('[抽屉上传] 开始上传图片...');
+        const response = await fetch('/api/v1/causal/upload', {
+            method: 'POST',
+            body: formData
+        });
+        
+        const data = await response.json();
+        
+        if (data.status === 'success') {
+            document.getElementById('d-full-image-url').value = data.data.url;
+            console.log('[抽屉上传] 图片上传成功:', data.data.url);
+            showSelectionHint('图片上传成功');
+        } else {
+            console.error('[抽屉上传] 图片上传失败:', data.message);
+            showSelectionHint('图片上传失败: ' + data.message);
+        }
+    } catch (error) {
+        console.error('[抽屉上传] 上传图片异常:', error);
+        showSelectionHint('图片上传出错: ' + error.message);
+    } finally {
+        btn.innerText = originalText;
+        btn.disabled = false;
+    }
+}
+
 async function handleSaveNode() {
     // 获取表单字段的值（使用HTML中实际存在的ID）
     const nodeId = document.getElementById('d-node-id').value.trim();
@@ -1888,6 +1946,18 @@ window.addEventListener('load', () => {
     document.getElementById('btn-save-node').onclick = handleSaveNode;
     document.getElementById('btn-delete-node').onclick = handleDeleteNode;
     document.getElementById('btn-close-drawer').onclick = closeDrawer;
+    
+    // 绑定抽屉图片上传按钮
+    const uploadImageBtn = document.getElementById('btn-upload-image');
+    if (uploadImageBtn) {
+        uploadImageBtn.onclick = handleUploadImage;
+    }
+    
+    // 绑定抽屉图片预览
+    const imageFileInput = document.getElementById('d-image-file');
+    if (imageFileInput) {
+        imageFileInput.onchange = handleImagePreview;
+    }
     
     // 绑定折叠/展开按钮
     const collapseBtn = document.getElementById('btn-collapse-drawer');
