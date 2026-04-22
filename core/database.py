@@ -64,8 +64,8 @@ class CausalDatabase:
             # 创建活跃事件表
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS ains_active_nodes (
-                    node_id VARCHAR(255),
-                    parent_id VARCHAR(255),
+                    node_id VARCHAR(500),
+                    parent_id VARCHAR(500),
                     block_tag VARCHAR(50),
                     action_tag VARCHAR(50),
                     event_tuple TEXT,
@@ -74,7 +74,7 @@ class CausalDatabase:
                     full_image_url TEXT,
                     last_accessed TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    owner_id VARCHAR(255) DEFAULT 'default',
+                    owner_id VARCHAR(500) DEFAULT 'default',
                     PRIMARY KEY (node_id, owner_id)
                 );
             """)

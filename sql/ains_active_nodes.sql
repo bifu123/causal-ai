@@ -30,8 +30,8 @@ $$;
 DROP TABLE IF EXISTS "public"."ains_active_nodes" CASCADE;
 CREATE TABLE "public"."ains_active_nodes" (
   "serial_id" int4 NOT NULL DEFAULT nextval('ains_active_nodes_serial_id_seq'::regclass),
-  "node_id" varchar(100) COLLATE "pg_catalog"."default" NOT NULL,
-  "parent_id" varchar(100) COLLATE "pg_catalog"."default",
+  "node_id" varchar(500) COLLATE "pg_catalog"."default" NOT NULL,
+  "parent_id" varchar(500) COLLATE "pg_catalog"."default",
   "block_tag" varchar(10) COLLATE "pg_catalog"."default",
   "action_tag" varchar(10) COLLATE "pg_catalog"."default",
   "actor_id" varchar(50) COLLATE "pg_catalog"."default",
@@ -48,7 +48,7 @@ CREATE TABLE "public"."ains_active_nodes" (
   "compression_level" int4 DEFAULT 0,
   "last_accessed" timestamptz(6) DEFAULT now(),
   "created_at" timestamptz(6) DEFAULT now(),
-  "owner_id" varchar(100) COLLATE "pg_catalog"."default"
+  "owner_id" varchar(500) COLLATE "pg_catalog"."default"
 );
 
 -- 字段注释
