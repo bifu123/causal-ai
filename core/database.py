@@ -8,7 +8,7 @@ load_dotenv()
 
 # 数据库配置
 DB_CONFIG = {
-    "host": os.getenv("DB_HOST", "localhost"),
+    "host": os.getenv("DB_HOST", "192.168.66.39"),
     "database": os.getenv("DB_DATABASE", "causal_ai_db"),
     "user": os.getenv("DB_USER", "postgres"),
     "password": os.getenv("DB_PASSWORD", "Shift962512"),
