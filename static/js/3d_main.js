@@ -607,12 +607,46 @@ async function loadInitialData() {
                 const parents = nodeData.parent_ids || (nodeData.parent_id ? [nodeData.parent_id] : []);
                 parents.forEach(pId => {
                     if (nodeById[pId] && nodeById[nodeData.node_id]) {
-                        links.push({ source: pId, target: nodeData.node_id });
+                        links.push({ source: pId, target: nodeData.node_id, type: 'causal' });
                     }
                 });
             });
+            
+            // 构建语义连线 (semantic)
+            if (res.semantic_links && res.semantic_links.length > 0) {
+                let validSemanticLinks = 0;
+                res.semantic_links.forEach(link => {
+                    if (nodeById[link.source] && nodeById[link.target]) {
+                        links.push({
+                            source: link.source,
+                            target: link.target,
+                            type: 'semantic',
+                            similarity: link.similarity
+                        });
+                        validSemanticLinks++;
+                    } else {
+                        console.warn(`[3D星空] 语义连线节点不存在: source=${link.source}, target=${link.target}`);
+                    }
+                });
+                console.log(`[3D星空] 接收到 ${res.semantic_links.length} 条语义连线，有效连线 ${validSemanticLinks} 条`);
+                if (validSemanticLinks > 0) {
+                    console.log(`[3D星空] 示例语义连线:`, links.filter(l => l.type === 'semantic').slice(0, 3));
+                }
+            }
 
+            console.log(`[3D星空] 最终图谱数据: nodes=${nodes.length}, links=${links.length}`);
             Graph.graphData({ nodes, links });
+            
+            // 检查是否有 NaN 坐标
+            setTimeout(() => {
+                const currentNodes = Graph.graphData().nodes;
+                const nanNodes = currentNodes.filter(n => isNaN(n.x) || isNaN(n.y) || isNaN(n.z));
+                if (nanNodes.length > 0) {
+                    console.error(`[3D星空] 发现 ${nanNodes.length} 个节点坐标为 NaN!`, nanNodes.slice(0, 5));
+                } else {
+                    console.log(`[3D星空] 坐标检查正常，无 NaN 节点。`);
+                }
+            }, 2000);
             
             // 触发创世金光降临判断
             if (window.pendingGenesisNodeId) {
@@ -1931,16 +1965,59 @@ window.addEventListener('load', () => {
                 }, HOVER_DELAY);
             }
         })
-        .linkWidth(l => highlightLinks.has(l) ? 8.0 : 2.0)
-        .linkColor(l => highlightLinks.has(l) ? '#fff' : 'rgba(0, 255, 255, 0.2)')
-        .linkDirectionalParticles(l => highlightLinks.has(l) ? 10 : 2)
+        .linkWidth(l => {
+            if (l.type === 'semantic') return 0; // 语义连线不可见
+            return highlightLinks.has(l) ? 8.0 : 2.0;
+        })
+        .linkColor(l => {
+            if (l.type === 'semantic') return 'rgba(0,0,0,0)'; // 语义连线完全透明
+            return highlightLinks.has(l) ? '#fff' : 'rgba(0, 255, 255, 0.2)';
+        })
+        .linkDirectionalParticles(l => {
+            if (l.type === 'semantic') return 0; // 语义连线没有光点
+            return highlightLinks.has(l) ? 10 : 2;
+        })
         .linkDirectionalParticleWidth(4)
-        .linkDirectionalArrowLength(6)
+        .linkDirectionalArrowLength(l => l.type === 'semantic' ? 0 : 6) // 语义连线没有箭头
         .linkDirectionalArrowRelPos(1);
 
     // --- [6. 初始化力场与事件] ---
-    Graph.d3Force('charge').strength(originalForces.charge);
-    Graph.d3Force('link').distance(originalForces.link);
+    // 调整全局排斥力，防止节点挤在一起
+    Graph.d3Force('charge').strength(-200); 
+
+    // 劫持并重定义 Link 力场
+    const linkForce = Graph.d3Force('link');
+    if (linkForce) {
+        linkForce
+            .distance(link => {
+                if (link.type === 'semantic') {
+                    let sim = Number(link.similarity);
+                    if (isNaN(sim)) sim = 0.6;
+                    // 极端放大距离差异
+                    // sim = 1.0 -> dist = 10
+                    // sim = 0.6 -> dist = 600
+                    const dist = Math.max(10, 600 - (sim - 0.6) * (590 / 0.4));
+                    return dist;
+                } else {
+                    return 250;
+                }
+            })
+            .strength(link => {
+                if (link.type === 'semantic') {
+                    let sim = Number(link.similarity);
+                    if (isNaN(sim)) sim = 0.6;
+                    // 极端放大拉力差异
+                    // sim = 1.0 -> str = 1.5 (极强拉力)
+                    // sim = 0.6 -> str = 0.001 (极弱拉力)
+                    const str = Math.max(0.001, Math.min(1.5, 0.001 + (sim - 0.6) * (1.499 / 0.4)));
+                    return str;
+                } else {
+                    return 0.02;
+                }
+            });
+    } else {
+        console.error("[3D星空] 无法获取 link 力场!");
+    }
 
     // 绑定界面按钮
     document.getElementById('btn-save-node').onclick = handleSaveNode;

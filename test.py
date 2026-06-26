@@ -1,48 +1,35 @@
-# def get_causal_skeleton(serial_id, actor_id=None):
-#     import requests
-#     url = "http://192.168.66.39:8094/api/v1/causal/skeleton"
-    
-#     payload = {
-#         "serial_id": serial_id
-#     }
-    
-#     if actor_id is not None:
-#         payload["actor_id"] = actor_id
-    
-#     response = requests.post(url, json=payload)
-#     return response.json()
+import os
+import psycopg2
+from psycopg2.extras import RealDictCursor
+from dotenv import load_dotenv
 
-# # 示例：获取serial_id为312的因果链骨架
-# result = get_causal_skeleton(312)
-# print("因果链骨架结果:")
-# print(result)
+load_dotenv()
 
-# 测试core/search.py中的get_event_with_params函数
-def test_search_function():
-    print("\n=== 测试搜索功能 ===")
-    
-    # 导入搜索模块
-    import sys
-    import os
-    sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-    
+DB_CONFIG = {
+    "host": os.getenv("DB_HOST", "192.168.66.39"),
+    "database": os.getenv("DB_DATABASE", "causal_ai_db"),
+    "user": os.getenv("DB_USER", "postgres"),
+    "password": os.getenv("DB_PASSWORD", "Shift962512"),
+    "port": os.getenv("DB_PORT", 5432)
+}
 
-    from core.search import get_event_with_params
+conn = psycopg2.connect(**DB_CONFIG)
+conn.set_client_encoding('UTF8')
 
-    results = get_event_with_params(keyword="工作", owner_id="worker", limit=5)
-    for item in results:
-        if "事件二元组描述" in item:
-            item["事件二元组描述"] = item["事件二元组描述"][:20]
-        if "event_tuple" in item:
-            item["event_tuple"] = item["event_tuple"][:20]
+sql = """
+SELECT a.node_id as source, b.node_id as target,
+       1 - (a.semantic_vector <=> b.semantic_vector) as similarity
+FROM ains_active_nodes a
+JOIN ains_active_nodes b ON a.node_id < b.node_id
+WHERE a.node_id IN (%s, %s, %s)
+  AND b.node_id IN (%s, %s, %s)
+"""
 
+nodes = ('A节点：时光的旧物', 'B节点：科技浪潮下的创造重塑', 'C节点：岁月的留痕')
+params = nodes + nodes
 
-        
-
-    return results
-
-
-# 运行搜索测试
-if __name__ == "__main__":
-    import json
-    print(json.dumps(test_search_function(),ensure_ascii=False,indent=4))
+with conn.cursor(cursor_factory=RealDictCursor) as cur:
+    cur.execute(sql, params)
+    links = cur.fetchall()
+    for link in links:
+        print(f"{link['source']} <-> {link['target']}: {link['similarity']}")

@@ -2,6 +2,7 @@ import os
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from dotenv import load_dotenv
+from core.embedding import get_embedding
 
 # 加载环境变量
 load_dotenv()
@@ -122,6 +123,11 @@ class CausalDatabase:
                     ALTER TABLE ains_active_nodes 
                     ADD COLUMN IF NOT EXISTS serial_id INTEGER;
                 """)
+                # 为活跃事件表添加语义向量字段
+                cur.execute("""
+                    ALTER TABLE ains_active_nodes 
+                    ADD COLUMN IF NOT EXISTS semantic_vector vector(768);
+                """)
             except Exception as e:
                 print(f"[数据库警告] 添加表列时出错: {e}")
 
@@ -154,10 +160,15 @@ class CausalDatabase:
         # 获取owner_id，默认为'default'
         owner_id = node_data.get('owner_id', 'default')
         
+        # 生成语义向量
+        semantic_vector = None
+        if node_data.get('event_tuple'):
+            semantic_vector = get_embedding(node_data['event_tuple'])
+
         sql = """
             INSERT INTO ains_active_nodes 
-            (node_id, parent_id, block_tag, action_tag, event_tuple, survival_weight, full_image_url, owner_id)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s);
+            (node_id, parent_id, block_tag, action_tag, event_tuple, survival_weight, full_image_url, owner_id, semantic_vector)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s);
         """
         with self.conn.cursor() as cur:
             cur.execute(sql, (
@@ -168,7 +179,8 @@ class CausalDatabase:
                 node_data.get('event_tuple'),
                 node_data.get('survival_weight', 1.0),
                 node_data.get('full_image_url'),
-                owner_id
+                owner_id,
+                semantic_vector
             ))
 
     def update_node_weight(self, node_id: str, new_weight: float):
@@ -222,6 +234,7 @@ class CausalDatabase:
         注意：这里使用 UPDATE 而不是 INSERT，因为事件应该已经存在。
         """
         # 检查是否需要更新 event_tuple
+        # 注意：代谢衰减时不更新 semantic_vector，以保留节点最完整状态时的语义
         if 'event_tuple' in node_data:
             sql = """
                 UPDATE ains_active_nodes 
@@ -272,6 +285,13 @@ class CausalDatabase:
             update_fields.append("event_tuple = %s")
             update_values.append(node_data['event_tuple'])
             print(f"[数据库更新] 更新event_tuple: 长度={len(node_data['event_tuple'])}")
+            
+            # 同时更新语义向量
+            semantic_vector = get_embedding(node_data['event_tuple'])
+            if semantic_vector:
+                update_fields.append("semantic_vector = %s")
+                update_values.append(semantic_vector)
+                print(f"[数据库更新] 更新semantic_vector")
         
         if 'full_image_url' in node_data:
             update_fields.append("full_image_url = %s")
@@ -825,6 +845,83 @@ class CausalDatabase:
         
         return nodes
     
+    def get_all_semantic_links(self, owner_id=None, threshold: float = 0.5):
+        """
+        职责：获取全图中所有相似度超过阈值的节点对（语义连线）
+        """
+        where_clause = "a.semantic_vector IS NOT NULL AND b.semantic_vector IS NOT NULL"
+        params = []
+
+        if owner_id:
+            where_clause += " AND a.owner_id = %s AND b.owner_id = %s"
+            params.extend([owner_id, owner_id])
+            
+        # 最后添加 threshold 参数，对应 SQL 语句最后的 >= %s
+        params.append(threshold)
+
+        sql = f"""
+            SELECT a.node_id as source, b.node_id as target,
+                   1 - (a.semantic_vector <=> b.semantic_vector) as similarity
+            FROM ains_active_nodes a
+            JOIN ains_active_nodes b ON a.node_id < b.node_id
+            WHERE {where_clause}
+              AND 1 - (a.semantic_vector <=> b.semantic_vector) >= %s
+        """
+
+        with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(sql, tuple(params))
+            links = cur.fetchall()
+            # 转换为普通字典并确保浮点数精度
+            return [{'source': link['source'], 'target': link['target'], 'similarity': float(link['similarity'])} for link in links]
+
+    def get_similar_nodes(self, node_id: str, limit: int = 5, threshold: float = 0.5):
+        """
+        职责：获取与指定节点语义最相似的节点
+        参数：
+            node_id: 目标节点ID
+            limit: 返回的最大节点数
+            threshold: 相似度阈值 (0-1，越大越相似)
+        返回：相似节点列表，包含相似度分数
+        """
+        # 1. 获取目标节点的向量
+        target_node = self.get_node_by_id(node_id)
+        if not target_node:
+            return []
+            
+        # 2. 使用 pgvector 的余弦距离 (<=>) 进行查询
+        # 余弦距离 = 1 - 余弦相似度
+        # 所以 相似度 = 1 - 距离
+        sql = """
+            SELECT n.*, 1 - (n.semantic_vector <=> (
+                SELECT semantic_vector FROM ains_active_nodes WHERE node_id = %s
+            )) as similarity
+            FROM ains_active_nodes n
+            WHERE n.node_id != %s 
+              AND n.semantic_vector IS NOT NULL
+              AND (
+                  SELECT semantic_vector FROM ains_active_nodes WHERE node_id = %s
+              ) IS NOT NULL
+              AND 1 - (n.semantic_vector <=> (
+                  SELECT semantic_vector FROM ains_active_nodes WHERE node_id = %s
+              )) >= %s
+            ORDER BY similarity DESC
+            LIMIT %s
+        """
+        
+        with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(sql, (node_id, node_id, node_id, node_id, threshold, limit))
+            nodes = cur.fetchall()
+            
+            # 为每个节点解析父节点列表
+            for node in nodes:
+                if 'parent_id' in node:
+                    node['parent_ids'] = self._string_to_parents(node.get('parent_id'))
+                # 移除向量数据以减少传输量
+                if 'semantic_vector' in node:
+                    del node['semantic_vector']
+                    
+            return nodes
+
     def get_non_startup_nodes(self, owner_id=None):
         """
         职责：获取非初创节点（有连接关系的节点）

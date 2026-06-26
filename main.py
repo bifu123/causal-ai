@@ -134,6 +134,39 @@ async def get_socketio_test(request: Request):
     """Socket.IO 同步问题测试页面"""
     return templates.TemplateResponse(request=request, name="socketio_test.html")
 
+# --- 相似节点查询接口 ---
+@app.get("/api/v1/causal/nodes/{node_id}/similar")
+async def get_similar_nodes(node_id: str, limit: int = 5, threshold: float = 0.5):
+    """获取与指定节点语义相似的节点"""
+    try:
+        similar_nodes = db.get_similar_nodes(node_id, limit=limit, threshold=threshold)
+        
+        # 格式化返回数据
+        formatted_nodes = []
+        for node in similar_nodes:
+            formatted_nodes.append({
+                'node_id': node['node_id'],
+                'parent_ids': node.get('parent_ids', []),
+                'block_tag': node.get('block_tag'),
+                'action_tag': node.get('action_tag'),
+                'event_tuple': node.get('event_tuple'),
+                'survival_weight': float(node.get('survival_weight', 1.0)),
+                'vision_level': node.get('vision_level', 0),
+                'full_image_url': node.get('full_image_url'),
+                'similarity': float(node.get('similarity', 0.0))
+            })
+            
+        return {
+            'status': 'success',
+            'data': formatted_nodes
+        }
+    except Exception as e:
+        print(f"[API错误] 获取相似节点失败: {e}")
+        return {
+            'status': 'error',
+            'message': str(e)
+        }
+
 # --- 文件上传接口 ---
 @app.post("/api/v1/causal/upload")
 async def upload_file(file: UploadFile = File(...)):
@@ -546,10 +579,14 @@ async def get_causal_history(actor_id: str = None, owner_id: str = None):
             node['last_accessed'] = str(node['last_accessed'])
             node['created_at'] = str(node['created_at'])
             node['survival_weight'] = float(node['survival_weight'])
+            
+        # 获取全图语义连线 (相似度阈值设为 0.6，可根据需要调整)
+        semantic_links = db.get_all_semantic_links(owner_id=owner_id, threshold=0.6)
         
         return {
             "status": "success",
             "data": active_nodes,
+            "semantic_links": semantic_links,
             "actor_id": actor_id,
             "owner_id": owner_id
         }
