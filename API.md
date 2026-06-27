@@ -3,7 +3,7 @@
 本系统采用 AINS (AI Native Software) 协议，允许 Agent 通过 HTTP POST 接口操作本系统。
 
 ### 接口定义
-- **URL**: `http://192.168.66.39:8094/api/v1/causal/genesis`
+- **URL**: `http://127.0.0.1:8094/api/v1/causal/genesis`
 - **Method**: `POST`
 - **Content-Type**: `application/json`
 
@@ -59,7 +59,7 @@ def trigger_causal_node(node_id, action_tag, block_tag, event_tuple, parent_id=N
         owner_id="worker"
     )
     """
-    url = "http://192.168.66.39:8094/api/v1/causal/genesis"
+    url = "http://127.0.0.1:8094/api/v1/causal/genesis"
     
     payload = {
         "node_id": node_id,
@@ -106,7 +106,7 @@ if __name__ == "__main__":
 ### 2. 发起"又贞" (基于已有事件继续补充)
 **Curl 示例**:
 ```bash
-curl -X POST "http://192.168.66.39:8094/api/v1/causal/genesis" \
+curl -X POST "http://127.0.0.1:8094/api/v1/causal/genesis" \
      -H "Content-Type: application/json" \
      -d '{
            "node_id": "丙申，王占曰：吉",
@@ -122,7 +122,7 @@ curl -X POST "http://192.168.66.39:8094/api/v1/causal/genesis" \
 ### 3. 发起"对贞" (基于结果的事后补录)
 **Curl 示例**:
 ```bash
-curl -X POST "http://192.168.66.39:8094/api/v1/causal/genesis" \
+curl -X POST "http://127.0.0.1:8094/api/v1/causal/genesis" \
      -H "Content-Type: application/json" \
      -d '{
            "node_id": "旬有二日，方来",
@@ -159,7 +159,7 @@ def delete_causal_node(node_id):
     示例:
     delete_causal_node("王占曰：吉，其来")
     """
-    url = "http://192.168.66.39:8094/api/v1/causal/delete"
+    url = "http://127.0.0.1:8094/api/v1/causal/delete"
     
     payload = {
         "node_id": node_id
@@ -177,7 +177,7 @@ if __name__ == "__main__":
 
 **Curl 示例**:
 ```bash
-curl -X POST "http://192.168.66.39:8094/api/v1/causal/delete" \
+curl -X POST "http://127.0.0.1:8094/api/v1/causal/delete" \
      -H "Content-Type: application/json" \
      -d '{
            "node_id": "王占曰：吉，其来"
@@ -232,7 +232,7 @@ def update_causal_node(old_node_id, new_node_id, event_tuple=None, full_image_ur
         parent_ids=""  # 或 [] 或 None
     )
     """
-    url = "http://192.168.66.39:8094/api/v1/causal/update"
+    url = "http://127.0.0.1:8094/api/v1/causal/update"
     
     payload = {
         "old_node_id": old_node_id,
@@ -272,7 +272,7 @@ if __name__ == "__main__":
 **Curl 示例**:
 ```bash
 # 修改事件叙述
-curl -X POST "http://192.168.66.39:8094/api/v1/causal/update" \
+curl -X POST "http://127.0.0.1:8094/api/v1/causal/update" \
      -H "Content-Type: application/json" \
      -d '{
            "old_node_id": "王占曰：吉，其来",
@@ -281,7 +281,7 @@ curl -X POST "http://192.168.66.39:8094/api/v1/causal/update" \
          }'
 
 # 修改事件ID和父事件
-curl -X POST "http://192.168.66.39:8094/api/v1/causal/update" \
+curl -X POST "http://127.0.0.1:8094/api/v1/causal/update" \
      -H "Content-Type: application/json" \
      -d '{
            "old_node_id": "王占曰：吉，其来",
@@ -307,7 +307,7 @@ def get_causal_history():
     for node in history.get('data', []):
         print(f"事件ID: {node['node_id']}, 事件: {node['event_tuple'][:50]}...")
     """
-    url = "http://192.168.66.39:8094/api/v1/causal/history"
+    url = "http://127.0.0.1:8094/api/v1/causal/history"
     
     response = requests.get(url)
     result = response.json()
@@ -321,7 +321,7 @@ if __name__ == "__main__":
 
 **Curl 示例**:
 ```bash
-curl -X GET "http://192.168.66.39:8094/api/v1/causal/history"
+curl -X GET "http://127.0.0.1:8094/api/v1/causal/history"
 ```
 
 ### 7. 关键字搜索事件
@@ -357,7 +357,7 @@ def search_causal_by_keyword(keyword, owner_id=None, limit=100):
     # 搜索特定用户的事件
     results = search_causal_by_keyword("祭祀", owner_id="worker", limit=50)
     """
-    url = "http://192.168.66.39:8094/api/v1/causal/search/keyword"
+    url = "http://127.0.0.1:8094/api/v1/causal/search/keyword"
     
     payload = {
         "keyword": keyword
@@ -391,14 +391,14 @@ if __name__ == "__main__":
 **Curl 示例**:
 ```bash
 # 搜索所有包含"商王"的事件
-curl -X POST "http://192.168.66.39:8094/api/v1/causal/search/keyword" \
+curl -X POST "http://127.0.0.1:8094/api/v1/causal/search/keyword" \
      -H "Content-Type: application/json" \
      -d '{
            "keyword": "商王"
          }'
 
 # 搜索特定用户的事件
-curl -X POST "http://192.168.66.39:8094/api/v1/causal/search/keyword" \
+curl -X POST "http://127.0.0.1:8094/api/v1/causal/search/keyword" \
      -H "Content-Type: application/json" \
      -d '{
            "keyword": "祭祀",
@@ -447,7 +447,7 @@ def search_causal_by_serial(serial_id, actor_id=None):
     else:
         print(f"查找失败: {result.get('message')}")
     """
-    url = "http://192.168.66.39:8094/api/v1/causal/search/serial"
+    url = "http://127.0.0.1:8094/api/v1/causal/search/serial"
     
     payload = {
         "serial_id": serial_id
@@ -483,14 +483,14 @@ if __name__ == "__main__":
 **Curl 示例**:
 ```bash
 # 查找serial_id为1的事件（全局权重）
-curl -X POST "http://192.168.66.39:8094/api/v1/causal/search/serial" \
+curl -X POST "http://127.0.0.1:8094/api/v1/causal/search/serial" \
      -H "Content-Type: application/json" \
      -d '{
            "serial_id": 1
          }'
 
 # 查找serial_id为1的事件（用户个性化权重）
-curl -X POST "http://192.168.66.39:8094/api/v1/causal/search/serial" \
+curl -X POST "http://127.0.0.1:8094/api/v1/causal/search/serial" \
      -H "Content-Type: application/json" \
      -d '{
            "serial_id": 256,
@@ -544,7 +544,7 @@ def handle_node_click(serial_id, actor_id=None, owner_id="default"):
     else:
         print(f"点击处理失败: {result.get('message')}")
     """
-    url = "http://192.168.66.39:8094/api/v1/causal/click"
+    url = "http://127.0.0.1:8094/api/v1/causal/click"
     
     payload = {
         "serial_id": serial_id,
@@ -581,7 +581,7 @@ if __name__ == "__main__":
 **Curl 示例**:
 ```bash
 # 处理serial_id为123的节点点击（全局权重更新）
-curl -X POST "http://192.168.66.39:8094/api/v1/causal/click" \
+curl -X POST "http://127.0.0.1:8094/api/v1/causal/click" \
      -H "Content-Type: application/json" \
      -d '{
            "serial_id": 313,
@@ -589,7 +589,7 @@ curl -X POST "http://192.168.66.39:8094/api/v1/causal/click" \
          }'
 
 # 处理serial_id为123的节点点击（用户个性化权重更新）
-curl -X POST "http://192.168.66.39:8094/api/v1/causal/click" \
+curl -X POST "http://127.0.0.1:8094/api/v1/causal/click" \
      -H "Content-Type: application/json" \
      -d '{
            "serial_id": 313,
@@ -630,7 +630,7 @@ curl -X POST "http://192.168.66.39:8094/api/v1/causal/click" \
 import requests
 
 def get_causal_skeleton(serial_id, actor_id=None):
-    url = "http://192.168.66.39:8094/api/v1/causal/skeleton"
+    url = "http://127.0.0.1:8094/api/v1/causal/skeleton"
     
     payload = {
         "serial_id": serial_id
@@ -649,7 +649,7 @@ print(result)
 
 **Curl 示例**:
 ```bash
-curl -X POST "http://192.168.66.39:8094/api/v1/causal/skeleton" \
+curl -X POST "http://127.0.0.1:8094/api/v1/causal/skeleton" \
      -H "Content-Type: application/json" \
      -d '{
            "serial_id": 312

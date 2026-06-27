@@ -33,7 +33,10 @@ def get_embedding(text: str) -> list:
     try:
         payload = {
             "model": OLLAMA_EMBED_MODEL,
-            "prompt": text
+            "prompt": text,
+            "options": {
+                "num_ctx": 8192
+            }
         }
         
         response = requests.post(OLLAMA_API_URL, json=payload, timeout=10)

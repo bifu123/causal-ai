@@ -583,12 +583,47 @@ async def get_causal_history(actor_id: str = None, owner_id: str = None):
         # 获取全图语义连线 (相似度阈值设为 0.6，可根据需要调整)
         semantic_links = db.get_all_semantic_links(owner_id=owner_id, threshold=0.6)
         
+        # 检查是否存在大股东节点（权重 >= 0.59），如果有则计算事件视界
+        boss_node_id = None
+        event_horizon_ids = None
+        if actor_id:
+            for node in active_nodes:
+                if float(node.get('survival_weight', 0)) >= 0.59:
+                    boss_node_id = node.get('node_id')
+                    break
+            
+            if boss_node_id:
+                # 动态读取 .env 文件中的 MAX_EYES 配置
+                import os
+                env_config = {}
+                env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
+                if os.path.exists(env_path):
+                    with open(env_path, 'r', encoding='utf-8') as f:
+                        for line in f:
+                            line = line.strip()
+                            if line and not line.startswith('#') and '=' in line:
+                                key, val = line.split('=', 1)
+                                # 移除注释部分
+                                if '#' in val:
+                                    val = val.split('#')[0]
+                                env_config[key.strip()] = val.strip().strip('"').strip("'")
+                try:
+                    max_eyes = float(env_config.get("MAX_EYES", 30))
+                except ValueError:
+                    max_eyes = 30.0
+                
+                event_horizon_nodes = db.get_event_horizon(boss_node_id, max_eyes)
+                event_horizon_ids = [n['node_id'] for n in event_horizon_nodes]
+                print(f"[页面初始化] 检测到大股东节点 {boss_node_id} (用户: {actor_id}, owner: {owner_id})，视界半径: {max_eyes}，视界内节点数: {len(event_horizon_ids)}")
+        
         return {
             "status": "success",
             "data": active_nodes,
             "semantic_links": semantic_links,
             "actor_id": actor_id,
-            "owner_id": owner_id
+            "owner_id": owner_id,
+            "boss_node_id": boss_node_id,
+            "event_horizon": event_horizon_ids
         }
     except Exception as e:
         print(f"[API 错误] 获取历史数据失败: {e}")
@@ -716,12 +751,8 @@ async def handle_node_click(click_data: dict):
     try:
         serial_id = click_data.get('serial_id')
         actor_id = click_data.get('actor_id')
-        owner_id = click_data.get('owner_id', 'default')
-        
         if serial_id is None:
             return {"status": "error", "message": "缺少序列ID"}
-        
-        print(f"[点击事件] 开始处理 serial_id: {serial_id}, actor_id: {actor_id}, owner_id: {owner_id}")
         
         # 1. 通过serial_id获取节点信息（传递actor_id以获取用户个性化权重）
         from core.search import get_event_by_sid
@@ -745,6 +776,13 @@ async def handle_node_click(click_data: dict):
         }
         
         node_id = node.get('node_id')
+        
+        # 如果请求中没有提供 owner_id，则使用节点自身的 owner_id
+        owner_id = click_data.get('owner_id')
+        if not owner_id:
+            owner_id = node.get('owner_id', 'default')
+            
+        print(f"[点击事件] 开始处理 serial_id: {serial_id}, actor_id: {actor_id}, owner_id: {owner_id}")
         print(f"[点击事件] 找到节点: {node_id} (serial_id: {serial_id})")
         
         # 2. 从地宫恢复内容（如果存在）
@@ -753,6 +791,22 @@ async def handle_node_click(click_data: dict):
             print(f"[点击事件] 已从地宫恢复节点 {node_id} 的完整内容")
             node = restored_node
         
+        # 2.5 计算事件视界 (Event Horizon)
+        # 动态读取 .env 文件，无需重启服务器即可生效
+        from dotenv import dotenv_values
+        env_config = dotenv_values(".env")
+        max_eyes = float(env_config.get("MAX_EYES", 30))
+        
+        event_horizon_nodes = db.get_event_horizon(node_id, max_eyes)
+        event_horizon_ids = [n['node_id'] for n in event_horizon_nodes]
+        print(f"[点击事件] 视界扫描完成，半径: {max_eyes}，视界内节点数: {len(event_horizon_ids)}")
+        
+        # 打印视界内节点的实际距离，帮助调试
+        if event_horizon_nodes:
+            print(f"[点击事件] 视界内节点距离详情:")
+            for i, n in enumerate(event_horizon_nodes[:10]): # 最多打印前10个
+                print(f"  - {i+1}. {n['node_id']}: 距离 = {n.get('distance', '未知'):.4f}")
+
         # 3. 提升节点权重（大股东模式：60%）
         updated_nodes = db.promote_all_weights(
             node_id=node_id,
@@ -768,7 +822,9 @@ async def handle_node_click(click_data: dict):
                 "status": "success",
                 "message": f"节点 {node_id} 信息已获取",
                 "data": node,
-                "updated_count": 0
+                "updated_count": 0,
+                "event_horizon": event_horizon_ids,
+                "event_horizon_details": event_horizon_nodes
             }
         
         # 4. 从更新节点中找到当前节点
@@ -829,7 +885,9 @@ async def handle_node_click(click_data: dict):
             "data": current_node,
             "updated_count": len(updated_nodes),
             "actor_id": actor_id,
-            "owner_id": owner_id
+            "owner_id": owner_id,
+            "event_horizon": event_horizon_ids,
+            "event_horizon_details": event_horizon_nodes
         }
     except Exception as e:
         print(f"[API 错误] 点击事件处理失败: {e}")

@@ -8,6 +8,7 @@
 let Graph = null;
 const highlightNodes = new Set();
 const highlightLinks = new Set();
+const horizonNodes = new Set(); // 存储事件视界内的节点ID
 let hoverNode = null;
 let currentSelectedNodeId = null; 
 let is_change = true; // true: 编辑模式, false: 链入父ID模式
@@ -411,6 +412,51 @@ function updateHighlight() {
         .linkColor(Graph.linkColor())
         .linkWidth(Graph.linkWidth())
         .linkDirectionalParticles(Graph.linkDirectionalParticles());
+        
+    // 更新事件视界虚化效果
+    updateEventHorizonVisibility();
+}
+
+/** 更新事件视界可见性（虚化湮灭效果） */
+function updateEventHorizonVisibility() {
+    if (!Graph) return;
+    
+    const { nodes } = Graph.graphData();
+    const hasHorizon = horizonNodes.size > 0;
+    
+    nodes.forEach(node => {
+        if (node.__threeObj) {
+            const sphere = node.__threeObj.children[0];
+            const sprite = node.__threeObj.children[1];
+            
+            if (hasHorizon && !horizonNodes.has(node.id)) {
+                // 视界外：虚化湮灭
+                if (sphere && sphere.material) {
+                    sphere.material.transparent = true;
+                    sphere.material.opacity = 0.1;
+                }
+                if (sprite && sprite.material) {
+                    sprite.material.opacity = 0.1;
+                }
+            } else {
+                // 视界内或无视界（上帝视角）：恢复正常
+                if (sphere && sphere.material) {
+                    // 恢复原始透明度设置
+                    const duty = node.action_tag;
+                    if (duty === '又贞') {
+                        sphere.material.transparent = true;
+                        sphere.material.opacity = 0.85;
+                    } else {
+                        sphere.material.transparent = false;
+                        sphere.material.opacity = 1.0;
+                    }
+                }
+                if (sprite && sprite.material) {
+                    sprite.material.opacity = 1.0;
+                }
+            }
+        }
+    });
 }
 
 // Tooltip延迟隐藏相关变量
@@ -643,6 +689,17 @@ async function loadInitialData() {
                 const nanNodes = currentNodes.filter(n => isNaN(n.x) || isNaN(n.y) || isNaN(n.z));
                 if (nanNodes.length > 0) {
                     console.error(`[3D星空] 发现 ${nanNodes.length} 个节点坐标为 NaN!`, nanNodes.slice(0, 5));
+                    // 修复 NaN 坐标
+                    nanNodes.forEach(n => {
+                        n.x = Math.random() * 100 - 50;
+                        n.y = Math.random() * 100 - 50;
+                        n.z = Math.random() * 100 - 50;
+                        n.vx = 0;
+                        n.vy = 0;
+                        n.vz = 0;
+                    });
+                    // 重新应用数据以触发引擎更新
+                    Graph.graphData(Graph.graphData());
                 } else {
                     console.log(`[3D星空] 坐标检查正常，无 NaN 节点。`);
                 }
@@ -689,6 +746,36 @@ async function loadInitialData() {
                                 Graph.zoomToFit(1200, 150);
                             }, 500);
                         }, 4000);
+                    }
+                }, 800);
+            } else if (res.boss_node_id && res.event_horizon && res.event_horizon.length > 0) {
+                // 存在大股东节点：自动进入事件视界模式
+                console.log(`[事件视界] 检测到大股东节点: ${res.boss_node_id}，视界内节点数: ${res.event_horizon.length}`);
+                
+                setTimeout(() => {
+                    const latestNodes = Graph.graphData().nodes;
+                    const bossNode = latestNodes.find(n => n.id === res.boss_node_id || n.node_id === res.boss_node_id);
+                    
+                    if (bossNode) {
+                        // 将视界内节点加入 horizonNodes
+                        horizonNodes.clear();
+                        res.event_horizon.forEach(id => horizonNodes.add(id));
+                        updateHighlight();
+                        
+                        // 聚焦到大股东节点
+                        // 确保坐标有效
+                        if (!isNaN(bossNode.x) && !isNaN(bossNode.y) && !isNaN(bossNode.z)) {
+                            const { camPos, lookAt } = calculateOffsetView(bossNode, 500);
+                            Graph.cameraPosition(camPos, lookAt, 1500);
+                            console.log(`[事件视界] 已进入事件视界模式，以 ${res.boss_node_id} 为中心`);
+                        } else {
+                            console.warn(`[事件视界] 大股东节点坐标无效，降级为全局适应`);
+                            Graph.zoomToFit(1200, 150);
+                        }
+                    } else {
+                        console.warn(`[事件视界] 未找到大股东节点 ${res.boss_node_id} 在渲染数据中`);
+                        // 降级：仅做适应视图
+                        Graph.zoomToFit(1200, 150);
                     }
                 }, 800);
             } else if (!selectedNodeObj) {
@@ -1015,6 +1102,7 @@ function closeDrawer() {
     }
     
     currentSelectedNodeId = null;
+    
     // 自动回正视角（可选）
     Graph.zoomToFit(1000);
     // 恢复搜索图标按钮显示
@@ -1573,8 +1661,8 @@ function handleNodeClick(node) {
         1200
     );
 
-    // 触发更新
-    const requestData = { node_id: node.id };
+    // 触发事件视界扫描
+    const requestData = { serial_id: node.serial_id || node.本事件ID };
     if (window.currentActorId) {
         requestData.actor_id = window.currentActorId;
     }
@@ -1582,13 +1670,23 @@ function handleNodeClick(node) {
         requestData.owner_id = window.currentOwnerId;
     }
     
-    console.log(`[权重提升] 请求数据:`, requestData);
+    console.log(`[点击事件] 请求数据:`, requestData);
     
-    fetch('/api/v1/causal/promote_chain', {
+    fetch('/api/v1/causal/click', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(requestData)
-    });
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success' && data.event_horizon) {
+            console.log(`[事件视界] 收到视界内节点数: ${data.event_horizon.length}`);
+            horizonNodes.clear();
+            data.event_horizon.forEach(id => horizonNodes.add(id));
+            updateHighlight();
+        }
+    })
+    .catch(error => console.error('[点击事件] 请求失败:', error));
 }
 
 /**
@@ -1886,7 +1984,7 @@ window.addEventListener('load', () => {
             Graph.cameraPosition(camPos, lookAt, 1200);
 
             // 后端交互
-            const requestData = { node_id: node.id };
+            const requestData = { serial_id: node.serial_id || node.本事件ID };
             if (window.currentActorId) {
                 requestData.actor_id = window.currentActorId;
             }
@@ -1894,13 +1992,23 @@ window.addEventListener('load', () => {
                 requestData.owner_id = window.currentOwnerId;
             }
             
-            console.log(`[权重提升] 请求数据:`, requestData);
+            console.log(`[点击事件] 请求数据:`, requestData);
             
-            fetch('/api/v1/causal/promote_chain', {
+            fetch('/api/v1/causal/click', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(requestData)
-            });
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success' && data.event_horizon) {
+                    console.log(`[事件视界] 收到视界内节点数: ${data.event_horizon.length}`);
+                    horizonNodes.clear();
+                    data.event_horizon.forEach(id => horizonNodes.add(id));
+                    updateHighlight();
+                }
+            })
+            .catch(error => console.error('[点击事件] 请求失败:', error));
         })
 
         // --- [5. 连线与细节配置] ---
@@ -1967,18 +2075,26 @@ window.addEventListener('load', () => {
         })
         .linkWidth(l => {
             if (l.type === 'semantic') return 0; // 语义连线不可见
+            if (l.type === 'horizon') return 1.5; // 视界连线宽度
             return highlightLinks.has(l) ? 8.0 : 2.0;
         })
         .linkColor(l => {
             if (l.type === 'semantic') return 'rgba(0,0,0,0)'; // 语义连线完全透明
+            if (l.type === 'horizon') return 'rgba(139, 92, 246, 0.6)'; // 视界连线颜色 (紫色)
             return highlightLinks.has(l) ? '#fff' : 'rgba(0, 255, 255, 0.2)';
         })
         .linkDirectionalParticles(l => {
             if (l.type === 'semantic') return 0; // 语义连线没有光点
+            if (l.type === 'horizon') return 4; // 视界连线光点
             return highlightLinks.has(l) ? 10 : 2;
         })
-        .linkDirectionalParticleWidth(4)
-        .linkDirectionalArrowLength(l => l.type === 'semantic' ? 0 : 6) // 语义连线没有箭头
+        .linkDirectionalParticleWidth(l => l.type === 'horizon' ? 3 : 4)
+        .linkDirectionalParticleColor(l => l.type === 'horizon' ? '#a78bfa' : null)
+        .linkDirectionalArrowLength(l => {
+            if (l.type === 'semantic') return 0; // 语义连线没有箭头
+            if (l.type === 'horizon') return 0; // 视界连线没有箭头
+            return 6;
+        })
         .linkDirectionalArrowRelPos(1);
 
     // --- [6. 初始化力场与事件] ---
@@ -2024,6 +2140,85 @@ window.addEventListener('load', () => {
     document.getElementById('btn-delete-node').onclick = handleDeleteNode;
     document.getElementById('btn-close-drawer').onclick = closeDrawer;
     
+    // 绑定事件视界按钮
+    const eventHorizonBtn = document.getElementById('btn-event-horizon');
+    if (eventHorizonBtn) {
+        eventHorizonBtn.onclick = function() {
+            if (!currentSelectedNodeId) {
+                showSelectionHint('请先选择一个节点作为大股东');
+                return;
+            }
+            
+            // 触发点击事件，后端会计算并返回视界内的节点
+            const requestData = { 
+                serial_id: selectedNodeObj.serial_id || selectedNodeObj.本事件ID,
+                actor_id: window.currentActorId || '',
+                owner_id: window.currentOwnerId || 'default'
+            };
+            
+            showSelectionHint('正在扫描事件视界...');
+            
+            fetch('/api/v1/causal/click', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(requestData)
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.status === 'success' && data.event_horizon) {
+                    const horizonIds = data.event_horizon;
+                    showSelectionHint(`视界扫描完成：发现 ${horizonIds.length} 个节点`);
+                    
+                    // 高亮视界内的节点
+                    highlightNodes.clear();
+                    const { nodes } = Graph.graphData();
+                    
+                    horizonIds.forEach(id => {
+                        const node = nodes.find(n => n.id === id);
+                        if (node) {
+                            highlightNodes.add(node);
+                        }
+                    });
+                    
+                    updateHighlight();
+                    
+                    // 调整视角以包含所有视界节点
+                    if (horizonIds.length > 0) {
+                        // 简单实现：缩放以适应全图
+                        Graph.zoomToFit(1000);
+                        
+                        // 绘制视界连线
+                        const { nodes, links } = Graph.graphData();
+                        const newLinks = [...links];
+                        
+                        // 移除旧的视界连线
+                        const filteredLinks = newLinks.filter(l => l.type !== 'horizon');
+                        
+                        // 添加新的视界连线
+                        horizonIds.forEach(id => {
+                            if (id !== selectedNodeObj.id) {
+                                filteredLinks.push({
+                                    source: selectedNodeObj.id,
+                                    target: id,
+                                    type: 'horizon'
+                                });
+                            }
+                        });
+                        
+                        Graph.graphData({ nodes, links: filteredLinks });
+                    }
+                } else {
+                    showSelectionHint('视界扫描失败');
+                }
+            })
+            .catch(err => {
+                console.error('视界扫描异常:', err);
+                showSelectionHint('视界扫描异常');
+            });
+        };
+        console.log('[事件视界] 按钮事件绑定成功');
+    }
+    
     // 绑定抽屉图片上传按钮
     const uploadImageBtn = document.getElementById('btn-upload-image');
     if (uploadImageBtn) {
@@ -2043,7 +2238,12 @@ window.addEventListener('load', () => {
     const expandBtn = document.getElementById('btn-expand-drawer');
     if (expandBtn) expandBtn.onclick = expandDrawer;
     
-    document.getElementById('btn-fit-view').onclick = () => Graph.zoomToFit(800);
+    document.getElementById('btn-fit-view').onclick = () => {
+        // 清除事件视界，恢复上帝视角
+        horizonNodes.clear();
+        updateHighlight();
+        Graph.zoomToFit(800);
+    };
     
     // 绑定因果巡航按钮
     const dragonCruiseBtn = document.getElementById('btn-dragon-cruise');

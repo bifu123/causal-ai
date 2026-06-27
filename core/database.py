@@ -160,10 +160,11 @@ class CausalDatabase:
         # 获取owner_id，默认为'default'
         owner_id = node_data.get('owner_id', 'default')
         
-        # 生成语义向量
+        # 生成语义向量：将 node_id 拼在 event_tuple 前面，防止短文本退化
         semantic_vector = None
         if node_data.get('event_tuple'):
-            semantic_vector = get_embedding(node_data['event_tuple'])
+            embed_text = f"{node_data['node_id']}。{node_data['event_tuple']}"
+            semantic_vector = get_embedding(embed_text)
 
         sql = """
             INSERT INTO ains_active_nodes 
@@ -286,12 +287,14 @@ class CausalDatabase:
             update_values.append(node_data['event_tuple'])
             print(f"[数据库更新] 更新event_tuple: 长度={len(node_data['event_tuple'])}")
             
-            # 同时更新语义向量
-            semantic_vector = get_embedding(node_data['event_tuple'])
+            # 同时更新语义向量：将 node_id 拼在 event_tuple 前面，防止短文本退化
+            effective_node_id = node_data.get('node_id', old_node_id)
+            embed_text = f"{effective_node_id}。{node_data['event_tuple']}"
+            semantic_vector = get_embedding(embed_text)
             if semantic_vector:
                 update_fields.append("semantic_vector = %s")
                 update_values.append(semantic_vector)
-                print(f"[数据库更新] 更新semantic_vector")
+                print(f"[数据库更新] 更新semantic_vector (embed_text长度={len(embed_text)})")
         
         if 'full_image_url' in node_data:
             update_fields.append("full_image_url = %s")
@@ -919,6 +922,49 @@ class CausalDatabase:
                 # 移除向量数据以减少传输量
                 if 'semantic_vector' in node:
                     del node['semantic_vector']
+                    
+            return nodes
+
+    def get_event_horizon(self, node_id: str, max_eyes: float):
+        """
+        职责：获取事件视界内的节点（距离 <= MAX_EYES）
+        参数：
+            node_id: 目标节点ID（大股东）
+            max_eyes: 视界半径（距离阈值）
+        返回：视界内的节点列表
+        """
+        # 距离 D = (1 - 相似度) * 100
+        # 所以 相似度 = 1 - (D / 100)
+        # 余弦距离 = 1 - 相似度 = D / 100
+        # 我们直接用 pgvector 的余弦距离 (<=>) 乘以 100 来计算距离
+        
+        sql = """
+            SELECT serial_id, node_id, parent_id, event_tuple,
+                   (n.semantic_vector <=> (
+                       SELECT semantic_vector FROM ains_active_nodes WHERE node_id = %s
+                   )) * 100 as distance
+            FROM ains_active_nodes n
+            WHERE n.semantic_vector IS NOT NULL
+              AND (
+                  SELECT semantic_vector FROM ains_active_nodes WHERE node_id = %s
+              ) IS NOT NULL
+              AND (n.semantic_vector <=> (
+                  SELECT semantic_vector FROM ains_active_nodes WHERE node_id = %s
+              )) * 100 <= %s
+            ORDER BY distance ASC
+        """
+        
+        with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(sql, (node_id, node_id, node_id, max_eyes))
+            nodes = cur.fetchall()
+            
+            # 为每个节点解析父节点列表
+            for node in nodes:
+                if 'parent_id' in node:
+                    node['parent_ids'] = self._string_to_parents(node.get('parent_id'))
+                # 确保 distance 是浮点数
+                if 'distance' in node and node['distance'] is not None:
+                    node['distance'] = float(node['distance'])
                     
             return nodes
 

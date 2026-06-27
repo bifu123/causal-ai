@@ -5,7 +5,7 @@
 #*************************
 
 ## 从关键字搜索事件列表
-def search_causal_by_keyword(keyword, owner_id='cbf', limit=100):
+def search_causal_by_keyword(keyword, owner_id='222302526', limit=100):
     """
     根据关键字搜索事件列表
     
@@ -58,76 +58,114 @@ def search_causal_by_keyword(keyword, owner_id='cbf', limit=100):
     return result
 
 ## 点击事件
-def search_causal_by_serial(serial_id, actor_id="user2", owner_id="cbf"):
+def search_causal_by_serial(serial_id, actor_id="user2", owner_id="222302526"):
     """
-    处理节点点击事件（执行完整的点击操作）
+    【存在主义检索】聚焦某事件节点（大股东），一次性获取：
+    1. 该节点的全息内容（自动从地宫恢复，如果已被提炼）
+    2. 该节点的父、子ID列表
+    3. 事件视界（Event Horizon）内的所有相关节点内容
     
     参数:
     - serial_id (int): 事件节点的物理ID
     - actor_id (str, optional): 用户ID，用于个性化权重更新,默认为"user2"
-    - owner_id (str, optional): 事件拥有者ID，默认为"cbf"
-    
+    - owner_id (str, optional): 事件拥有者ID，默认为"222302526"
+
     返回:
-    - dict: API响应结果，包含更新后的事件数据
-    
-    注意:
-    - 此函数执行完整的点击事件处理流程：
-      1. 获取节点基本信息
-      2. 从地宫恢复内容（如果存在）
+    - dict: API响应结果，包含：
+        - data: 当前节点全息内容（serial_id, node_id, event_tuple, survival_weight,
+                block_tag, action_tag, parent_ids, preview_id/next_ids）
+        - event_horizon: 视界内节点ID列表
+        - event_horizon_details: 视界内节点详情列表（含serial_id, node_id,
+                parent_id, event_tuple, distance）
+
+    核心概念（存在主义检索）:
+    - **大股东节点**：当前聚焦的节点，权重提升到60%
+    - **事件视界（Event Horizon）**：语义距离 D <= MAX_EYES 的所有节点
+      距离公式：D = (1 - 余弦相似度) * 100
+    - LLM Agent 只需"看一眼"大股东节点，就能用"余光"扫到视界内的所有相关节点
+    - 通过 MAX_EYES 完美锁死上下文 Token 的消耗上限
+
+    底层流程:
+      1. 从地宫恢复内容（如果节点已被提炼）
+      2. 计算事件视界（动态扫描语义空间内所有相关节点）
       3. 提升节点权重到60%（大股东模式）
       4. 重新计算其他节点权重
       5. 通过Socket.IO实时更新到前端
-    - 如果提供actor_id参数，权重更新只影响用户权重表（ains_user_weights），
-      不影响全局权重表（ains_active_nodes）
-    - 此函数会触发实时更新，所有连接到观测站的客户端都会收到更新通知
-    
+
     示例:
-    # 处理serial_id为123的节点点击（全局权重更新）
-    result = search_causal_by_serial(123)
+    # 聚焦 serial_id=312 的节点，获取全息内容 + 视界内所有相关节点
+    result = search_causal_by_serial(312)
     if result.get('status') == 'success':
-        event = result.get('data')
-        print(f"节点 {event['node_id']} 权重已提升到60%")
-        print(f"共更新了 {result.get('updated_count', 0)} 个节点")
-    
-    # 处理serial_id为123的节点点击（用户个性化权重更新）
-    result = search_causal_by_serial(123, actor_id="user2", owner_id="cbf")
-    if result.get('status') == 'success':
-        event = result.get('data')
-        print(f"用户 user2 的节点 {event['node_id']} 权重已提升到60%")
-        print(f"观察者用户: {event.get('actor_id')}")
-        print(f"事件拥有者: {event.get('owner_id')}")
-    else:
-        print(f"点击处理失败: {result.get('message')}")
+        anchor = result.get('data')
+        print(f"=== 大股东节点 ===")
+        print(f"  事件: {anchor['node_id']}")
+        print(f"  叙述: {anchor['event_tuple'][:100]}...")
+        print(f"  父链: {anchor.get('parent_ids', [])}")
+        print(f"  子链: {anchor.get('next_ids', [])}")
+        print(f"=== 事件视界（语义相关节点）===")
+        for n in result.get('event_horizon_details', []):
+            print(f"  [{n.get('distance', 0):.1f}] {n['node_id']}: {n['event_tuple'][:60]}...")
     """
     import requests
 
     url = "http://192.168.66.39:8094/api/v1/causal/click"
-    
+
     payload = {
         "serial_id": serial_id,
         "owner_id": owner_id
     }
-    
+
     if actor_id is not None:
         payload["actor_id"] = actor_id
-    
+
     response = requests.post(url, json=payload)
     result = response.json()
-    
+
     if result.get('status') == 'success':
-        event = result.get('data', {})
-        print(f"点击处理成功: {event.get('node_id', '未知节点')}")
-        print(f"权重提升到: {event.get('survival_weight', 0):.2%}")
-        print(f"更新节点数: {result.get('updated_count', 0)}")
+        anchor = result.get('data', {})
+        horizon_ids = result.get('event_horizon', [])
+        horizon_details = result.get('event_horizon_details', [])
+
+        # 1. 大股东节点全息内容
+        print(f"=== 大股东节点（权重60%）===")
+        print(f"  事件: {anchor.get('node_id', '未知')}")
+        print(f"  序列: {anchor.get('serial_id', '未知')}")
+        print(f"  权重: {anchor.get('survival_weight', 0):.2%}")
+        print(f"  动作: {anchor.get('action_tag', '贞')} | 因缘: {anchor.get('block_tag', '未知')}")
+        
+        event_tuple = anchor.get('event_tuple', '无叙述')
+        print(f"  叙述: {event_tuple[:200]}{'...' if len(event_tuple) > 200 else ''}")
+        
+        parent_ids = anchor.get('parent_ids', [])
+        next_ids = anchor.get('next_ids', [])
+        preview_id = anchor.get('preview_id', [])
+        print(f"  父链 ({len(parent_ids)}): {parent_ids}")
+        print(f"  前事件ID: {preview_id}")
+        print(f"  子链 ({len(next_ids)}): {next_ids}")
+        
+        # 2. 事件视界扫描结果
+        print(f"\n=== 事件视界（MAX_EYES={result.get('max_eyes', '?')}，共{len(horizon_ids)}个节点）===")
+        if horizon_details:
+            for i, n in enumerate(horizon_details):
+                dist_str = f"{n.get('distance', 0):.1f}" if n.get('distance') is not None else "?"
+                n_event_tuple = n.get('event_tuple', '')
+                # 截取前80个字符展示
+                print(f"  [{dist_str}] {n.get('node_id', '?')}: {n_event_tuple[:80]}{'...' if len(n_event_tuple) > 80 else ''}")
+        elif horizon_ids:
+            print(f"  视界内节点ID: {horizon_ids}")
+        else:
+            print(f"  (视界内无其他节点，语义空间内仅此一星)")
+        
+        print(f"\n[存在主义检索] 更新节点数: {result.get('updated_count', 0)}")
         if actor_id:
-            print(f"用户个性化权重已更新")
+            print(f"[存在主义检索] 用户({actor_id})个性化权重已更新")
     else:
-        print(f"点击处理失败: {result.get('message')}")
-    
+        print(f"聚焦失败: {result.get('message')}")
+
     return result
 
 ## 记录因果数据
-def trigger_causal_node(node_id, action_tag, block_tag, event_tuple, parent_id=None, full_image_url=None, owner_id="cbf"):
+def trigger_causal_node(node_id, action_tag, block_tag, event_tuple, parent_id=None, full_image_url=None, owner_id="222302526"):
     """
     进行因果事件记录
     
@@ -138,7 +176,7 @@ def trigger_causal_node(node_id, action_tag, block_tag, event_tuple, parent_id=N
     - event_tuple (str): 事件二元组内容描述
     - parent_id (str/list, optional): 父事件ID，可以是单个字符串或列表（多父事件），默认为None（首贞）
     - full_image_url (str, optional): 全息图片URL，默认为None
-    - owner_id (str, optional): 事件拥有者ID，默认为"cbf"
+    - owner_id (str, optional): 事件拥有者ID，默认为"222302526"
     
     返回:
     - dict: API响应结果
@@ -196,7 +234,7 @@ def trigger_causal_node(node_id, action_tag, block_tag, event_tuple, parent_id=N
 
 ## 修改因果数据事件节点
 def update_causal_node(old_node_id, new_node_id, event_tuple=None, full_image_url=None, 
-                       parent_ids=None, action_tag=None, block_tag=None, owner_id="cbf"):
+                       parent_ids=None, action_tag=None, block_tag=None, owner_id="222302526"):
     """
     编辑因果事件
     
@@ -208,7 +246,7 @@ def update_causal_node(old_node_id, new_node_id, event_tuple=None, full_image_ur
     - parent_ids (str/list, optional): 新的父事件ID列表，可以是字符串（|分隔）或列表
     - action_tag (str, optional): 新的动作标签
     - block_tag (str, optional): 新的因缘标签
-    - owner_id (str, optional): 事件拥有者ID，默认为"cbf"
+    - owner_id (str, optional): 事件拥有者ID，默认为"222302526"
     
     返回:
     - dict: API响应结果
@@ -269,13 +307,13 @@ def update_causal_node(old_node_id, new_node_id, event_tuple=None, full_image_ur
     return result
 
 ## 删除因果数据事件节点
-def delete_causal_node(node_id, owner_id="cbf"):
+def delete_causal_node(node_id, owner_id="222302526"):
     """
     删除因果事件
     
     参数:
     - node_id (str): 要删除的事件ID
-    - owner_id (str, optional): 事件拥有者ID，默认为"cbf"
+    - owner_id (str, optional): 事件拥有者ID，默认为"222302526"
     
     返回:
     - dict: API响应结果
@@ -304,14 +342,14 @@ def delete_causal_node(node_id, owner_id="cbf"):
     return result
 
 ## 因果链骨架查询
-def get_causal_skeleton(serial_id, actor_id=None, owner_id="cbf"):
+def get_causal_skeleton(serial_id, actor_id=None, owner_id="222302526"):
     """
     获取事件的因果链全息图骨架
     
     参数:
     - serial_id (int): 事件的物理序列ID（必需）
     - actor_id (str, optional): 用户ID，如果提供则返回用户个性化权重
-    - owner_id (str, optional): 事件拥有者ID，默认为"cbf"
+    - owner_id (str, optional): 事件拥有者ID，默认为"222302526"
     
     返回:
     - dict: API响应结果
