@@ -925,12 +925,13 @@ class CausalDatabase:
                     
             return nodes
 
-    def get_event_horizon(self, node_id: str, max_eyes: float):
+    def get_event_horizon(self, node_id: str, max_eyes: float, owner_id: str = None):
         """
         职责：获取事件视界内的节点（距离 <= MAX_EYES）
         参数：
             node_id: 目标节点ID（大股东）
             max_eyes: 视界半径（距离阈值）
+            owner_id: 事件拥有者ID，如果为None则不按owner过滤
         返回：视界内的节点列表
         """
         # 距离 D = (1 - 相似度) * 100
@@ -938,24 +939,45 @@ class CausalDatabase:
         # 余弦距离 = 1 - 相似度 = D / 100
         # 我们直接用 pgvector 的余弦距离 (<=>) 乘以 100 来计算距离
         
-        sql = """
-            SELECT serial_id, node_id, parent_id, event_tuple,
-                   (n.semantic_vector <=> (
-                       SELECT semantic_vector FROM ains_active_nodes WHERE node_id = %s
-                   )) * 100 as distance
-            FROM ains_active_nodes n
-            WHERE n.semantic_vector IS NOT NULL
-              AND (
-                  SELECT semantic_vector FROM ains_active_nodes WHERE node_id = %s
-              ) IS NOT NULL
-              AND (n.semantic_vector <=> (
-                  SELECT semantic_vector FROM ains_active_nodes WHERE node_id = %s
-              )) * 100 <= %s
-            ORDER BY distance ASC
-        """
+        if owner_id:
+            sql = """
+                SELECT serial_id, node_id, parent_id, event_tuple,
+                       (n.semantic_vector <=> (
+                           SELECT semantic_vector FROM ains_active_nodes WHERE node_id = %s
+                       )) * 100 as distance
+                FROM ains_active_nodes n
+                WHERE n.semantic_vector IS NOT NULL
+                  AND (
+                      SELECT semantic_vector FROM ains_active_nodes WHERE node_id = %s
+                  ) IS NOT NULL
+                  AND (n.semantic_vector <=> (
+                      SELECT semantic_vector FROM ains_active_nodes WHERE node_id = %s
+                  )) * 100 <= %s
+                  AND n.owner_id = %s
+                ORDER BY distance ASC
+            """
+        else:
+            sql = """
+                SELECT serial_id, node_id, parent_id, event_tuple,
+                       (n.semantic_vector <=> (
+                           SELECT semantic_vector FROM ains_active_nodes WHERE node_id = %s
+                       )) * 100 as distance
+                FROM ains_active_nodes n
+                WHERE n.semantic_vector IS NOT NULL
+                  AND (
+                      SELECT semantic_vector FROM ains_active_nodes WHERE node_id = %s
+                  ) IS NOT NULL
+                  AND (n.semantic_vector <=> (
+                      SELECT semantic_vector FROM ains_active_nodes WHERE node_id = %s
+                  )) * 100 <= %s
+                ORDER BY distance ASC
+            """
         
         with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute(sql, (node_id, node_id, node_id, max_eyes))
+            if owner_id:
+                cur.execute(sql, (node_id, node_id, node_id, max_eyes, owner_id))
+            else:
+                cur.execute(sql, (node_id, node_id, node_id, max_eyes))
             nodes = cur.fetchall()
             
             # 为每个节点解析父节点列表

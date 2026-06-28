@@ -612,7 +612,7 @@ async def get_causal_history(actor_id: str = None, owner_id: str = None):
                 except ValueError:
                     max_eyes = 30.0
                 
-                event_horizon_nodes = db.get_event_horizon(boss_node_id, max_eyes)
+                event_horizon_nodes = db.get_event_horizon(boss_node_id, max_eyes, owner_id)
                 event_horizon_ids = [n['node_id'] for n in event_horizon_nodes]
                 print(f"[页面初始化] 检测到大股东节点 {boss_node_id} (用户: {actor_id}, owner: {owner_id})，视界半径: {max_eyes}，视界内节点数: {len(event_horizon_ids)}")
         
@@ -790,6 +790,9 @@ async def handle_node_click(click_data: dict):
         if restored_node:
             print(f"[点击事件] 已从地宫恢复节点 {node_id} 的完整内容")
             node = restored_node
+            # 剥离语义/视觉向量，避免浪费 LLM token
+            node.pop('semantic_vector', None)
+            node.pop('visual_vector', None)
         
         # 2.5 计算事件视界 (Event Horizon)
         # 动态读取 .env 文件，无需重启服务器即可生效
@@ -797,7 +800,7 @@ async def handle_node_click(click_data: dict):
         env_config = dotenv_values(".env")
         max_eyes = float(env_config.get("MAX_EYES", 30))
         
-        event_horizon_nodes = db.get_event_horizon(node_id, max_eyes)
+        event_horizon_nodes = db.get_event_horizon(node_id, max_eyes, owner_id)
         event_horizon_ids = [n['node_id'] for n in event_horizon_nodes]
         print(f"[点击事件] 视界扫描完成，半径: {max_eyes}，视界内节点数: {len(event_horizon_ids)}")
         
@@ -840,6 +843,9 @@ async def handle_node_click(click_data: dict):
         
         # 5. 广播所有更新的事件
         for updated_node in updated_nodes:
+            # 剥离语义/视觉向量，避免浪费 LLM token 和 WebSocket 带宽
+            updated_node.pop('semantic_vector', None)
+            updated_node.pop('visual_vector', None)
             # 确保所有值都是JSON可序列化的
             if 'survival_weight' in updated_node:
                 updated_node['survival_weight'] = float(updated_node['survival_weight'])
