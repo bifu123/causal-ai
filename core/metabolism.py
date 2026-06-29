@@ -24,6 +24,7 @@ from datetime import datetime, timezone
 from decimal import Decimal, getcontext
 from dotenv import load_dotenv
 from core.database import db
+from core.llm import get_lite_tuple
 
 # 设置Decimal精度为30位（支持18位小数+额外精度）
 getcontext().prec = 30
@@ -392,7 +393,20 @@ class MetabolismEngine:
                     
                     print(f'[DEBUG] metabolism.py: 简化 event_tuple（在实际应用中，这里应该调用 LLM 提炼为事件二元组）')
                     print(f'[DEBUG] metabolism.py: 这里简化为截取前 allocated_chars 个字符')
-                    simplified_tuple = event_tuple[:allocated_chars] + "[已提炼]" if len(event_tuple) > allocated_chars else event_tuple
+                    
+                    # simplified_tuple = event_tuple[:allocated_chars] + "[已提炼]" if len(event_tuple) > allocated_chars else event_tuple
+                    if len(event_tuple) > allocated_chars:
+                        print(f'[DEBUG] metabolism.py: 正在使用LLM提炼为 {allocated_chars} 个字符以内内容...')
+                        try:
+                            simplified_tuple = get_lite_tuple(char_length=allocated_chars, source_content=event_tuple) + "[已提炼]"
+                            print(f'[DEBUG] metabolism.py: 事件 {node_id} 提炼成功')
+                        except Exception as e:
+                            simplified_tuple = event_tuple
+                            print(f'[DEBUG] metabolism.py: 正在使用LLM提炼事件 {node_id} 失败：{e}')
+                            
+                    else:
+                        print(f'[DEBUG] metabolism.py: 事件 {node_id} 在权重许可范围，放弃提炼')
+                        simplified_tuple = event_tuple
                     
                     # 更新数据库
                     db.upsert_node({
