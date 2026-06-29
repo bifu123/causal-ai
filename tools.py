@@ -35,7 +35,7 @@ def search_causal_by_keyword(keyword, owner_id='222302526', limit=100):
     """
     import requests
 
-    url = "http://192.168.66.39:8094/api/v1/causal/search/keyword"
+    url = "http://127.0.0.1:8094/api/v1/causal/search/keyword"
     
     payload = {
         "keyword": keyword
@@ -108,7 +108,7 @@ def search_causal_by_serial(serial_id, actor_id="user2", owner_id="222302526"):
     """
     import requests
 
-    url = "http://192.168.66.39:8094/api/v1/causal/click"
+    url = "http://127.0.0.1:8094/api/v1/causal/click"
 
     payload = {
         "serial_id": serial_id,
@@ -213,7 +213,7 @@ def trigger_causal_node(node_id, action_tag, block_tag, event_tuple, parent_id=N
     )
     """
     import requests
-    url = "http://192.168.66.39:8094/api/v1/causal/genesis"
+    url = "http://127.0.0.1:8094/api/v1/causal/genesis"
     
     payload = {
         "node_id": node_id,
@@ -278,7 +278,7 @@ def update_causal_node(old_node_id, new_node_id, event_tuple=None, full_image_ur
     )
     """
     import requests
-    url = "http://192.168.66.39:8094/api/v1/causal/update"
+    url = "http://127.0.0.1:8094/api/v1/causal/update"
     
     payload = {
         "old_node_id": old_node_id,
@@ -329,7 +329,7 @@ def delete_causal_node(node_id, owner_id="222302526"):
     delete_causal_node("王占曰：吉，其来")
     """
     import requests
-    url = "http://192.168.66.39:8094/api/v1/causal/delete"
+    url = "http://127.0.0.1:8094/api/v1/causal/delete"
     
     payload = {
         "node_id": node_id,
@@ -358,7 +358,7 @@ def get_causal_skeleton(serial_id, actor_id=None, owner_id="222302526"):
     result = get_causal_skeleton(312)
     """
     import requests
-    url = "http://192.168.66.39:8094/api/v1/causal/skeleton"
+    url = "http://127.0.0.1:8094/api/v1/causal/skeleton"
     
     payload = {
         "serial_id": serial_id,
@@ -370,3 +370,10 @@ def get_causal_skeleton(serial_id, actor_id=None, owner_id="222302526"):
     
     response = requests.post(url, json=payload)
     return response.json()
+
+if __name__ == "__main__":
+    response = search_causal_by_serial(serial_id=485)
+    import json
+    print("\n\n")
+    print("*" * 60)
+    print(json.dumps(response, ensure_ascii=False, indent=4))

@@ -777,12 +777,15 @@ async def handle_node_click(click_data: dict):
         
         node_id = node.get('node_id')
         
-        # 如果请求中没有提供 owner_id，则使用节点自身的 owner_id
+        # owner_id 用于权重分配（优先使用请求中的，回退到节点自身的）
         owner_id = click_data.get('owner_id')
         if not owner_id:
             owner_id = node.get('owner_id', 'default')
+        
+        # 视界扫描必须使用焦点节点自身的 owner_id，防止跨 owner 污染
+        focal_owner_id = node.get('owner_id', owner_id)
             
-        print(f"[点击事件] 开始处理 serial_id: {serial_id}, actor_id: {actor_id}, owner_id: {owner_id}")
+        print(f"[点击事件] 开始处理 serial_id: {serial_id}, actor_id: {actor_id}, owner_id: {owner_id}, focal_owner_id: {focal_owner_id}")
         print(f"[点击事件] 找到节点: {node_id} (serial_id: {serial_id})")
         
         # 2. 从地宫恢复内容（如果存在）
@@ -799,8 +802,9 @@ async def handle_node_click(click_data: dict):
         from dotenv import dotenv_values
         env_config = dotenv_values(".env")
         max_eyes = float(env_config.get("MAX_EYES", 30))
+        horizon_show_links = env_config.get("HORIZON_DETAIL", "0") == "1"
         
-        event_horizon_nodes = db.get_event_horizon(node_id, max_eyes, owner_id)
+        event_horizon_nodes = db.get_event_horizon(node_id, max_eyes, focal_owner_id, show_links=horizon_show_links)
         event_horizon_ids = [n['node_id'] for n in event_horizon_nodes]
         print(f"[点击事件] 视界扫描完成，半径: {max_eyes}，视界内节点数: {len(event_horizon_ids)}")
         

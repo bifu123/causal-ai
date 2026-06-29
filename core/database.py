@@ -925,26 +925,32 @@ class CausalDatabase:
                     
             return nodes
 
-    def get_event_horizon(self, node_id: str, max_eyes: float, owner_id: str = None):
+    def get_event_horizon(self, node_id: str, max_eyes: float, owner_id: str = None, show_links: bool = False):
         """
         职责：获取事件视界内的节点（距离 <= MAX_EYES）
         参数：
             node_id: 目标节点ID（大股东）
             max_eyes: 视界半径（距离阈值）
             owner_id: 事件拥有者ID，如果为None则不按owner过滤
+            show_links: 是否返回非焦点节点的 parent_ids/next_ids（默认 False，节省 Token）
         返回：视界内的节点列表
         """
         # 距离 D = (1 - 相似度) * 100
         # 所以 相似度 = 1 - (D / 100)
         # 余弦距离 = 1 - 相似度 = D / 100
-        # 我们直接用 pgvector 的余弦距离 (<=>) 乘以 100 来计算距离
         
         if owner_id:
             sql = """
-                SELECT serial_id, node_id, parent_id, event_tuple,
+                SELECT n.serial_id, n.node_id, n.parent_id, n.event_tuple,
                        (n.semantic_vector <=> (
                            SELECT semantic_vector FROM ains_active_nodes WHERE node_id = %s
-                       )) * 100 as distance
+                       )) * 100 as distance,
+                       COALESCE((
+                           SELECT STRING_AGG(sub.serial_id::text, '|')
+                           FROM ains_active_nodes sub
+                           WHERE ('|' || sub.parent_id || '|') LIKE '%%|' || n.node_id || '|%%'
+                             AND sub.owner_id = n.owner_id
+                       ), '') as next_ids_raw
                 FROM ains_active_nodes n
                 WHERE n.semantic_vector IS NOT NULL
                   AND (
@@ -958,10 +964,15 @@ class CausalDatabase:
             """
         else:
             sql = """
-                SELECT serial_id, node_id, parent_id, event_tuple,
+                SELECT n.serial_id, n.node_id, n.parent_id, n.event_tuple,
                        (n.semantic_vector <=> (
                            SELECT semantic_vector FROM ains_active_nodes WHERE node_id = %s
-                       )) * 100 as distance
+                       )) * 100 as distance,
+                       COALESCE((
+                           SELECT STRING_AGG(sub.serial_id::text, '|')
+                           FROM ains_active_nodes sub
+                           WHERE ('|' || sub.parent_id || '|') LIKE '%%|' || n.node_id || '|%%'
+                       ), '') as next_ids_raw
                 FROM ains_active_nodes n
                 WHERE n.semantic_vector IS NOT NULL
                   AND (
@@ -980,13 +991,25 @@ class CausalDatabase:
                 cur.execute(sql, (node_id, node_id, node_id, max_eyes))
             nodes = cur.fetchall()
             
-            # 为每个节点解析父节点列表
+            # 后处理：多因多果 → 始终解析为列表，根据开关决定保留与否
             for node in nodes:
-                if 'parent_id' in node:
-                    node['parent_ids'] = self._string_to_parents(node.get('parent_id'))
+                # 父链：原始 parent_id 字符串 → parent_ids 列表
+                node['parent_ids'] = self._string_to_parents(node.get('parent_id'))
+                # 移除原始 parent_id 字符串（始终冗余）
+                node.pop('parent_id', None)
+                
+                # 子链：原始 next_ids_raw 字符串 → next_ids 列表
+                raw_next = node.pop('next_ids_raw', '')
+                node['next_ids'] = [int(x) for x in raw_next.split('|') if x.strip().isdigit()] if raw_next else []
+                
                 # 确保 distance 是浮点数
                 if 'distance' in node and node['distance'] is not None:
                     node['distance'] = float(node['distance'])
+                
+                # 非焦点节点默认不返回因果链，节省 LLM Token
+                if not show_links:
+                    node.pop('parent_ids', None)
+                    node.pop('next_ids', None)
                     
             return nodes
 
