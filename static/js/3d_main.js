@@ -10,6 +10,7 @@ const highlightNodes = new Set();
 const highlightLinks = new Set();
 const horizonNodes = new Set(); // 存储事件视界内的节点ID
 let hoverNode = null;
+let hoverScaleNode = null; // 追踪当前悬浮绽放的节点（非大股东节点的悬浮放大效果）
 let currentSelectedNodeId = null; 
 let is_change = true; // true: 编辑模式, false: 链入父ID模式
 let nodeCache = {}; 
@@ -430,13 +431,13 @@ function updateEventHorizonVisibility() {
             const sprite = node.__threeObj.children[1];
             
             if (hasHorizon && !horizonNodes.has(node.id)) {
-                // 视界外：虚化湮灭
+                // 视界外：虚化湮灭（最低不透明度 0.3，保留一定视觉存在感）
                 if (sphere && sphere.material) {
                     sphere.material.transparent = true;
-                    sphere.material.opacity = 0.1;
+                    sphere.material.opacity = 0.3;
                 }
                 if (sprite && sprite.material) {
-                    sprite.material.opacity = 0.1;
+                    sprite.material.opacity = 0.3;
                 }
             } else {
                 // 视界内或无视界（上帝视角）：恢复正常
@@ -457,6 +458,122 @@ function updateEventHorizonVisibility() {
             }
         }
     });
+}
+
+/**
+ * 悬浮绽放：非大股东节点悬浮时平滑放大 + 低透明度提升
+ * 利用 Tween.js 实现动画，不修改连线逻辑
+ * @param {Object} node 被悬浮的节点
+ */
+function hoverScaleNodeBloom(node) {
+    if (!node || !node.__threeObj) return;
+    const THREE = getThreeInstance();
+    if (!THREE) return;
+
+    const sphere = node.__threeObj.children[0];
+    const sprite = node.__threeObj.children[1];
+    const BLOOM_SCALE = 1.35; // 放大倍数
+    const DURATION = 250;     // 动画时长 ms
+    
+    // 保存当前 scale，作为动画起点
+    if (!node._origScale) {
+        node._origScale = {
+            sphere: sphere ? sphere.scale.clone() : new THREE.Vector3(1, 1, 1),
+            sprite: sprite ? sprite.scale.clone() : new THREE.Vector3(1, 1, 1)
+        };
+    }
+    
+    // 若 sphere 当前 opacity 很低（如被视界湮灭），将其提升至 0.65
+    if (sphere && sphere.material) {
+        const currentOpacity = sphere.material.opacity;
+        if (currentOpacity < 0.5) {
+            sphere.material.transparent = true;
+            node._origOpacity = currentOpacity;
+            new TWEEN.Tween({ opacity: currentOpacity })
+                .to({ opacity: 0.65 }, DURATION)
+                .easing(TWEEN.Easing.Quadratic.Out)
+                .onUpdate(obj => { sphere.material.opacity = obj.opacity; })
+                .start();
+        }
+    }
+    
+    // Sphere 绽放
+    if (sphere) {
+        const orig = node._origScale.sphere;
+        new TWEEN.Tween({ x: orig.x, y: orig.y, z: orig.z })
+            .to({ x: orig.x * BLOOM_SCALE, y: orig.y * BLOOM_SCALE, z: orig.z * BLOOM_SCALE }, DURATION)
+            .easing(TWEEN.Easing.Back.Out)
+            .onUpdate(obj => { sphere.scale.set(obj.x, obj.y, obj.z); })
+            .start();
+    }
+    
+    // Sprite 同步绽放
+    if (sprite) {
+        const orig = node._origScale.sprite;
+        new TWEEN.Tween({ x: orig.x, y: orig.y, z: orig.z })
+            .to({ x: orig.x * BLOOM_SCALE, y: orig.y * BLOOM_SCALE, z: orig.z * BLOOM_SCALE }, DURATION)
+            .easing(TWEEN.Easing.Back.Out)
+            .onUpdate(obj => { sprite.scale.set(obj.x, obj.y, obj.z); })
+            .start();
+    }
+}
+
+/**
+ * 悬浮还原：平滑恢复到原始大小和不透明度
+ * @param {Object} node 被还原的节点
+ */
+function hoverScaleNodeRebound(node) {
+    if (!node || !node.__threeObj) return;
+    const THREE = getThreeInstance();
+    if (!THREE) return;
+
+    const sphere = node.__threeObj.children[0];
+    const sprite = node.__threeObj.children[1];
+    const DURATION = 300;
+
+    // 恢复 opacity
+    if (sphere && sphere.material && node._origOpacity !== undefined) {
+        const currentOpacity = sphere.material.opacity;
+        const targetOpacity = node._origOpacity;
+        new TWEEN.Tween({ opacity: currentOpacity })
+            .to({ opacity: targetOpacity }, DURATION)
+            .easing(TWEEN.Easing.Quadratic.Out)
+            .onUpdate(obj => { sphere.material.opacity = obj.opacity; })
+            .onComplete(() => {
+                // 若目标 opacity >= 1.0，关闭 transparent 以提升性能
+                if (targetOpacity >= 1.0 && sphere.material) {
+                    sphere.material.transparent = false;
+                }
+            })
+            .start();
+        delete node._origOpacity;
+    }
+
+    // 恢复 sphere scale（使用该节点被增量更新时的最新值，而非缓存的 _origScale）
+    // 因为权重增量更新可能已改变了 scale，所以需要动态还原
+    if (sphere && node._origScale && node._origScale.sphere) {
+        const target = node._origScale.sphere;
+        new TWEEN.Tween({ x: sphere.scale.x, y: sphere.scale.y, z: sphere.scale.z })
+            .to({ x: target.x, y: target.y, z: target.z }, DURATION)
+            .easing(TWEEN.Easing.Quadratic.Out)
+            .onUpdate(obj => { sphere.scale.set(obj.x, obj.y, obj.z); })
+            .start();
+    }
+
+    if (sprite && node._origScale && node._origScale.sprite) {
+        const target = node._origScale.sprite;
+        new TWEEN.Tween({ x: sprite.scale.x, y: sprite.scale.y, z: sprite.scale.z })
+            .to({ x: target.x, y: target.y, z: target.z }, DURATION)
+            .easing(TWEEN.Easing.Quadratic.Out)
+            .onUpdate(obj => { sprite.scale.set(obj.x, obj.y, obj.z); })
+            .onComplete(() => {
+                // 清理缓存的 scale，为下次 hover 准备
+                delete node._origScale;
+            })
+            .start();
+    } else if (node._origScale) {
+        delete node._origScale;
+    }
 }
 
 // Tooltip延迟隐藏相关变量
@@ -2060,16 +2177,33 @@ window.addEventListener('load', () => {
                 hoverTimeout = null;
             }
             
+            // --- 悬浮绽放动画：先还原上一个 ---
+            if (hoverScaleNode && hoverScaleNode !== node) {
+                hoverScaleNodeRebound(hoverScaleNode);
+                hoverScaleNode = null;
+            }
+            
             if (node) {
                 // 鼠标进入节点：立即显示tooltip
                 hoverNode = node;
                 updateHighlight();
+                
+                // 非大股东节点：悬浮绽放放大 + 低透明度提升
+                if (!selectedNodeObj || (selectedNodeObj && selectedNodeObj.id !== node.id)) {
+                    hoverScaleNodeBloom(node);
+                    hoverScaleNode = node;
+                }
             } else {
                 // 鼠标离开节点：延迟500毫秒隐藏tooltip
+                const leavingNode = hoverScaleNode;
                 hoverTimeout = setTimeout(() => {
                     hoverNode = null;
                     updateHighlight();
                     hoverTimeout = null;
+                    if (leavingNode) {
+                        hoverScaleNodeRebound(leavingNode);
+                        hoverScaleNode = null;
+                    }
                 }, HOVER_DELAY);
             }
         })
@@ -2100,6 +2234,14 @@ window.addEventListener('load', () => {
     // --- [6. 初始化力场与事件] ---
     // 调整全局排斥力，防止节点挤在一起
     Graph.d3Force('charge').strength(-200); 
+    
+    // Tween.js 动画循环：持续驱动所有 Tween 动画（悬浮绽放、光柱等）
+    (function tweenLoop() {
+        requestAnimationFrame(tweenLoop);
+        if (typeof TWEEN !== 'undefined') {
+            TWEEN.update();
+        }
+    })();
 
     // 劫持并重定义 Link 力场
     const linkForce = Graph.d3Force('link');
