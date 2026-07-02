@@ -13,7 +13,6 @@ let hoverNode = null;
 let hoverScaleNode = null; // 追踪当前悬浮绽放的节点（非大股东节点的悬浮放大效果）
 let currentSelectedNodeId = null; 
 let is_change = true; // true: 编辑模式, false: 链入父ID模式
-const is_edit_mode = new URLSearchParams(window.location.search).get('edit') === 'true'; // URL参数 edit=true 才允许编辑
 let nodeCache = {}; 
 
 // 父ID选择模式相关变量
@@ -2091,42 +2090,6 @@ window.addEventListener('load', () => {
             }
             
             selectedNodeObj = node; 
-
-            if (!is_edit_mode) {
-                // 降下一束神圣探照光柱
-                showDivineBeam(node);
-                
-                // 使用精确坐标偏移计算
-                const { camPos, lookAt } = calculateOffsetView(node, 350);
-                
-                Graph.cameraPosition(camPos, lookAt, 1200);
-
-                const requestData = { serial_id: node.serial_id || node.本事件ID };
-                if (window.currentActorId) {
-                    requestData.actor_id = window.currentActorId;
-                }
-                if (window.currentOwnerId && window.currentOwnerId !== 'default') {
-                    requestData.owner_id = window.currentOwnerId;
-                }
-                fetch('/api/v1/causal/click', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(requestData)
-                })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.status === 'success' && data.event_horizon) {
-                        console.log('[事件视界] 收到视界内节点数: ' + data.event_horizon.length);
-                        horizonNodes.clear();
-                        data.event_horizon.forEach(id => horizonNodes.add(id));
-                        updateHighlight();
-                    }
-                })
-                .catch(error => console.error('[API-only点击] 请求失败:', error));
-                setTimeout(() => { node.fx = node.fy = node.fz = null; }, 1000);
-                return;
-            }
-
             openDrawer(node.id); // 唤起右侧抽屉
             
             // 降下一束神圣探照光柱
