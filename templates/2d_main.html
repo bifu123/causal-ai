@@ -17,13 +17,15 @@
 </head>
 <body class="bg-black text-gray-100 overflow-hidden font-mono">
 
+    <!-- 移动端 header 折叠按钮 -->
+    <div id="header-toggle" onclick="document.querySelector('header').classList.toggle('expanded')">📢</div>
     <header class="h-12 border-b border-gray-800 flex items-center px-4 bg-gray-900 justify-between">
         <div class="flex items-center space-x-4">
             <span class="font-bold text-blue-500 tracking-widest">历因果而知势 - 因果AI - 元龙居士</span>
             <span class="text-[10px] text-gray-500 border border-gray-700 px-1">v2.6.2-Metabolic</span>
         </div>
         <div class="flex items-center space-x-4">
-            <button onclick="openCreateModal()" class="bg-blue-700 hover:bg-blue-600 px-4 py-1 rounded-sm text-xs transition-colors">发起首贞</button>
+            <button id="btn-create-node" onclick="openCreateModal()" class="edit-only bg-blue-700 hover:bg-blue-600 px-4 py-1 rounded-sm text-xs transition-colors" style="display:none">发起首贞</button>
             <!-- 搜索按钮 -->
             <div class="search-toggle" id="btn-toggle-search" title="展开搜索面板">
                 🔍
@@ -148,13 +150,13 @@
                 </section>
 
                 <div class="pt-6 border-t border-gray-800 grid grid-cols-2 gap-2">
-                    <button onclick="saveNodeChanges()" class="py-2 bg-green-700 hover:bg-green-600 text-xs text-white">保存修改</button>
-                    <button onclick="deleteCurrentNode()" class="py-2 bg-red-700 hover:bg-red-600 text-xs text-white">删除事件</button>
+                    <button onclick="saveNodeChanges()" class="edit-only py-2 bg-green-700 hover:bg-green-600 text-xs text-white" style="display:none">保存修改</button>
+                    <button onclick="deleteCurrentNode()" class="edit-only py-2 bg-red-700 hover:bg-red-600 text-xs text-white" style="display:none">删除事件</button>
                 </div>
 
                 <div class="pt-3 border-t border-gray-800 grid grid-cols-2 gap-2">
-                    <button onclick="deriveNode('又贞')" class="py-2 bg-gray-800 hover:bg-gray-700 text-xs text-gray-300">又贞</button>
-                    <button onclick="deriveNode('对贞')" class="py-2 bg-gray-800 hover:bg-gray-700 text-xs text-gray-300">对贞</button>
+                    <button onclick="deriveNode('又贞')" class="edit-only py-2 bg-gray-800 hover:bg-gray-700 text-xs text-gray-300" style="display:none">又贞</button>
+                    <button onclick="deriveNode('对贞')" class="edit-only py-2 bg-gray-800 hover:bg-gray-700 text-xs text-gray-300" style="display:none">对贞</button>
                 </div>
             </div>
         </div>

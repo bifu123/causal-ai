@@ -28,6 +28,9 @@
 <body>
     <div id="3d-graph"></div>
     
+    <!-- 移动端 header 折叠按钮 -->
+    <div id="header-toggle" onclick="document.getElementById('header').classList.toggle('expanded')">➥</div>
+    
     <div id="ui-overlay">
         <div id="header">
             <h1>因果星空 · 3D 视觉实现</h1>
@@ -69,7 +72,7 @@
             <div class="control-icon" id="btn-dragon-cruise" data-tooltip="因果寻龙">
                 <div class="icon-compass">➤</div>
             </div>
-            <div class="control-icon" id="btn-create-node" data-tooltip="发起首贞">
+            <div class="control-icon hidden" id="btn-create-node" data-tooltip="发起首贞">
                 <div class="icon-plus">贞</div>
             </div>
         </div>
@@ -92,6 +95,7 @@
                     <input type="text" id="search-input" class="search-input" placeholder="输入关键词搜索事件...">
                     <select id="search-type" class="search-select">
                         <option value="keyword">关键字搜索</option>
+                        <option value="vector">语义搜索</option>
                         <option value="serial">序列ID搜索</option>
                     </select>
                 </div>
@@ -189,13 +193,13 @@
             </section>
 
             <div class="drawer-actions">
-                <button id="btn-save-node" class="btn-save">保存修改</button>
-                <button id="btn-delete-node" class="btn-delete">删除事件</button>
+                <button id="btn-save-node" class="btn-save edit-only hidden">保存修改</button>
+                <button id="btn-delete-node" class="btn-delete edit-only hidden">删除事件</button>
             </div>
 
             <div class="drawer-derive">
-                <button id="btn-derive-youzhen" class="btn-derive">又贞</button>
-                <button id="btn-derive-duizhen" class="btn-derive">对贞</button>
+                <button id="btn-derive-youzhen" class="btn-derive edit-only hidden">又贞</button>
+                <button id="btn-derive-duizhen" class="btn-derive edit-only hidden">对贞</button>
             </div>
         </div>
     </div>

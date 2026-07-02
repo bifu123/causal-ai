@@ -15,20 +15,29 @@ def search_causal_by_keyword(keyword, owner_id='222302526', limit=100):
     - limit (int, optional): 返回结果数量限制，默认为100
     
     返回:
-    - dict: API响应结果，包含搜索结果列表
+    - dict: API响应结果，包含：
+        - data: 搜索结果列表，每条结果包含：
+            - serial_id: 事件物理ID
+            - node_id: 事件标题
+            - relevance_score: 相关度评分 (0-100)，由 V5 算法基于关键词与文本字面匹配计算
+            - search_mode: "keyword"，标识此相似度基于字面匹配算法
+            - 以及其他事件字段（event_tuple, block_tag, action_tag, survival_weight 等）
+        - count: 结果总数
+        - keyword: 搜索关键词
     
     注意:
     - 搜索算法采用三级召回策略：
       1. 精确匹配：使用PostgreSQL全文搜索
       2. 自适应匹配：对关键词进行分词后搜索
       3. 回退匹配：使用LIKE模糊匹配
-    - 搜索结果按相关度排序，相关度由V5算法计算
+    - 搜索结果按 V5 字面匹配相关度排序
+    - search_mode 字段值为 "keyword"，帮助 Agent 理解此相似度与向量搜索的差异
     
     示例:
     # 搜索所有包含"商王"的事件
     results = search_causal_by_keyword("商王")
     for item in results.get('data', []):
-        print(f"事件标题: {item['node_id']}, 相关度: {item['relevance_score']}")
+        print(f"事件标题: {item['node_id']}, 相关度: {item['relevance_score']}, 搜索模式: {item['search_mode']}")
     
     # 搜索特定用户的事件
     results = search_causal_by_keyword("祭祀", owner_id="worker", limit=50)
@@ -52,6 +61,73 @@ def search_causal_by_keyword(keyword, owner_id='222302526', limit=100):
     
     if result.get('status') == 'success':
         print(f"搜索到 {result.get('count', 0)} 个相关事件")
+    else:
+        print(f"搜索失败: {result.get('message')}")
+    
+    return result
+
+
+## 从向量搜索事件列表
+def search_causal_by_embed(keyword, owner_id='222302526', limit=100, threshold=0.0):
+    """
+    根据关键字的语义向量搜索事件列表
+    
+    参数:
+    - keyword (str): 搜索关键词（自然语言描述）
+    - owner_id (str, optional): 事件拥有者ID，如果为None则搜索所有事件
+    - limit (int, optional): 返回结果数量限制，默认为100
+    - threshold (float, optional): 余弦相似度阈值 (0-1)，过滤低于此值的结果，默认为0.0（不过滤）
+    
+    返回:
+    - dict: API响应结果，包含：
+        - data: 搜索结果列表，每条结果包含：
+            - serial_id: 事件物理ID
+            - node_id: 事件标题
+            - relevance_score: 相关度评分 (0-100)，由余弦相似度 × 100 计算
+            - vector_similarity: 原始余弦相似度 (0-1)，供参考
+            - search_mode: "vector"，标识此相似度基于语义空间距离
+            - 以及其他事件字段（event_tuple, block_tag, action_tag, survival_weight 等）
+        - count: 结果总数
+        - keyword: 搜索关键词
+        - threshold: 过滤阈值
+    
+    注意:
+    - 搜索算法采用向量相似度匹配：
+      1. 将关键词转换为语义向量
+      2. 在向量数据库中搜索最相似的事件节点
+    - 搜索结果按余弦相似度（语义距离）排序
+    - relevance_score 基于余弦相似度（而非 V5 字面匹配），与 search_causal_by_keyword 的评分体系不同
+    - search_mode 字段值为 "vector"，帮助 Agent 区分两种搜索模式的相似度含义
+    - 建议设置 threshold >= 0.7 以过滤低相关度噪声
+    
+    示例:
+    # 搜索语义上与"商王祭祀"相关的事件（设置阈值过滤噪声）
+    results = search_causal_by_embed("商王祭祀", threshold=0.7)
+    for item in results.get('data', []):
+        print(f"事件标题: {item['node_id']}, 相关度: {item['relevance_score']}, 搜索模式: {item['search_mode']}, 向量相似度: {item.get('vector_similarity')}")
+    """
+    import requests
+
+    url = "http://127.0.0.1:8094/api/v1/causal/search/vector"
+    
+    payload = {
+        "keyword": keyword
+    }
+    
+    if owner_id is not None:
+        payload["owner_id"] = owner_id
+    
+    if limit is not None:
+        payload["limit"] = limit
+    
+    if threshold > 0:
+        payload["threshold"] = threshold
+    
+    response = requests.post(url, json=payload)
+    result = response.json()
+    
+    if result.get('status') == 'success':
+        print(f"搜索到 {result.get('count', 0)} 个相关事件 (阈值={result.get('threshold', threshold)})")
     else:
         print(f"搜索失败: {result.get('message')}")
     

@@ -1,22 +1,3 @@
-"""
-更新向量脚本 (update_vectors.py)
-
-示例用法:
-1. 仅更新缺失向量的节点 (默认):
-   python update_vectors.py
-
-2. 强制重新计算并更新所有节点的向量:
-   python update_vectors.py --all
-
-3. 仅更新指定 owner_id 且缺失向量的节点:
-   python update_vectors.py --owner <owner_id>
-   例如: python update_vectors.py --owner user123
-
-4. 强制重新计算并更新指定 owner_id 的所有节点向量:
-   python update_vectors.py --all --owner <owner_id>
-   例如: python update_vectors.py --all --owner user123
-"""
-
 import os
 import sys
 import psycopg2

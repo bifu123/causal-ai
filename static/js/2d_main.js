@@ -23,6 +23,20 @@ socket.on('disconnect', (reason) => {
 let currentSelectedNode = null;
 const nodeCache = {}; // 存储完整数据
 
+// 根据 edit 参数控制编辑相关按钮的可见性
+const is_edit_mode = new URLSearchParams(window.location.search).get('edit') === 'true';
+
+(function initEditModeUI() {
+    const editElements = document.querySelectorAll('.edit-only');
+    if (is_edit_mode) {
+        editElements.forEach(el => el.style.display = '');
+        console.log('[编辑模式] edit=true，编辑按钮已显示');
+    } else {
+        editElements.forEach(el => el.style.display = 'none');
+        console.log('[只读模式] edit 参数缺失或不为 true，编辑按钮已隐藏');
+    }
+})();
+
 // 父ID填充功能状态
 let is_change = true; // 控制是否打开抽屉：true=打开抽屉，false=只填充父ID
 let activeParentIdField = null; // 当前处于焦点状态的父ID输入框
@@ -378,6 +392,10 @@ async function postNode(payload) {
 }
 
 function openCreateModal() {
+    if (!is_edit_mode) {
+        console.log('[发起首贞] 非编辑模式，拒绝打开创建模态框');
+        return;
+    }
     // 创建自定义模态框
     const modalHtml = `
         <div id="create-modal" class="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
@@ -1344,6 +1362,16 @@ socket.on('node_deleted', (data) => {
     }
     
     console.log(`[司南] 事件 "${nodeId}" 已从图中移除。`);
+});
+
+// 巡航视觉同步：接收3D端巡航跳跃广播
+socket.on('cruise_view', (data) => {
+    // 只响应同 actor/owner 的巡航广播
+    if (currentActorId && data.actor_id !== currentActorId) return;
+    if (currentOwnerId !== 'default' && data.owner_id !== currentOwnerId) return;
+
+    // 在2D图中高亮显示该节点
+    highlightSearchResultNode(data.node_id);
 });
 
 // 打开图片全息大图模态框
@@ -2368,8 +2396,8 @@ function displaySearchResults(results, searchType = 'keyword') {
         const previewText = eventTuple.length > 100 ? 
             eventTuple.substring(0, 100) + '...' : eventTuple;
         
-        // 计算相关度百分比
-        const relevancePercent = Math.min(Math.round(relevanceScore * 100), 100);
+        // 格式化相关度，保留4位小数
+        const relevanceFormatted = Number(relevanceScore).toFixed(4);
         
         // 计算权重百分比
         const weightPercent = Math.min(Math.round(survivalWeight * 100), 100);
@@ -2385,7 +2413,7 @@ function displaySearchResults(results, searchType = 'keyword') {
                     <div class="result-meta">
                         <span class="result-relevance">
                             <span class="relevance-label">相关度:</span>
-                            <span class="relevance-value">${relevancePercent}%</span>
+                            <span class="relevance-value">${relevanceFormatted}</span>
                         </span>
                         <span class="result-weight">
                             <span class="weight-label">权重:</span>

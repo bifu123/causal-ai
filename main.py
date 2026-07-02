@@ -668,7 +668,8 @@ async def search_by_keyword(search_data: dict):
                 "owner_id": result.get("事件拥有者"),
                 "parent_ids": result.get("前事件标题列表", []),
                 "preview_id": result.get("前事件ID列表"),
-                "next_ids": result.get("后续事件ID列表", [])
+                "next_ids": result.get("后续事件ID列表", []),
+                "search_mode": "keyword"  # 标识为关键字搜索，帮助 Agent 理解相似度基于 V5 字面匹配算法
             }
             converted_results.append(converted)
         
@@ -683,7 +684,74 @@ async def search_by_keyword(search_data: dict):
         print(f"[API 错误] 关键字搜索失败: {e}")
         return {"status": "error", "message": str(e)}
 
+
+# --- 搜索接口：向量搜索 ---
+@app.post("/api/v1/causal/search/vector")
+async def search_by_vector(search_data: dict):
+    """
+    职责：根据关键字的语义向量搜索事件节点
+    支持参数：
+        keyword: 搜索关键词（自然语言描述）
+        owner_id: 事件拥有者ID，如果为None则搜索所有事件
+        limit: 返回结果数量限制，如果为None则返回所有行
+        threshold: 余弦相似度阈值（0-1），过滤低相似度结果，默认 0.0（不过滤）
+    """
+    try:
+        keyword = search_data.get('keyword')
+        owner_id = search_data.get('owner_id', 'default')
+        limit = search_data.get('limit', 100)
+        threshold = search_data.get('threshold', 0.0)
+        
+        if not keyword:
+            return {"status": "error", "message": "缺少搜索关键词"}
+        
+        # 导入搜索模块
+        from core.search import get_event_with_vector
+        
+        # 执行搜索
+        results = get_event_with_vector(keyword, owner_id, limit)
+        
+        # 将中文键名转换为英文键名，以便与前端保持一致
+        converted_results = []
+        for result in results:
+            similarity = result.get("vector_similarity", 0)
+            
+            # 如果设置了 threshold，过滤低相似度结果
+            if threshold > 0 and similarity < threshold:
+                continue
+                
+            converted = {
+                "serial_id": result.get("本事件ID"),
+                "node_id": result.get("本事件标题"),
+                "event_tuple": result.get("事件二元组描述"),
+                "survival_weight": result.get("本事件权重"),
+                "block_tag": result.get("因缘标签"),
+                "action_tag": result.get("动作标签"),
+                "full_image_url": result.get("截图"),
+                "owner_id": result.get("事件拥有者"),
+                "parent_ids": result.get("前事件标题列表", []),
+                "preview_id": result.get("前事件ID列表"),
+                "next_ids": result.get("后续事件ID列表", []),
+                "relevance_score": result.get("本事件相关度", 0),
+                "vector_similarity": similarity,
+                "search_mode": "vector"  # 标识为向量搜索，帮助 Agent 理解相似度基于语义空间
+            }
+            converted_results.append(converted)
+            
+        return {
+            "status": "success",
+            "data": converted_results,
+            "count": len(converted_results),
+            "keyword": keyword,
+            "owner_id": owner_id,
+            "threshold": threshold
+        }
+    except Exception as e:
+        print(f"[API 错误] 向量搜索失败: {e}")
+        return {"status": "error", "message": str(e)}
+
 # --- 搜索接口：序列ID搜索 ---
+
 @app.post("/api/v1/causal/search/serial")
 async def search_by_serial(search_data: dict):
     """
@@ -1070,6 +1138,14 @@ async def handle_connect(sid, env):
         # 将 Decimal 转为 float 传给前端
         node['survival_weight'] = float(node['survival_weight'])
         await sm.emit('node_created', node, to=sid)
+
+
+# --- Socket 逻辑：巡航视觉同步（纯转发，不写数据库） ---
+@sm.on('cruise_step')
+async def handle_cruise_step(sid, data):
+    """巡航跳跃：纯视觉广播，不做数据库写入"""
+    print(f"[因果巡航广播] sid={sid}, node_id={data.get('node_id')}, actor_id={data.get('actor_id')}, owner_id={data.get('owner_id')}")
+    await sm.emit('cruise_view', data)
 
 
 # 定义读取源文件的通用函数
