@@ -234,24 +234,55 @@ class CausalDatabase:
         职责：更新事件的多个字段，用于代谢引擎。
         注意：这里使用 UPDATE 而不是 INSERT，因为事件应该已经存在。
         """
+        node_id = node_data['node_id']
+        
+        # 获取当前数据库中的节点，以比对 event_tuple 是否真正发生变化
+        current_node = self.get_node_by_id(node_id)
+        current_event_tuple = current_node.get('event_tuple') if current_node else None
+        new_event_tuple = node_data.get('event_tuple')
+        
         # 检查是否需要更新 event_tuple
-        # 注意：代谢衰减时不更新 semantic_vector，以保留节点最完整状态时的语义
         if 'event_tuple' in node_data:
-            sql = """
-                UPDATE ains_active_nodes 
-                SET survival_weight = %s,
-                    vision_level = %s,
-                    event_tuple = %s,
-                    last_accessed = CURRENT_TIMESTAMP
-                WHERE node_id = %s
-            """
-            with self.conn.cursor() as cur:
-                cur.execute(sql, (
-                    node_data.get('survival_weight', 1.0),
-                    node_data.get('vision_level', 0),
-                    node_data.get('event_tuple'),
-                    node_data['node_id']
-                ))
+            # 如果 event_tuple 发生了实质性变化（被提炼或清空），则同步更新 semantic_vector
+            if new_event_tuple != current_event_tuple:
+                print(f"[数据库] 节点 {node_id} 的 event_tuple 发生变化，同步更新 semantic_vector")
+                embed_text = f"{node_id}。{new_event_tuple}" if new_event_tuple else node_id
+                semantic_vector = get_embedding(embed_text)
+                
+                sql = """
+                    UPDATE ains_active_nodes 
+                    SET survival_weight = %s,
+                        vision_level = %s,
+                        event_tuple = %s,
+                        semantic_vector = %s,
+                        last_accessed = CURRENT_TIMESTAMP
+                    WHERE node_id = %s
+                """
+                with self.conn.cursor() as cur:
+                    cur.execute(sql, (
+                        node_data.get('survival_weight', 1.0),
+                        node_data.get('vision_level', 0),
+                        new_event_tuple,
+                        semantic_vector,
+                        node_id
+                    ))
+            else:
+                # event_tuple 没有变化，不需要重新计算向量
+                sql = """
+                    UPDATE ains_active_nodes 
+                    SET survival_weight = %s,
+                        vision_level = %s,
+                        event_tuple = %s,
+                        last_accessed = CURRENT_TIMESTAMP
+                    WHERE node_id = %s
+                """
+                with self.conn.cursor() as cur:
+                    cur.execute(sql, (
+                        node_data.get('survival_weight', 1.0),
+                        node_data.get('vision_level', 0),
+                        new_event_tuple,
+                        node_id
+                    ))
         else:
             sql = """
                 UPDATE ains_active_nodes 
@@ -264,7 +295,7 @@ class CausalDatabase:
                 cur.execute(sql, (
                     node_data.get('survival_weight', 1.0),
                     node_data.get('vision_level', 0),
-                    node_data['node_id']
+                    node_id
                 ))
 
     def update_node(self, old_node_id: str, node_data: dict):
@@ -342,6 +373,50 @@ class CausalDatabase:
         with self.conn.cursor() as cur:
             cur.execute(sql, tuple(update_values))
             print(f"[数据库更新] SQL执行成功，影响行数: {cur.rowcount}")
+            
+            # 同步更新地宫表
+            necropolis_fields = []
+            necropolis_values = []
+            
+            if 'node_id' in node_data and node_data['node_id'] != old_node_id:
+                necropolis_fields.append("node_id = %s")
+                necropolis_values.append(node_data['node_id'])
+                
+            if 'event_tuple' in node_data:
+                # 只有当 raw_content 非空时才更新
+                necropolis_fields.append("raw_content = CASE WHEN raw_content IS NOT NULL AND raw_content != '' THEN %s ELSE raw_content END")
+                necropolis_values.append(node_data['event_tuple'])
+                
+            if 'full_image_url' in node_data:
+                # 只有当 raw_full_image_url 非空时才更新
+                necropolis_fields.append("raw_full_image_url = CASE WHEN raw_full_image_url IS NOT NULL AND raw_full_image_url != '' THEN %s ELSE raw_full_image_url END")
+                necropolis_values.append(node_data['full_image_url'])
+                
+            if necropolis_fields:
+                # 尝试获取 serial_id
+                cur.execute("SELECT serial_id FROM ains_active_nodes WHERE node_id = %s", (node_data.get('node_id', old_node_id),))
+                result = cur.fetchone()
+                
+                necropolis_fields.append("sealed_at = CURRENT_TIMESTAMP")
+                
+                if result and result[0]:
+                    serial_id = result[0]
+                    necropolis_values.append(serial_id)
+                    necropolis_sql = f"""
+                        UPDATE ains_archive_necropolis
+                        SET {', '.join(necropolis_fields)}
+                        WHERE serial_id = %s
+                    """
+                else:
+                    necropolis_values.append(old_node_id)
+                    necropolis_sql = f"""
+                        UPDATE ains_archive_necropolis
+                        SET {', '.join(necropolis_fields)}
+                        WHERE node_id = %s
+                    """
+                
+                cur.execute(necropolis_sql, tuple(necropolis_values))
+                print(f"[数据库更新] 地宫表同步更新成功，影响行数: {cur.rowcount}")
 
     def update_children_parent_id(self, old_parent_id: str, new_parent_id: str):
         """
@@ -647,20 +722,30 @@ class CausalDatabase:
                 
                 print(f"[地宫恢复] 内容变化: event_tuple={content_changed}, full_image_url={image_changed}")
                 
+                # 如果内容发生变化，同步更新语义向量
+                semantic_vector_sql = ""
+                params = [record['raw_content'], record['raw_full_image_url']]
+                
+                if content_changed:
+                    embed_text = f"{node_id}。{record['raw_content']}" if record['raw_content'] else node_id
+                    semantic_vector = get_embedding(embed_text)
+                    if semantic_vector:
+                        semantic_vector_sql = ", semantic_vector = %s"
+                        params.append(semantic_vector)
+                        print(f"[地宫恢复] 已重新计算全息语义向量")
+                
+                params.append(node_id)
+                
                 # 更新活跃事件表
-                update_sql = """
+                update_sql = f"""
                     UPDATE ains_active_nodes 
                     SET event_tuple = %s, 
-                        full_image_url = %s,
+                        full_image_url = %s{semantic_vector_sql},
                         last_accessed = CURRENT_TIMESTAMP
                     WHERE node_id = %s
                     RETURNING *
                 """
-                cur.execute(update_sql, (
-                    record['raw_content'],
-                    record['raw_full_image_url'],
-                    node_id
-                ))
+                cur.execute(update_sql, tuple(params))
                 
                 updated_node = cur.fetchone()
                 
