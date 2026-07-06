@@ -38,6 +38,9 @@ DB_PORT=5432
 # 代谢引擎配置
 EVENT_MAX=4000      # 最大字符总数
 EVENT_LOSS=3000     # 超时时间（秒）
+
+# API配置
+RETURN_SERIAL_ID_ON_GENESIS=True  # 创建节点时是否返回物理序列ID
 ```
 
 ## 数据库配置
@@ -126,7 +129,7 @@ http://serverip:8094/ui?owner_id=worker&actor_id=user2
 ## 核心功能API
 
 ### 事件管理API
-- `POST /api/v1/causal/genesis`: 创建事件节点（首贞/又贞/对贞）
+- `POST /api/v1/causal/genesis`: 创建事件节点（首贞/又贞/对贞），支持 `return_serial_id` 参数控制是否返回物理序列ID
 - `POST /api/v1/causal/update`: 更新事件节点信息
 - `POST /api/v1/causal/delete`: 删除事件节点
 - `GET /api/v1/causal/history`: 获取所有活跃事件数据
@@ -147,6 +150,7 @@ http://serverip:8094/ui?owner_id=worker&actor_id=user2
 - `actor_id`: 用户ID，用于用户个性化权重管理。当提供此参数时，系统会从`ains_user_weights`表获取用户特定的权重数据。
 - `owner_id`: 事件拥有者ID，用于过滤显示特定用户的事件节点。
 - `serial_id`: 事件物理ID，在数据库中是唯一标识，用于精确查找特定事件。
+- `return_serial_id`: 布尔值，用于控制创建节点时是否返回物理序列ID。如果未提供，则使用 `.env` 中的 `RETURN_SERIAL_ID_ON_GENESIS` 配置。
 
 ### 用户个性化权重
 系统支持多用户环境下的个性化权重管理：

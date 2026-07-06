@@ -63,6 +63,15 @@ window.pendingGenesisNodeId = null;
 
 // --- [2. 核心辅助工具] ---
 
+/**
+ * 将真实权重转换为视觉权重
+ * 哲学思考：新生节点（权重1.0）在视觉上不应喧宾夺主，将其视觉权重收敛为0.3
+ */
+function getVisualWeight(weight) {
+    const w = Math.max(0, Math.min(1, parseFloat(weight || 0)));
+    return w === 1.0 ? 0.3 : w;
+}
+
 function getThreeInstance() {
     return window.THREE || (Graph && Graph.scene() ? Graph.scene().__threeObj : null);
 }
@@ -133,34 +142,27 @@ function showDivineBeam(node, colorType = 'divine') {
     const MIN_RADIUS = 1.2;
     const MAX_RADIUS = 9.0;
     const REL_SIZE = 7;
-    const weight = Math.max(0, Math.min(1, node.survival_weight || 0));
+    const weight = getVisualWeight(node.survival_weight);
     const targetRadius = MIN_RADIUS + (weight * (MAX_RADIUS - MIN_RADIUS));
     const actualPhysicalRadius = targetRadius * REL_SIZE; // 这个值在 8.4 到 63 之间变化
     
-    const beamHeight = 800; 
+    // 消除局限：将光柱高度提升至万级，确保其顶部永远在屏幕之外
+    const beamHeight = 10000; 
     
     // 2. 动态计算光柱尺寸：根据节点类型与设备屏幕动态自适应算法
     let bottomRadius, topRadius;
     const isMobile = window.innerWidth < 768; // 判断是否为移动端窄屏
 
+    // 底部半径精确贴合节点物理半径
+    bottomRadius = actualPhysicalRadius * 0.95;
+
+    // 顶部半径根据万级高度按比例放大，适当缩小上下宽度之差
     if (colorType === 'golden') {
-        // (1) 新生节点（创世金光）
-        bottomRadius = actualPhysicalRadius * 0.88;
-        topRadius = Math.max(isMobile ? 150 : 220, bottomRadius * (isMobile ? 4.0 : 6.0));
+        topRadius = bottomRadius + beamHeight * (isMobile ? 0.05 : 0.08);
     } else if (weight >= 0.6) {
-        // (2) 大股东节点：巨星需要庞大的光幕笼罩
-        // 修正：底部回退至 0.95，防止在任何视角下溢出球体直径
-        bottomRadius = actualPhysicalRadius * 0.95;
-        // 修正：顶部在移动端大幅收缩，防止光幕宽过屏幕导致视觉杂乱
-        const topMultiplier = isMobile ? 3.5 : 5.0;
-        const topMin = isMobile ? 160 : 220;
-        topRadius = Math.max(topMin, bottomRadius * topMultiplier);
+        topRadius = bottomRadius + beamHeight * (isMobile ? 0.06 : 0.10);
     } else {
-        // (3) 普通节点
-        bottomRadius = actualPhysicalRadius * 0.88;
-        const topMultiplier = isMobile ? 2.8 : 4.0;
-        const topMin = isMobile ? 80 : 100;
-        topRadius = Math.max(topMin, bottomRadius * topMultiplier);
+        topRadius = bottomRadius + beamHeight * (isMobile ? 0.03 : 0.05);
     }
 
     const geo = new THREE.CylinderGeometry(topRadius, bottomRadius, beamHeight, 32, 1, true);
@@ -201,10 +203,17 @@ function showDivineBeam(node, colorType = 'divine') {
         transparent: true,
         blending: THREE.AdditiveBlending,
         depthWrite: false,
+        depthTest: false, // 确保圣光在最上层，不被其他节点遮挡
         side: THREE.DoubleSide
     });
 
     const beamMesh = new THREE.Mesh(geo, customMaterial);
+    beamMesh.renderOrder = 999; // 确保最后渲染，位于最上层
+    
+    // 记录节点ID和颜色类型，以便后续动态更新尺寸
+    beamMesh.userData.nodeId = node.id || node.node_id;
+    beamMesh.userData.colorType = colorType;
+    beamMesh.userData.beamHeight = beamHeight;
     
     // 3. 动态精准计算聚光灯照射角
     // 使用三角函数精确计算：为了完美覆盖目标半径区域（不溢出），灯光张开弧度的一半为 atan(bottomRadius / beamHeight)
@@ -239,7 +248,15 @@ function showDivineBeam(node, colorType = 'divine') {
         // 同步照亮球体：恢复光照强度，平衡明暗视觉冲击力
         spotLight.intensity = intensityFactor * 65; 
         
+        // 1. 位置跟随节点
         beamMesh.position.set(node.x, node.y, node.z);
+        
+        // 2. 方向绝对锁定：将光柱的旋转与相机的旋转实时绑定
+        // 这样光柱的 Y 轴（向上延伸的方向）将永远对齐屏幕的正上方
+        const camera = Graph.camera();
+        if (camera) {
+            beamMesh.quaternion.copy(camera.quaternion);
+        }
         
         return true;
     };
@@ -271,7 +288,7 @@ function calculateOffsetView(node, distance = 350) {
     
     if (isMobile) {
         // 根据节点权重(大小)动态决定拉远距离：节点越大，拉得越远
-        const weight = Math.max(0, Math.min(1, node.survival_weight || 0));
+        const weight = getVisualWeight(node.survival_weight);
         // 移动端基础距离 450，满权重巨星最大拉远至 650
         const mobileDistance = 450 + (weight * 200);
         actualDistance = Math.max(distance, mobileDistance);
@@ -375,15 +392,15 @@ function closeImageModal() {
 
 /** 动作颜色映射：遵循 ylbot 业务职责标准，亮度与权重成正比 */
 function getNodeColor(node) {
-    const colorMap = { '贞': '#f59e0b', '又贞': '#10b981', '对贞': '#3b82f6' };
+    const colorMap = { '贞': '#836e28', '又贞': '#10b981', '对贞': '#3b82f6' };
     const baseColor = colorMap[node.action_tag] || '#64748b';
     
     // 获取节点权重
-    const weight = node.survival_weight || 0;
+    const weight = getVisualWeight(node.survival_weight);
     
     // 亮度与权重成正比：权重越高，颜色越亮
-    // 权重范围：0.0 - 1.0，亮度范围：0.5 - 1.0
-    const brightness = 0.5 + (weight * 0.5); // 0.5 - 1.0
+    // 权重范围：0.0 - 1.0，亮度范围：0.6 - 1.1
+    const brightness = 0.6 + (weight * 0.5); // 0.6 - 1.1
     
     // 将十六进制颜色转换为RGB
     const hex = baseColor.replace('#', '');
@@ -443,30 +460,32 @@ function updateEventHorizonVisibility() {
             const sphere = node.__threeObj.children[0];
             const sprite = node.__threeObj.children[1];
             
+            const weight = getVisualWeight(node.survival_weight);
+            const baseOpacity = 0.4 + weight * 0.6;
+            
             if (hasHorizon && !horizonNodes.has(node.id)) {
-                // 视界外：虚化湮灭（最低不透明度 0.3，保留一定视觉存在感）
+                // 视界外：虚化湮灭（在基础透明度上再降低）
+                const dimmedOpacity = baseOpacity * 0.3;
                 if (sphere && sphere.material) {
                     sphere.material.transparent = true;
-                    sphere.material.opacity = 0.3;
+                    sphere.material.opacity = dimmedOpacity;
                 }
                 if (sprite && sprite.material) {
-                    sprite.material.opacity = 0.3;
+                    sprite.material.opacity = dimmedOpacity;
                 }
             } else {
-                // 视界内或无视界（上帝视角）：恢复正常
+                // 视界内或无视界（上帝视角）：恢复基础透明度
                 if (sphere && sphere.material) {
-                    // 恢复原始透明度设置
+                    sphere.material.transparent = true;
                     const duty = node.action_tag;
                     if (duty === '又贞') {
-                        sphere.material.transparent = true;
-                        sphere.material.opacity = 0.85;
+                        sphere.material.opacity = baseOpacity * 0.85;
                     } else {
-                        sphere.material.transparent = false;
-                        sphere.material.opacity = 1.0;
+                        sphere.material.opacity = baseOpacity;
                     }
                 }
                 if (sprite && sprite.material) {
-                    sprite.material.opacity = 1.0;
+                    sprite.material.opacity = baseOpacity;
                 }
             }
         }
@@ -553,10 +572,7 @@ function hoverScaleNodeRebound(node) {
             .easing(TWEEN.Easing.Quadratic.Out)
             .onUpdate(obj => { sphere.material.opacity = obj.opacity; })
             .onComplete(() => {
-                // 若目标 opacity >= 1.0，关闭 transparent 以提升性能
-                if (targetOpacity >= 1.0 && sphere.material) {
-                    sphere.material.transparent = false;
-                }
+                // 保持 transparent 为 true，因为现在透明度与权重成正比
             })
             .start();
         delete node._origOpacity;
@@ -595,12 +611,19 @@ const HOVER_DELAY = 500; // 500毫秒延迟
 
 /** 超采样文字纹理渲染：确保 ID 极致清晰，使用2的幂次方尺寸避免警告 */
 function createTextTexture(text, weight, THREE) {
+    // 截断过长的节点标签
+    const MAX_LENGTH = 10;
+    let displayText = text;
+    if (text && text.length > MAX_LENGTH) {
+        displayText = text.substring(0, MAX_LENGTH) + '...';
+    }
+
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
     const scale = 4;
-    ctx.font = `Bold ${32 * scale}px "Fira Code"`;
-    const textWidth = ctx.measureText(text).width;
-    const padding = 0.5 * scale; // 进一步缩小padding：左右只有2px（0.5 * 4）
+    ctx.font = `${32 * scale}px "Fira Code"`;
+    const textWidth = ctx.measureText(displayText).width;
+    const padding = 6 * scale; // 增加padding让底座更好看
     
     // 计算2的幂次方尺寸，避免THREE调整警告
     const calculatePowerOfTwo = (size) => {
@@ -608,7 +631,7 @@ function createTextTexture(text, weight, THREE) {
     };
     
     const rawWidth = textWidth + padding * 2;
-    const rawHeight = 40 * scale; // 进一步缩小高度：从60*scale减少到40*scale
+    const rawHeight = 44 * scale; 
     
     // 使用2的幂次方尺寸
     canvas.width = calculatePowerOfTwo(rawWidth);
@@ -618,27 +641,51 @@ function createTextTexture(text, weight, THREE) {
     const centerX = canvas.width / 2;
     const centerY = canvas.height / 2;
     
-    ctx.fillStyle = 'rgba(0, 10, 25, 0.85)';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.strokeStyle = '#3b82f6'; 
-    ctx.lineWidth = 0.5 * scale; // 进一步减小边框宽度：从1*scale减少到0.5*scale
-    ctx.strokeRect(0, 0, canvas.width, canvas.height);
+    // 绘制半透明微光底座
+    const bgWidth = textWidth + padding * 1.5;
+    const bgHeight = 38 * scale;
+    const bgX = centerX - bgWidth / 2;
+    const bgY = centerY - bgHeight / 2;
+    const radius = 8 * scale;
     
-    ctx.font = `Bold ${32 * scale}px "Fira Code"`;
+    ctx.fillStyle = 'rgba(0, 5, 15, 0.45)'; // 极柔和的半透明底座
+    ctx.beginPath();
+    ctx.moveTo(bgX + radius, bgY);
+    ctx.lineTo(bgX + bgWidth - radius, bgY);
+    ctx.quadraticCurveTo(bgX + bgWidth, bgY, bgX + bgWidth, bgY + radius);
+    ctx.lineTo(bgX + bgWidth, bgY + bgHeight - radius);
+    ctx.quadraticCurveTo(bgX + bgWidth, bgY + bgHeight, bgX + bgWidth - radius, bgY + bgHeight);
+    ctx.lineTo(bgX + radius, bgY + bgHeight);
+    ctx.quadraticCurveTo(bgX, bgY + bgHeight, bgX, bgY + bgHeight - radius);
+    ctx.lineTo(bgX, bgY + radius);
+    ctx.quadraticCurveTo(bgX, bgY, bgX + radius, bgY);
+    ctx.closePath();
+    ctx.fill();
+    
+    ctx.font = `${32 * scale}px "Fira Code"`;
     
     // 标签亮度与权重成正比：权重越高，标签越亮
-    // 权重范围：0.0 - 1.0，亮度范围：0.3 - 1.0
-    const weightValue = weight || 0;
-    const brightness = 0.3 + (weightValue * 0.7); // 0.3 - 1.0
+    // 权重范围：0.0 - 1.0，亮度范围：0.5 - 0.9 (压低亮度)
+    const weightValue = getVisualWeight(weight);
+    const brightness = 0.5 + (weightValue * 0.4); 
     
     // 根据亮度计算颜色值
     const colorValue = Math.floor(255 * brightness);
     const textColor = `rgb(${colorValue}, ${colorValue}, ${colorValue})`;
     
+    // 添加黑色发光阴影，确保在明亮星云背景下依然清晰可读
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.95)';
+    ctx.shadowBlur = 6 * scale;
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = 1.5 * scale;
+    
     ctx.fillStyle = textColor; 
     ctx.textAlign = 'center'; 
     ctx.textBaseline = 'middle';
-    ctx.fillText(text, centerX, centerY);
+    
+    // 绘制两次文字以增强阴影的厚重感
+    ctx.fillText(displayText, centerX, centerY);
+    ctx.fillText(displayText, centerX, centerY);
     
     const texture = new THREE.CanvasTexture(canvas);
     texture.baseWidth = rawWidth / scale; 
@@ -873,7 +920,7 @@ async function loadInitialData() {
                             
                             // 平滑过渡到全景视图
                             setTimeout(() => {
-                                Graph.zoomToFit(1200, 150);
+                                Graph.cameraPosition({ x: 0, y: 0, z: 900 }, { x: 0, y: 0, z: 0 }, 1200);
                             }, 500);
                         }, 4000);
                     }
@@ -900,18 +947,18 @@ async function loadInitialData() {
                             console.log(`[事件视界] 已进入事件视界模式，以 ${res.boss_node_id} 为中心`);
                         } else {
                             console.warn(`[事件视界] 大股东节点坐标无效，降级为全局适应`);
-                            Graph.zoomToFit(1200, 150);
+                            Graph.cameraPosition({ x: 0, y: 0, z: 900 }, { x: 0, y: 0, z: 0 }, 1200);
                         }
                     } else {
                         console.warn(`[事件视界] 未找到大股东节点 ${res.boss_node_id} 在渲染数据中`);
                         // 降级：仅做适应视图
-                        Graph.zoomToFit(1200, 150);
+                        Graph.cameraPosition({ x: 0, y: 0, z: 900 }, { x: 0, y: 0, z: 0 }, 1200);
                     }
                 }, 800);
             } else if (!selectedNodeObj) {
                 // 防跳跃逻辑：如果没有选中任何节点，才执行全局缩放适应
                 setTimeout(() => {
-                    Graph.zoomToFit(1200, 150);
+                    Graph.cameraPosition({ x: 0, y: 0, z: 900 }, { x: 0, y: 0, z: 0 }, 1200);
                 }, 600);
             }
         }
@@ -991,7 +1038,7 @@ function updateNodeIncremental(data) {
                     const MIN_RADIUS = 1.2;
                     const MAX_RADIUS = 9.0; // 统一为全局一致的 9.0
                     const REL_SIZE = 7;
-                    const w = Math.max(0, Math.min(1, parseFloat(gNode.survival_weight || 0)));
+                    const w = getVisualWeight(gNode.survival_weight);
                     const targetRadius = MIN_RADIUS + (w * (MAX_RADIUS - MIN_RADIUS));
                     const targetPhysicalRadius = targetRadius * REL_SIZE;
                     
@@ -1005,9 +1052,48 @@ function updateNodeIncremental(data) {
                     
                     const sprite = gNode.__threeObj.children[1];
                     if (sprite && sprite.material && sprite.material.map) {
-                        const baseScale = Math.max(0.3, Math.min(0.6, 0.55 - (w * 0.2)));
-                        sprite.scale.set(sprite.material.map.baseWidth * baseScale, sprite.material.map.baseHeight * baseScale, 1);
-                        sprite.position.y = targetPhysicalRadius + 14;
+                        // 标签大小控制：与节点大小成正比
+                        // 基础缩放0.3，权重为1时缩放为0.7
+                        const baseScale = 0.3 + (w * 0.4);
+                        const spriteHeight = sprite.material.map.baseHeight * baseScale;
+                        sprite.scale.set(sprite.material.map.baseWidth * baseScale, spriteHeight, 1);
+                        // 位置：提高悬浮高度，避免在斜视时遮挡星球
+                        sprite.position.y = targetPhysicalRadius + spriteHeight + 4; 
+                    }
+                    
+                    // 【核心修复4：同步更新光柱尺寸】如果当前节点正在被光柱照射，动态更新光柱的几何体
+                    if (activeBeam && activeBeam.userData.nodeId === (gNode.id || gNode.node_id)) {
+                        const THREE = getThreeInstance();
+                        if (THREE) {
+                            const isMobile = window.innerWidth < 768;
+                            const beamHeight = activeBeam.userData.beamHeight || 10000;
+                            const colorType = activeBeam.userData.colorType;
+                            
+                            const bottomRadius = targetPhysicalRadius * 0.95;
+                            let topRadius;
+                            if (colorType === 'golden') {
+                                topRadius = bottomRadius + beamHeight * (isMobile ? 0.05 : 0.08);
+                            } else if (w >= 0.6) {
+                                topRadius = bottomRadius + beamHeight * (isMobile ? 0.06 : 0.10);
+                            } else {
+                                topRadius = bottomRadius + beamHeight * (isMobile ? 0.03 : 0.05);
+                            }
+                            
+                            const newGeo = new THREE.CylinderGeometry(topRadius, bottomRadius, beamHeight, 32, 1, true);
+                            newGeo.translate(0, beamHeight / 2, 0);
+                            
+                            // 替换旧的几何体
+                            if (activeBeam.geometry) {
+                                activeBeam.geometry.dispose();
+                            }
+                            activeBeam.geometry = newGeo;
+                            
+                            // 同步更新聚光灯角度
+                            const spotLight = activeBeam.children.find(child => child.isSpotLight);
+                            if (spotLight) {
+                                spotLight.angle = Math.atan(bottomRadius / beamHeight);
+                            }
+                        }
                     }
                 }
 
@@ -1203,6 +1289,11 @@ function openDrawer(nodeId) {
     const expandBtn = document.getElementById('btn-expand-drawer');
     if (expandBtn) expandBtn.classList.add('hidden');
     
+    // 自动折叠导航盘
+    if (typeof window.collapseNavPad === 'function') {
+        window.collapseNavPad();
+    }
+    
     // 调试输出：抽屉打开时的状态
     console.log(`[抽屉调试] 抽屉已打开，节点ID: ${nodeId}`);
     // 隐藏btn-toggle-search按钮，确保抽屉打开时搜索图标不可见
@@ -1236,25 +1327,41 @@ function closeDrawer() {
     const expandBtn = document.getElementById('btn-expand-drawer');
     if (expandBtn) expandBtn.classList.add('hidden');
     
-    if (selectedNodeObj) {
-        // 彻底释放物理锚定
-        const node = selectedNodeObj;
-        node.fx = null;
-        node.fy = null;
-        node.fz = null;
-        selectedNodeObj = null; // 清空选中状态，允许下次加载时 zoomToFit
+    // 自动展开导航盘
+    if (typeof window.expandNavPad === 'function') {
+        window.expandNavPad();
     }
-
-    const sim = Graph.d3Force('charge') ? Graph.d3Force('charge').simulation : null;
-    if (sim) {
-        sim.velocityDecay(0.4); 
-        sim.alphaTarget(0.1).restart(); // 恢复微弱动力，让星空自然流动
+    
+    // 触发居中动画（相机回到正中央）
+    if (selectedNodeObj && Graph) {
+        lastLocalActionTime = Date.now(); // 更新保护时间，避免动画被打断
+        const { camPos, lookAt } = calculateOffsetView(selectedNodeObj, 350);
+        Graph.cameraPosition(camPos, lookAt, 800); // 800ms 平滑居中
+        
+        // 延迟释放物理锚定，确保动画期间节点不乱跑
+        const node = selectedNodeObj;
+        setTimeout(() => {
+            node.fx = null;
+            node.fy = null;
+            node.fz = null;
+            selectedNodeObj = null; // 清空选中状态，允许下次加载时 zoomToFit
+            
+            const sim = Graph.d3Force('charge') ? Graph.d3Force('charge').simulation : null;
+            if (sim) {
+                sim.velocityDecay(0.4); 
+                sim.alphaTarget(0.1).restart(); // 恢复微弱动力，让星空自然流动
+            }
+        }, 800);
+    } else {
+        const sim = Graph.d3Force('charge') ? Graph.d3Force('charge').simulation : null;
+        if (sim) {
+            sim.velocityDecay(0.4); 
+            sim.alphaTarget(0.1).restart(); // 恢复微弱动力，让星空自然流动
+        }
     }
     
     currentSelectedNodeId = null;
     
-    // 自动回正视角（可选）
-    Graph.zoomToFit(1000);
     // 恢复搜索图标按钮显示
     const searchToggle = document.querySelector('#btn-toggle-search.search-toggle');
     if (searchToggle) {
@@ -1274,11 +1381,16 @@ function collapseDrawer() {
         searchToggle.style.display = 'flex';
     }
     
-    // 触发逆向还原动画（相机回中）
+    // 自动展开导航盘
+    if (typeof window.expandNavPad === 'function') {
+        window.expandNavPad();
+    }
+    
+    // 触发居中动画（相机回到正中央）
     if (selectedNodeObj && Graph) {
         lastLocalActionTime = Date.now(); // 更新保护时间，避免动画被打断
         const { camPos, lookAt } = calculateOffsetView(selectedNodeObj, 350);
-        Graph.cameraPosition(camPos, lookAt, 800); // 800ms 平滑回中
+        Graph.cameraPosition(camPos, lookAt, 800); // 800ms 平滑居中
     }
 }
 
@@ -1291,6 +1403,11 @@ function expandDrawer() {
     const searchToggle = document.querySelector('#btn-toggle-search.search-toggle');
     if (searchToggle) {
         searchToggle.style.display = 'none';
+    }
+    
+    // 自动折叠导航盘
+    if (typeof window.collapseNavPad === 'function') {
+        window.collapseNavPad();
     }
     
     // 触发避让动画（相机向左偏）
@@ -2038,10 +2155,9 @@ window.addEventListener('load', () => {
         .showNavInfo(false)
         .nodeThreeObjectExtend(false) // 彻底接管节点渲染
         .nodeRelSize(REL_SIZE)
-        
         // 【精准正比算法】：确保力场碰撞半径与视觉半径同步
         .nodeVal(node => {
-            const weight = Math.max(0, Math.min(1, node.survival_weight || 0));
+            const weight = getVisualWeight(node.survival_weight);
             const targetRadius = MIN_RADIUS + (weight * (MAX_RADIUS - MIN_RADIUS));
             return Math.pow(targetRadius, 3); // 抵消引擎内部的开立方根
         })
@@ -2051,65 +2167,68 @@ window.addEventListener('load', () => {
             const THREE = getThreeInstance();
             if (!THREE) return null;
 
-            const weight = Math.max(0, Math.min(1, node.survival_weight || 0));
+            const weight = getVisualWeight(node.survival_weight);
             const targetRadius = MIN_RADIUS + (weight * (MAX_RADIUS - MIN_RADIUS));
             const actualPhysicalRadius = targetRadius * REL_SIZE;
 
             const group = new THREE.Group();
-            const geometry = new THREE.SphereGeometry(actualPhysicalRadius, 32, 32);
             
-            let material;
             const duty = node.action_tag; // 根据你的业务字段判断职责
+            const baseOpacity = 0.4 + weight * 0.6;
 
-            // 分类建模逻辑
-            if (duty === '贞') {
-                // --- 恒星 (Star)：核心、发光、保留立体感与高光 ---
-                material = new THREE.MeshStandardMaterial({
-                    color: '#ffcc00',
-                    emissive: '#ff6600',    // 自发光用偏橙色
-                    emissiveIntensity: 0.4, // 降低自发光强度，避免掩盖明暗变化
-                    metalness: 0.3,         // 增加金属感以反射光线
-                    roughness: 0.2          // 降低粗糙度以获得明显高光
-                });
-            } else if (duty === '又贞') {
-                // --- 气态行星 (Gas Giant)：轻盈、半透明、高反光 ---
-                material = new THREE.MeshStandardMaterial({
-                    color: '#00ffcc',
-                    transparent: true,
-                    opacity: 0.85,
-                    metalness: 0.6,
-                    roughness: 0.2
-                });
-            } else if (duty === '对贞') {
-                // --- 岩质行星 (Terrestrial)：坚硬、暗淡、高粗糙度 ---
-                material = new THREE.MeshStandardMaterial({
-                    color: '#4488ff',
-                    roughness: 1.0, 
-                    metalness: 0.0,
-                    emissive: '#000033'
-                });
-            } else {
-                // 默认节点：普通物质
-                material = new THREE.MeshStandardMaterial({ color: '#666666' });
+            // 全局纹理缓存
+            if (!window.nodeTextureCache) {
+                window.nodeTextureCache = {};
             }
 
-            const sphere = new THREE.Mesh(geometry, material);
-            group.add(sphere);
+            // 映射图片路径
+            let imagePath = './static/images/zhen.png'; // 默认
+            if (duty === '贞') {
+                imagePath = './static/images/zhen.png';
+            } else if (duty === '又贞') {
+                imagePath = './static/images/youzhen.png';
+            } else if (duty === '对贞') {
+                imagePath = './static/images/duizhen.png';
+            }
+
+            // 加载纹理
+            let nodeTexture = window.nodeTextureCache[imagePath];
+            if (!nodeTexture) {
+                nodeTexture = new THREE.TextureLoader().load(imagePath);
+                window.nodeTextureCache[imagePath] = nodeTexture;
+            }
+
+            // 创建 Sprite
+            const material = new THREE.SpriteMaterial({
+                map: nodeTexture,
+                transparent: true,
+                opacity: duty === '又贞' ? baseOpacity * 0.85 : baseOpacity,
+                depthWrite: false
+            });
+
+            const spriteNode = new THREE.Sprite(material);
+            
+            // 调整 Sprite 缩放比例，使其与原球体大小保持一致
+            // 球体直径是 actualPhysicalRadius * 2
+            const spriteScale = actualPhysicalRadius * 2.5; 
+            spriteNode.scale.set(spriteScale, spriteScale, 1);
+            
+            group.add(spriteNode);
 
             // 【标签对齐】：精准计算文字悬浮位置
             const texture = createTextTexture(node.id, weight, THREE);
             if (texture) {
                 const sprite = new THREE.Sprite(
-                    new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false })
+                    new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false, opacity: baseOpacity })
                 );
-                // 标签大小控制：与节点权重成反比，权重越大标签相对越小
-                // 基础缩放0.45，权重为1时缩放为0.35，权重为0时缩放为0.55
-                // 同时设置最小缩放限制为0.3，最大缩放限制为0.6
-                const baseScale = Math.max(0.3, Math.min(0.6, 0.55 - (weight * 0.2)));
-                sprite.scale.set(texture.baseWidth * baseScale, texture.baseHeight * baseScale, 1);
+                // 标签大小控制：与节点大小成正比
+                // 基础缩放0.3，权重为1时缩放为0.7
+                const baseScale = 0.3 + (weight * 0.4);
+                const spriteHeight = texture.baseHeight * baseScale;
+                sprite.scale.set(texture.baseWidth * baseScale, spriteHeight, 1);
                 
-                // 位置：紧贴在当前星球表面上方，让不同大小星球的标签高低错落，极具震撼的体积差异
-                sprite.position.y = actualPhysicalRadius + 14; 
+                // 位置：提高悬浮高度，避免在斜视时遮挡星球
+                sprite.position.y = actualPhysicalRadius + spriteHeight + 4; 
                 group.add(sprite);
             }
 
@@ -2328,6 +2447,27 @@ window.addEventListener('load', () => {
     // 调整全局排斥力，防止节点挤在一起
     Graph.d3Force('charge').strength(-200); 
     
+    // --- [宏观聚光灯] ---
+    setTimeout(() => {
+        const THREE = getThreeInstance();
+        if (THREE && Graph.scene()) {
+            const macroSpotLight = new THREE.SpotLight(0xffffff, 2.0); // 宽泛淡薄的光，提高亮度
+            macroSpotLight.position.set(0, 2000, 2000); // 从宏观场面中与节点高光同向
+            macroSpotLight.angle = Math.PI / 3; // 放大照射夹角，达到聚光的效果
+            macroSpotLight.penumbra = 1.0; // 渐变要柔和不要锐化
+            macroSpotLight.decay = 2;
+            macroSpotLight.distance = 10000;
+            
+            // 追随节点场的引力中心
+            const targetObject = new THREE.Object3D();
+            targetObject.position.set(0, 0, 0);
+            Graph.scene().add(targetObject);
+            macroSpotLight.target = targetObject;
+            
+            Graph.scene().add(macroSpotLight);
+        }
+    }, 500);
+    
     // Tween.js 动画循环：持续驱动所有 Tween 动画（悬浮绽放、光柱等）
     (function tweenLoop() {
         requestAnimationFrame(tweenLoop);
@@ -2420,7 +2560,7 @@ window.addEventListener('load', () => {
                     // 调整视角以包含所有视界节点
                     if (horizonIds.length > 0) {
                         // 简单实现：缩放以适应全图
-                        Graph.zoomToFit(1000);
+                        Graph.cameraPosition({ x: 0, y: 0, z: 900 }, { x: 0, y: 0, z: 0 }, 1000);
                         
                         // 绘制视界连线
                         const { nodes, links } = Graph.graphData();
@@ -2477,7 +2617,8 @@ window.addEventListener('load', () => {
         // 清除事件视界，恢复上帝视角
         horizonNodes.clear();
         updateHighlight();
-        Graph.zoomToFit(800);
+        Graph.zoomToFit(800, 40);
+        // Graph.cameraPosition({ x: 0, y: 0, z: 1200 }, { x: 0, y: 0, z: 0 }, 1200);
     };
     
     // 绑定因果巡航按钮
@@ -2992,5 +3133,259 @@ window.addEventListener('load', () => {
             // 使用过渡时间 0（瞬间完成），以避免拖拽窗口时产生严重的视觉延迟
             Graph.cameraPosition(camPos, lookAt, 0); 
         }
+    });
+
+    // --- [10. 星际导航盘逻辑 (支持拖拽与折叠)] ---
+    const navContainer = document.getElementById('nav-container');
+    const navToggle = document.getElementById('nav-toggle');
+    const navPad = document.getElementById('nav-pad');
+    const navBtns = document.querySelectorAll('.nav-btn:not(.empty)');
+    
+    let navAnimationId = null;
+    let currentNavDir = null;
+    
+    // 1. 折叠/展开逻辑
+    let isNavCollapsed = window.innerWidth < 768; // 移动端默认折叠
+    
+    // 初始化折叠状态
+    if (isNavCollapsed) {
+        navPad.classList.add('collapsed');
+        navContainer.classList.add('is-collapsed');
+    } else {
+        navContainer.classList.remove('is-collapsed');
+    }
+    
+    // 暴露全局函数供抽屉调用
+    window.collapseNavPad = function() {
+        if (!isNavCollapsed) {
+            isNavCollapsed = true;
+            navPad.classList.add('collapsed');
+            navContainer.classList.add('is-collapsed');
+        }
+    };
+    
+    window.expandNavPad = function() {
+        if (isNavCollapsed) {
+            isNavCollapsed = false;
+            navPad.classList.remove('collapsed');
+            navContainer.classList.remove('is-collapsed');
+        }
+    };
+    
+    // 区分点击和拖拽
+    let isDraggingNav = false;
+    let dragStartTime = 0;
+    
+    function toggleNavPad() {
+        if (isNavCollapsed) {
+            window.expandNavPad();
+        } else {
+            window.collapseNavPad();
+        }
+    }
+    
+    navToggle.addEventListener('click', (e) => {
+        // 如果是拖拽结束触发的点击，则忽略
+        if (Date.now() - dragStartTime > 200 || isDraggingNav) return;
+        toggleNavPad();
+    });
+    
+    // 2. 拖拽逻辑
+    let startX, startY, initialLeft, initialTop;
+    
+    function onDragStart(e) {
+        if (e.target !== navToggle) return;
+        e.preventDefault();
+        
+        isDraggingNav = false;
+        dragStartTime = Date.now();
+        
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+        
+        startX = clientX;
+        startY = clientY;
+        
+        // 获取当前位置
+        const rect = navContainer.getBoundingClientRect();
+        // 使用 right 和 bottom 进行定位，避免展开时向下溢出
+        initialRight = window.innerWidth - rect.right;
+        initialBottom = window.innerHeight - rect.bottom;
+        
+        // 切换为绝对定位以便拖拽
+        navContainer.style.position = 'fixed';
+        navContainer.style.left = 'auto';
+        navContainer.style.top = 'auto';
+        navContainer.style.right = initialRight + 'px';
+        navContainer.style.bottom = initialBottom + 'px';
+        navContainer.style.transition = 'none'; // 拖拽时取消过渡动画
+        
+        document.addEventListener('mousemove', onDragMove);
+        document.addEventListener('mouseup', onDragEnd);
+        document.addEventListener('touchmove', onDragMove, { passive: false });
+        document.addEventListener('touchend', onDragEnd);
+    }
+    
+    function onDragMove(e) {
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+        
+        const dx = clientX - startX;
+        const dy = clientY - startY;
+        
+        // 如果移动距离超过 5px，认为是拖拽而不是点击
+        if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
+            isDraggingNav = true;
+        }
+        
+        if (isDraggingNav) {
+            e.preventDefault();
+            
+            // 计算新位置（注意 right 和 bottom 的方向与 dx/dy 相反）
+            let newRight = initialRight - dx;
+            let newBottom = initialBottom - dy;
+            
+            const rect = navContainer.getBoundingClientRect();
+            const maxRight = window.innerWidth - rect.width;
+            const maxBottom = window.innerHeight - rect.height;
+            
+            // 限制在屏幕范围内
+            newRight = Math.max(0, Math.min(newRight, maxRight));
+            newBottom = Math.max(0, Math.min(newBottom, maxBottom));
+            
+            navContainer.style.right = newRight + 'px';
+            navContainer.style.bottom = newBottom + 'px';
+        }
+    }
+    
+    function onDragEnd(e) {
+        navContainer.style.transition = 'opacity 0.3s ease'; // 恢复过渡动画
+        
+        document.removeEventListener('mousemove', onDragMove);
+        document.removeEventListener('mouseup', onDragEnd);
+        document.removeEventListener('touchmove', onDragMove);
+        document.removeEventListener('touchend', onDragEnd);
+        
+        // 如果是触摸结束，且没有发生拖拽，则触发点击逻辑
+        if (e && e.type === 'touchend' && !isDraggingNav && (Date.now() - dragStartTime < 200)) {
+            toggleNavPad();
+        }
+        
+        // 延迟重置拖拽状态，防止触发点击事件
+        setTimeout(() => {
+            isDraggingNav = false;
+        }, 50);
+    }
+    
+    navToggle.addEventListener('mousedown', onDragStart);
+    navToggle.addEventListener('touchstart', onDragStart, { passive: false });
+    
+    // 3. 巡航控制逻辑
+    
+    function startNav(dir) {
+        if (dir === 'reset') {
+            // 检查抽屉是否打开
+            const drawerElement = document.getElementById('drawer');
+            const isDrawerOpen = drawerElement && !drawerElement.classList.contains('drawer-hidden');
+            const screenWidth = window.innerWidth;
+            
+            let camPos = { x: 0, y: 0, z: 900 };
+            let lookAt = { x: 0, y: 0, z: 0 };
+            
+            // 如果抽屉打开且屏幕足够宽，应用避让算法
+            if (isDrawerOpen && screenWidth > DRAWER_WIDTH) {
+                const offsetRatio = (DRAWER_WIDTH / 2) / screenWidth;
+                const camera = Graph.camera();
+                if (camera) {
+                    const fovRad = (camera.fov * Math.PI) / 180;
+                    const viewHeight = 2 * Math.tan(fovRad / 2) * 900; // 距离是900
+                    const viewWidth = viewHeight * camera.aspect;
+                    const worldOffset = viewWidth * offsetRatio;
+                    
+                    // 向右偏移相机和观察点，使画面整体向左移动
+                    camPos.x += worldOffset;
+                    lookAt.x += worldOffset;
+                }
+            }
+            
+            Graph.cameraPosition(camPos, lookAt, 1200);
+            return;
+        }
+        
+        currentNavDir = dir;
+        if (!navAnimationId) {
+            navLoop();
+        }
+    }
+    
+    function stopNav() {
+        currentNavDir = null;
+        if (navAnimationId) {
+            cancelAnimationFrame(navAnimationId);
+            navAnimationId = null;
+        }
+    }
+    
+    function navLoop() {
+        if (!currentNavDir || !Graph) {
+            navAnimationId = null;
+            return;
+        }
+        
+        const camera = Graph.camera();
+        const controls = Graph.controls();
+        if (!camera || !controls) {
+            navAnimationId = requestAnimationFrame(navLoop);
+            return;
+        }
+        
+        // 获取相机的局部坐标系方向
+        const THREE = getThreeInstance();
+        if (!THREE) return;
+        
+        const forward = new THREE.Vector3();
+        camera.getWorldDirection(forward);
+        
+        const up = new THREE.Vector3(0, 1, 0);
+        const right = new THREE.Vector3().crossVectors(forward, up).normalize();
+        const trueUp = new THREE.Vector3().crossVectors(right, forward).normalize();
+        
+        const speed = 15; // 移动速度
+        const moveVec = new THREE.Vector3();
+        
+        switch (currentNavDir) {
+            case 'in': moveVec.copy(forward).multiplyScalar(speed); break;
+            case 'out': moveVec.copy(forward).multiplyScalar(-speed); break;
+            case 'left': moveVec.copy(right).multiplyScalar(-speed); break;
+            case 'right': moveVec.copy(right).multiplyScalar(speed); break;
+            case 'up': moveVec.copy(trueUp).multiplyScalar(speed); break;
+            case 'down': moveVec.copy(trueUp).multiplyScalar(-speed); break;
+        }
+        
+        // 同时移动相机和目标点
+        camera.position.add(moveVec);
+        controls.target.add(moveVec);
+        
+        navAnimationId = requestAnimationFrame(navLoop);
+    }
+    
+    navBtns.forEach(btn => {
+        const dir = btn.getAttribute('data-dir');
+        
+        // 鼠标事件
+        btn.addEventListener('mousedown', (e) => {
+            e.preventDefault();
+            startNav(dir);
+        });
+        btn.addEventListener('mouseup', stopNav);
+        btn.addEventListener('mouseleave', stopNav);
+        
+        // 触摸事件
+        btn.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            startNav(dir);
+        });
+        btn.addEventListener('touchend', stopNav);
+        btn.addEventListener('touchcancel', stopNav);
     });
 });

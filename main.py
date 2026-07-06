@@ -118,6 +118,7 @@ class CausalNodeRequest(BaseModel):
     event_tuple: str
     full_image_url: Optional[str] = None
     owner_id: Optional[str] = "default"
+    return_serial_id: Optional[bool] = None
 
 @app.get("/ui", response_class=HTMLResponse)
 async def get_ui(request: Request):
@@ -1088,7 +1089,21 @@ async def create_genesis_node(node: CausalNodeRequest):
         await sm.emit('node_created', broadcast_node)
         print(f"[AINS] {new_node['action_tag']} 录入成功: {node.node_id}")
         
-        return {"status": "success", "data": {"node_id": node.node_id}}
+        # 6. 根据配置决定是否返回 serial_id
+        response_data = {"node_id": node.node_id}
+        
+        # 优先使用请求参数，如果未提供则使用环境变量
+        if node.return_serial_id is not None:
+            return_serial_id = node.return_serial_id
+        else:
+            return_serial_id = os.getenv("RETURN_SERIAL_ID_ON_GENESIS", "False").lower() == "true"
+            
+        if return_serial_id:
+            inserted_node = db.get_node_by_id(node.node_id)
+            if inserted_node and 'serial_id' in inserted_node:
+                response_data["serial_id"] = inserted_node['serial_id']
+                
+        return {"status": "success", "data": response_data}
     
     except Exception as e:
         error_msg = str(e)

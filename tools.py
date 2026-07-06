@@ -241,7 +241,7 @@ def search_causal_by_serial(serial_id, actor_id="user2", owner_id="222302526"):
     return result
 
 ## 记录因果数据
-def trigger_causal_node(node_id, action_tag, block_tag, event_tuple, parent_id=None, full_image_url=None, owner_id="222302526"):
+def trigger_causal_node(node_id, action_tag, block_tag, event_tuple, parent_id=None, full_image_url=None, owner_id="222302526", return_serial_id=None):
     """
     进行因果事件记录
     
@@ -253,6 +253,7 @@ def trigger_causal_node(node_id, action_tag, block_tag, event_tuple, parent_id=N
     - parent_id (str/list, optional): 父事件ID，可以是单个字符串或列表（多父事件），默认为None（首贞）
     - full_image_url (str, optional): 全息图片URL，默认为None
     - owner_id (str, optional): 事件拥有者ID，默认为"222302526"
+    - return_serial_id (bool, optional): 是否返回物理序列ID，默认为None（使用系统默认配置）
     
     返回:
     - dict: API响应结果
@@ -302,6 +303,9 @@ def trigger_causal_node(node_id, action_tag, block_tag, event_tuple, parent_id=N
     
     if full_image_url:
         payload["full_image_url"] = full_image_url
+        
+    if return_serial_id is not None:
+        payload["return_serial_id"] = return_serial_id
     
     response = requests.post(url, json=payload)
     result = response.json()
@@ -449,6 +453,7 @@ def get_causal_skeleton(serial_id, actor_id=None, owner_id="222302526"):
 
 if __name__ == "__main__":
     response = search_causal_by_serial(serial_id=485)
+    response = trigger_causal_node(node_id="test", action_tag="贞", block_tag="因", event_tuple="这是一个测试节点", parent_id=None, full_image_url=None, owner_id="222302526", return_serial_id=True)
     import json
     print("\n\n")
     print("*" * 60)
