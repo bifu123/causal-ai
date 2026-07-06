@@ -165,20 +165,27 @@ function showDivineBeam(node, colorType = 'divine') {
         topRadius = bottomRadius + beamHeight * (isMobile ? 0.03 : 0.05);
     }
 
-    const geo = new THREE.CylinderGeometry(topRadius, bottomRadius, beamHeight, 32, 1, true);
-    geo.translate(0, beamHeight / 2, 0);
+    // 将圆柱体向下延伸一个节点半径的距离，为弧线留出渲染空间
+    const extendedHeight = beamHeight + actualPhysicalRadius;
+    const geo = new THREE.CylinderGeometry(topRadius, bottomRadius, extendedHeight, 32, 1, true);
+    // 偏移几何体，使其底部位于 y = -actualPhysicalRadius
+    geo.translate(0, extendedHeight / 2 - actualPhysicalRadius, 0);
 
-    // 关键核心：利用自定义 Shader 产生基于法线视角的“边缘渐变羽化”效果
+    // 关键核心：利用自定义 Shader 产生基于法线视角的“边缘渐变羽化”效果，并计算向下鼓出的弧线
     const customMaterial = new THREE.ShaderMaterial({
         uniforms: {
             color: { value: outerColor },
             coreColor: { value: innerColor },
-            globalOpacity: { value: 0.0 }
+            globalOpacity: { value: 0.0 },
+            bottomRadius: { value: bottomRadius },
+            sphereRadius: { value: actualPhysicalRadius }
         },
         vertexShader: `
             varying vec3 vNormal;
             varying vec3 vViewPosition;
+            varying vec3 vLocalPosition;
             void main() {
+                vLocalPosition = position;
                 vNormal = normalize(normalMatrix * normal);
                 vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
                 vViewPosition = -mvPosition.xyz;
@@ -189,15 +196,28 @@ function showDivineBeam(node, colorType = 'divine') {
             uniform vec3 color;
             uniform vec3 coreColor;
             uniform float globalOpacity;
+            uniform float bottomRadius;
+            uniform float sphereRadius;
             varying vec3 vNormal;
             varying vec3 vViewPosition;
+            varying vec3 vLocalPosition;
             void main() {
                 vec3 normal = normalize(vNormal);
                 vec3 viewDir = normalize(vViewPosition);
                 float dotVal = max(0.0, dot(normal, viewDir));
                 float intensity = pow(dotVal, 1.0);
                 vec3 finalColor = mix(color, coreColor, pow(dotVal, 1.8));
-                gl_FragColor = vec4(finalColor, intensity * globalOpacity);
+                
+                // 计算向下鼓出的弧线遮罩
+                float xRatio = clamp(vLocalPosition.x / bottomRadius, -1.0, 1.0);
+                // 抛物线最低点在 x=0 处，y = -sphereRadius * 0.6
+                float curveY = -sphereRadius * 0.6 * (1.0 - xRatio * xRatio);
+                
+                // 柔和过渡区
+                float softZone = sphereRadius * 0.8;
+                float alphaMask = smoothstep(curveY, curveY + softZone, vLocalPosition.y);
+                
+                gl_FragColor = vec4(finalColor, intensity * globalOpacity * alphaMask);
             }
         `,
         transparent: true,
