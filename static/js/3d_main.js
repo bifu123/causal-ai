@@ -153,8 +153,9 @@ function showDivineBeam(node, colorType = 'divine') {
     let bottomRadius, topRadius;
     const isMobile = window.innerWidth < 768; // 判断是否为移动端窄屏
 
-    // 底部半径精确贴合节点物理半径
-    bottomRadius = actualPhysicalRadius * 0.95;
+    // 底部半径精确贴合节点视觉半径（Sprite 缩放比例是 2.5，即半径是 1.25 倍）
+    const visualRadius = actualPhysicalRadius * 1.25;
+    bottomRadius = visualRadius * 0.7;
 
     // 顶部半径根据万级高度按比例放大，适当缩小上下宽度之差
     if (colorType === 'golden') {
@@ -165,11 +166,11 @@ function showDivineBeam(node, colorType = 'divine') {
         topRadius = bottomRadius + beamHeight * (isMobile ? 0.03 : 0.05);
     }
 
-    // 将圆柱体向下延伸一个节点半径的距离，为弧线留出渲染空间
-    const extendedHeight = beamHeight + actualPhysicalRadius;
+    // 将圆柱体向下延伸，为更深的弧线和更宽的羽化区留出充足的渲染空间
+    const extendedHeight = beamHeight + visualRadius * 2.0;
     const geo = new THREE.CylinderGeometry(topRadius, bottomRadius, extendedHeight, 32, 1, true);
-    // 偏移几何体，使其底部位于 y = -actualPhysicalRadius
-    geo.translate(0, extendedHeight / 2 - actualPhysicalRadius, 0);
+    // 偏移几何体，使其底部位于 y = -visualRadius * 2.0
+    geo.translate(0, extendedHeight / 2 - visualRadius * 2.0, 0);
 
     // 关键核心：利用自定义 Shader 产生基于法线视角的“边缘渐变羽化”效果，并计算向下鼓出的弧线
     const customMaterial = new THREE.ShaderMaterial({
@@ -178,7 +179,7 @@ function showDivineBeam(node, colorType = 'divine') {
             coreColor: { value: innerColor },
             globalOpacity: { value: 0.0 },
             bottomRadius: { value: bottomRadius },
-            sphereRadius: { value: actualPhysicalRadius }
+            sphereRadius: { value: visualRadius }
         },
         vertexShader: `
             varying vec3 vNormal;
@@ -210,10 +211,10 @@ function showDivineBeam(node, colorType = 'divine') {
                 
                 // 计算向下鼓出的弧线遮罩
                 float xRatio = clamp(vLocalPosition.x / bottomRadius, -1.0, 1.0);
-                // 抛物线最低点在 x=0 处，y = -sphereRadius * 0.6
-                float curveY = -sphereRadius * 0.6 * (1.0 - xRatio * xRatio);
+                // 加深抛物线：最低点在 x=0 处，y = -sphereRadius * 1.2
+                float curveY = -sphereRadius * 0.2 * (1.0 - xRatio * xRatio);
                 
-                // 柔和过渡区
+                // 极致柔和过渡区：扩大羽化范围，彻底消除生硬边缘
                 float softZone = sphereRadius * 0.8;
                 float alphaMask = smoothstep(curveY, curveY + softZone, vLocalPosition.y);
                 
@@ -1062,23 +1063,75 @@ function updateNodeIncremental(data) {
                     const targetRadius = MIN_RADIUS + (w * (MAX_RADIUS - MIN_RADIUS));
                     const targetPhysicalRadius = targetRadius * REL_SIZE;
                     
-                    const sphere = gNode.__threeObj.children[0];
-                    if (sphere && sphere.geometry) {
-                        const originalRadius = sphere.geometry.parameters.radius;
-                        const scale = targetPhysicalRadius / originalRadius;
-                        // 因为是 relative 到原始生成的几何体大小，这样是安全且平滑的
-                        sphere.scale.set(scale, scale, scale);
+                    const mainSprite = gNode.__threeObj.children[0];
+                    if (mainSprite && mainSprite.isSprite) {
+                        const spriteScale = targetPhysicalRadius * 2.5;
+                        const targetOpacity = gNode.action_tag === '又贞' ? (0.4 + w * 0.6) * 0.85 : (0.4 + w * 0.6);
+                        
+                        // 使用 Tween 平滑过渡
+                        if (typeof TWEEN !== 'undefined') {
+                            new TWEEN.Tween({ 
+                                scale: mainSprite.scale.x,
+                                opacity: mainSprite.material.opacity
+                            })
+                            .to({ 
+                                scale: spriteScale,
+                                opacity: targetOpacity
+                            }, 500)
+                            .easing(TWEEN.Easing.Quadratic.Out)
+                            .onUpdate(obj => {
+                                mainSprite.scale.set(obj.scale, obj.scale, 1);
+                                if (mainSprite.material) {
+                                    mainSprite.material.opacity = obj.opacity;
+                                }
+                            // 同步缩放光柱
+                                if (typeof activeBeam !== 'undefined' && activeBeam && activeBeam.userData.nodeId === (gNode.id || gNode.node_id)) {
+                                    const currentPhysicalRadius = obj.scale / 2.5;
+                                    const scaleFactor = currentPhysicalRadius / targetPhysicalRadius;
+                                    activeBeam.scale.set(scaleFactor, 1, scaleFactor);
+                                }
+                            })
+                            .start();
+                        } else {
+                            mainSprite.scale.set(spriteScale, spriteScale, 1);
+                            if (mainSprite.material) {
+                                mainSprite.material.opacity = targetOpacity;
+                            }
+                            if (typeof activeBeam !== 'undefined' && activeBeam && activeBeam.userData.nodeId === (gNode.id || gNode.node_id)) {
+                                activeBeam.scale.set(1, 1, 1);
+                            }
+                        }
                     }
                     
-                    const sprite = gNode.__threeObj.children[1];
-                    if (sprite && sprite.material && sprite.material.map) {
+                    const labelSprite = gNode.__threeObj.children[1];
+                    if (labelSprite && labelSprite.material && labelSprite.material.map) {
                         // 标签大小控制：与节点大小成正比
-                        // 基础缩放0.3，权重为1时缩放为0.7
                         const baseScale = 0.3 + (w * 0.4);
-                        const spriteHeight = sprite.material.map.baseHeight * baseScale;
-                        sprite.scale.set(sprite.material.map.baseWidth * baseScale, spriteHeight, 1);
-                        // 位置：提高悬浮高度，避免在斜视时遮挡星球
-                        sprite.position.y = targetPhysicalRadius + spriteHeight + 4; 
+                        const spriteHeight = labelSprite.material.map.baseHeight * baseScale;
+                        const spriteWidth = labelSprite.material.map.baseWidth * baseScale;
+                        const targetY = targetPhysicalRadius + spriteHeight + 4;
+                        
+                        if (typeof TWEEN !== 'undefined') {
+                            new TWEEN.Tween({
+                                scaleX: labelSprite.scale.x,
+                                scaleY: labelSprite.scale.y,
+                                posY: labelSprite.position.y
+                            })
+                            .to({
+                                scaleX: spriteWidth,
+                                scaleY: spriteHeight,
+                                posY: targetY
+                            }, 500)
+                            .easing(TWEEN.Easing.Quadratic.Out)
+                            .onUpdate(obj => {
+                                labelSprite.scale.set(obj.scaleX, obj.scaleY, 1);
+                                labelSprite.position.y = obj.posY;
+                            })
+                            .start();
+                        } else {
+                            labelSprite.scale.set(spriteWidth, spriteHeight, 1);
+                            labelSprite.position.y = targetY;
+                        }
                     }
                     
                     // 【核心修复4：同步更新光柱尺寸】如果当前节点正在被光柱照射，动态更新光柱的几何体
@@ -1089,7 +1142,8 @@ function updateNodeIncremental(data) {
                             const beamHeight = activeBeam.userData.beamHeight || 10000;
                             const colorType = activeBeam.userData.colorType;
                             
-                            const bottomRadius = targetPhysicalRadius * 0.95;
+                            const visualRadius = targetPhysicalRadius * 1.25;
+                            const bottomRadius = visualRadius * 0.7;
                             let topRadius;
                             if (colorType === 'golden') {
                                 topRadius = bottomRadius + beamHeight * (isMobile ? 0.05 : 0.08);
@@ -1099,14 +1153,21 @@ function updateNodeIncremental(data) {
                                 topRadius = bottomRadius + beamHeight * (isMobile ? 0.03 : 0.05);
                             }
                             
-                            const newGeo = new THREE.CylinderGeometry(topRadius, bottomRadius, beamHeight, 32, 1, true);
-                            newGeo.translate(0, beamHeight / 2, 0);
+                            const extendedHeight = beamHeight + visualRadius * 2.0;
+                            const newGeo = new THREE.CylinderGeometry(topRadius, bottomRadius, extendedHeight, 32, 1, true);
+                            newGeo.translate(0, extendedHeight / 2 - visualRadius * 2.0, 0);
                             
                             // 替换旧的几何体
                             if (activeBeam.geometry) {
                                 activeBeam.geometry.dispose();
                             }
                             activeBeam.geometry = newGeo;
+                            
+                            // 同步更新材质的 uniforms
+                            if (activeBeam.material && activeBeam.material.uniforms) {
+                                activeBeam.material.uniforms.bottomRadius.value = bottomRadius;
+                                activeBeam.material.uniforms.sphereRadius.value = visualRadius;
+                            }
                             
                             // 同步更新聚光灯角度
                             const spotLight = activeBeam.children.find(child => child.isSpotLight);
@@ -1168,18 +1229,45 @@ function initSocketHandlers() {
     if (!window.socket) return;
     
     window.socket.on('node_updated', (data) => {
+        const currentOwnerId = new URLSearchParams(window.location.search).get('owner_id') || 'default';
+        const currentActorId = new URLSearchParams(window.location.search).get('actor_id');
+        
+        // 1. 隔离不同的 owner_id
+        if (data.owner_id && data.owner_id !== currentOwnerId) return;
+        
+        // 2. 隔离不同的 actor_id
+        if (data.actor_id && currentActorId && data.actor_id !== currentActorId) return;
+
         nodeCache[data.node_id] = data;
         // 使用增量更新而不是全量刷新，保留节点坐标，防止重绘抖动
         updateNodeIncremental(data);
     });
     
     window.socket.on('node_created', (data) => {
+        const currentOwnerId = new URLSearchParams(window.location.search).get('owner_id') || 'default';
+        const currentActorId = new URLSearchParams(window.location.search).get('actor_id');
+        
+        // 1. 隔离不同的 owner_id
+        if (data.owner_id && data.owner_id !== currentOwnerId) return;
+        
+        // 2. 隔离不同的 actor_id
+        if (data.actor_id && currentActorId && data.actor_id !== currentActorId) return;
+
         nodeCache[data.node_id] = data;
         window.pendingGenesisNodeId = data.node_id; // 标记待播发创世金光的节点
         loadInitialData(); // 新节点增加需要拓扑刷新
     });
 
     window.socket.on('node_deleted', (data) => {
+        const currentOwnerId = new URLSearchParams(window.location.search).get('owner_id') || 'default';
+        const currentActorId = new URLSearchParams(window.location.search).get('actor_id');
+        
+        // 1. 隔离不同的 owner_id
+        if (data.owner_id && data.owner_id !== currentOwnerId) return;
+        
+        // 2. 隔离不同的 actor_id
+        if (data.actor_id && currentActorId && data.actor_id !== currentActorId) return;
+
         delete nodeCache[data.node_id];
         if (currentSelectedNodeId === data.node_id) closeDrawer();
         loadInitialData();
