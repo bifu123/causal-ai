@@ -126,7 +126,7 @@ class CausalDatabase:
                 # 为活跃事件表添加语义向量字段
                 cur.execute("""
                     ALTER TABLE ains_active_nodes 
-                    ADD COLUMN IF NOT EXISTS semantic_vector vector(768);
+                    ADD COLUMN IF NOT EXISTS semantic_vector vector(1024);
                 """)
             except Exception as e:
                 print(f"[数据库警告] 添加表列时出错: {e}")

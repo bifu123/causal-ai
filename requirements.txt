@@ -1,4 +1,5 @@
 annotated-doc
+openai
 annotated-types
 anyio
 bidict

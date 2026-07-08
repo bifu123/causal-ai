@@ -35,7 +35,7 @@ def update_vectors(force_all=False, owner_id=None):
         # 1. 查找需要更新的节点
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             if force_all:
-                sql = "SELECT serial_id, node_id, event_tuple FROM ains_active_nodes WHERE semantic_vector IS NOT NULL"
+                sql = "SELECT serial_id, node_id, event_tuple FROM ains_active_nodes"
                 if owner_id:
                     sql += " AND owner_id = %s"
                     cur.execute(sql, (owner_id,))
@@ -68,11 +68,6 @@ def update_vectors(force_all=False, owner_id=None):
             # 将 node_id 拼在 event_tuple 前面，防止短文本退化
             # 例如：之前 "书法是一种艺术" → 现在 "F节点：书法和写字的区别。书法是一种艺术"
             text_to_embed = f"{node_id}。{event_tuple}" if event_tuple and event_tuple.strip() else node_id
-
-            # 限制最大长度，防止极端情况导致 Ollama 崩溃
-            if len(text_to_embed) > 8000:
-                print(f"警告: 节点 [{serial_id}] 文本过长 ({len(text_to_embed)} 字符)，将截断至 8000 字符。")
-                text_to_embed = text_to_embed[:8000]
 
             print(f"正在处理节点 [{serial_id}] {node_id} (嵌入文本长度={len(text_to_embed)})...")
 
