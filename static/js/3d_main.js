@@ -2075,6 +2075,36 @@ function handleNodeClick(node) {
             console.log(`[事件视界] 收到视界内节点数: ${data.event_horizon.length}`);
             horizonNodes.clear();
             data.event_horizon.forEach(id => horizonNodes.add(id));
+            
+            // 同步更新语义连线，让物理引擎重新计算距离
+            if (data.semantic_links && data.semantic_links.length > 0) {
+                const { nodes, links } = Graph.graphData();
+                // 移除旧的语义连线
+                const newLinks = links.filter(l => l.type !== 'semantic');
+                
+                // 添加新的语义连线
+                data.semantic_links.forEach(link => {
+                    // 确保源和目标节点都存在
+                    const sourceExists = nodes.some(n => n.id === link.source);
+                    const targetExists = nodes.some(n => n.id === link.target);
+                    
+                    if (sourceExists && targetExists) {
+                        newLinks.push({
+                            source: link.source,
+                            target: link.target,
+                            type: 'semantic',
+                            similarity: link.similarity
+                        });
+                    }
+                });
+                
+                console.log(`[事件视界] 更新语义连线: ${data.semantic_links.length} 条`);
+                Graph.graphData({ nodes, links: newLinks });
+                
+                // 重新激活力导向引擎
+                Graph.d3ReheatSimulation();
+            }
+            
             updateHighlight();
         }
     })
@@ -2395,6 +2425,31 @@ window.addEventListener('load', () => {
                         console.log('[事件视界] 收到视界内节点数: ' + data.event_horizon.length);
                         horizonNodes.clear();
                         data.event_horizon.forEach(id => horizonNodes.add(id));
+                        
+                        // 同步更新语义连线，让物理引擎重新计算距离
+                        if (data.semantic_links && data.semantic_links.length > 0) {
+                            const { nodes, links } = Graph.graphData();
+                            const newLinks = links.filter(l => l.type !== 'semantic');
+                            
+                            data.semantic_links.forEach(link => {
+                                const sourceExists = nodes.some(n => n.id === link.source);
+                                const targetExists = nodes.some(n => n.id === link.target);
+                                
+                                if (sourceExists && targetExists) {
+                                    newLinks.push({
+                                        source: link.source,
+                                        target: link.target,
+                                        type: 'semantic',
+                                        similarity: link.similarity
+                                    });
+                                }
+                            });
+                            
+                            console.log(`[事件视界] 更新语义连线: ${data.semantic_links.length} 条`);
+                            Graph.graphData({ nodes, links: newLinks });
+                            Graph.d3ReheatSimulation();
+                        }
+                        
                         updateHighlight();
                     }
                 })
@@ -2442,6 +2497,31 @@ window.addEventListener('load', () => {
                     console.log(`[事件视界] 收到视界内节点数: ${data.event_horizon.length}`);
                     horizonNodes.clear();
                     data.event_horizon.forEach(id => horizonNodes.add(id));
+                    
+                    // 同步更新语义连线，让物理引擎重新计算距离
+                    if (data.semantic_links && data.semantic_links.length > 0) {
+                        const { nodes, links } = Graph.graphData();
+                        const newLinks = links.filter(l => l.type !== 'semantic');
+                        
+                        data.semantic_links.forEach(link => {
+                            const sourceExists = nodes.some(n => n.id === link.source);
+                            const targetExists = nodes.some(n => n.id === link.target);
+                            
+                            if (sourceExists && targetExists) {
+                                newLinks.push({
+                                    source: link.source,
+                                    target: link.target,
+                                    type: 'semantic',
+                                    similarity: link.similarity
+                                });
+                            }
+                        });
+                        
+                        console.log(`[事件视界] 更新语义连线: ${data.semantic_links.length} 条`);
+                        Graph.graphData({ nodes, links: newLinks });
+                        Graph.d3ReheatSimulation();
+                    }
+                    
                     updateHighlight();
                 }
             })
@@ -2553,7 +2633,7 @@ window.addEventListener('load', () => {
 
     // --- [6. 初始化力场与事件] ---
     // 调整全局排斥力，防止节点挤在一起
-    Graph.d3Force('charge').strength(-200); 
+    Graph.d3Force('charge').strength(-20)
     
     // --- [宏观聚光灯] ---
     setTimeout(() => {
@@ -2607,8 +2687,8 @@ window.addEventListener('load', () => {
                     if (isNaN(sim)) sim = 0.6;
                     // 极端放大拉力差异
                     // sim = 1.0 -> str = 1.5 (极强拉力)
-                    // sim = 0.6 -> str = 0.001 (极弱拉力)
-                    const str = Math.max(0.001, Math.min(1.5, 0.001 + (sim - 0.6) * (1.499 / 0.4)));
+                    // sim = 0.6 -> str = 0.1 (较弱拉力)
+                    const str = Math.max(0.1, Math.min(1.5, 0.1 + (sim - 0.6) * (1.4 / 0.4)));
                     return str;
                 } else {
                     return 0.02;
@@ -2651,6 +2731,30 @@ window.addEventListener('load', () => {
                 if (data.status === 'success' && data.event_horizon) {
                     const horizonIds = data.event_horizon;
                     showSelectionHint(`视界扫描完成：发现 ${horizonIds.length} 个节点`);
+                    
+                    // 同步更新语义连线，让物理引擎重新计算距离
+                    if (data.semantic_links && data.semantic_links.length > 0) {
+                        const { nodes, links } = Graph.graphData();
+                        const newLinks = links.filter(l => l.type !== 'semantic');
+                        
+                        data.semantic_links.forEach(link => {
+                            const sourceExists = nodes.some(n => n.id === link.source);
+                            const targetExists = nodes.some(n => n.id === link.target);
+                            
+                            if (sourceExists && targetExists) {
+                                newLinks.push({
+                                    source: link.source,
+                                    target: link.target,
+                                    type: 'semantic',
+                                    similarity: link.similarity
+                                });
+                            }
+                        });
+                        
+                        console.log(`[事件视界] 更新语义连线: ${data.semantic_links.length} 条`);
+                        Graph.graphData({ nodes, links: newLinks });
+                        Graph.d3ReheatSimulation();
+                    }
                     
                     // 高亮视界内的节点
                     highlightNodes.clear();
@@ -3037,6 +3141,30 @@ window.addEventListener('load', () => {
             
             if (data.status === 'success') {
                 showSelectionHint(`已瞄定事件 "${nodeId}"，权重提升到60%`);
+                
+                // 同步更新语义连线，让物理引擎重新计算距离
+                if (data.semantic_links && data.semantic_links.length > 0) {
+                    const { nodes, links } = Graph.graphData();
+                    const newLinks = links.filter(l => l.type !== 'semantic');
+                    
+                    data.semantic_links.forEach(link => {
+                        const sourceExists = nodes.some(n => n.id === link.source);
+                        const targetExists = nodes.some(n => n.id === link.target);
+                        
+                        if (sourceExists && targetExists) {
+                            newLinks.push({
+                                source: link.source,
+                                target: link.target,
+                                type: 'semantic',
+                                similarity: link.similarity
+                            });
+                        }
+                    });
+                    
+                    console.log(`[事件视界] 更新语义连线: ${data.semantic_links.length} 条`);
+                    Graph.graphData({ nodes, links: newLinks });
+                    Graph.d3ReheatSimulation();
+                }
                 
                 // 在3D图中高亮显示该节点
                 highlightSearchResultNode(nodeId);
