@@ -2683,7 +2683,7 @@ window.addEventListener('load', () => {
 
     // --- [6. 初始化力场与事件] ---
     // 调整全局排斥力，防止节点挤在一起
-    Graph.d3Force('charge').strength(-5)
+    Graph.d3Force('charge').strength(-20)
     
     // --- [宏观聚光灯] ---
     setTimeout(() => {
@@ -2728,7 +2728,7 @@ window.addEventListener('load', () => {
                     const dist = Math.max(10, 600 - (sim - 0.6) * (590 / 0.4));
                     return dist;
                 } else {
-                    return 150;
+                    return 250;
                 }
             })
             .strength(link => {
@@ -2738,10 +2738,10 @@ window.addEventListener('load', () => {
                     // 极端放大拉力差异
                     // sim = 1.0 -> str = 1.5 (极强拉力)
                     // sim = 0.6 -> str = 0.1 (较弱拉力)
-                    const str = Math.max(0.5, Math.min(1.5, 0.5 + (sim - 0.6) * (1.0 / 0.4)));
+                    const str = Math.max(0.1, Math.min(1.5, 0.1 + (sim - 0.6) * (1.4 / 0.4)));
                     return str;
                 } else {
-                    return 1.0;
+                    return 0.02;
                 }
             });
     } else {

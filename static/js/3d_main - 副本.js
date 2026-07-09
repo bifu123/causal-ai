@@ -4,10 +4,6 @@
  * 注意：本脚本不需要任何防御性处理
  */
 
-// --- [全局配置] ---
-const CONFIG_ENHANCE_HORIZON_NODES = false; // 是否提亮事件视界内的普通节点（权重 <= 0.59）
-
-
 // --- [1. 全局状态管理] ---
 let Graph = null;
 const highlightNodes = new Set();
@@ -507,8 +503,8 @@ function updateEventHorizonVisibility() {
                 // 视界内或无视界（上帝视角）：恢复基础透明度
                 let finalOpacity = baseOpacity;
                 
-                // 【新增逻辑】如果开启了配置，且处于事件视界中，且该节点在视界内，且不是大股东
-                if (CONFIG_ENHANCE_HORIZON_NODES && hasHorizon && horizonNodes.has(node.id) && node.survival_weight <= 0.59) {
+                // 【新增逻辑】如果处于事件视界中，且该节点在视界内，且不是大股东
+                if (hasHorizon && horizonNodes.has(node.id) && node.survival_weight <= 0.59) {
                     finalOpacity = baseOpacity * 1.5; // 1.5倍增益
                     
                     if (finalOpacity < 0.65) {
@@ -2683,7 +2679,7 @@ window.addEventListener('load', () => {
 
     // --- [6. 初始化力场与事件] ---
     // 调整全局排斥力，防止节点挤在一起
-    Graph.d3Force('charge').strength(-5)
+    Graph.d3Force('charge').strength(-20)
     
     // --- [宏观聚光灯] ---
     setTimeout(() => {
@@ -2728,7 +2724,7 @@ window.addEventListener('load', () => {
                     const dist = Math.max(10, 600 - (sim - 0.6) * (590 / 0.4));
                     return dist;
                 } else {
-                    return 150;
+                    return 250;
                 }
             })
             .strength(link => {
@@ -2738,10 +2734,10 @@ window.addEventListener('load', () => {
                     // 极端放大拉力差异
                     // sim = 1.0 -> str = 1.5 (极强拉力)
                     // sim = 0.6 -> str = 0.1 (较弱拉力)
-                    const str = Math.max(0.5, Math.min(1.5, 0.5 + (sim - 0.6) * (1.0 / 0.4)));
+                    const str = Math.max(0.1, Math.min(1.5, 0.1 + (sim - 0.6) * (1.4 / 0.4)));
                     return str;
                 } else {
-                    return 1.0;
+                    return 0.02;
                 }
             });
     } else {

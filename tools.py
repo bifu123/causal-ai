@@ -452,8 +452,8 @@ def get_causal_skeleton(serial_id, actor_id=None, owner_id="222302526"):
     return response.json()
 
 if __name__ == "__main__":
-    response = search_causal_by_serial(serial_id=485)
-    response = trigger_causal_node(node_id="test", action_tag="贞", block_tag="因", event_tuple="这是一个测试节点", parent_id=None, full_image_url=None, owner_id="222302526", return_serial_id=True)
+    response = search_causal_by_serial(serial_id=501, owner_id="test")
+    # response = trigger_causal_node(node_id="test", action_tag="贞", block_tag="因", event_tuple="这是一个测试节点", parent_id=None, full_image_url=None, owner_id="222302526", return_serial_id=True)
     import json
     print("\n\n")
     print("*" * 60)
