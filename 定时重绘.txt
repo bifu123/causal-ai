@@ -1,0 +1,41 @@
+我主要修改了 `static/js/3d_main.js` 文件末尾的 `setInterval` 定时监控逻辑。
+
+**修改前（只提亮大股东）：**
+之前的代码是遍历节点，如果发现是大股东且透明度小于 1.0，就**直接强行把它的透明度改成 1.0**。
+```javascript
+// 旧逻辑：直接改透明度
+if (sphere && sphere.material && sphere.material.opacity < 1.0) {
+    sphere.material.opacity = 1.0;
+    sphere.material.needsUpdate = true;
+}
+```
+
+**修改后（触发全局重绘）：**
+现在的代码引入了一个“哨兵”变量 `needsGlobalRedraw`。遍历时如果发现大股东透明度异常（小于 0.98），**不再直接修改它**，而是把哨兵变量设为 `true`，然后立刻跳出循环。最后根据哨兵变量，**调用专门负责全局透明度渲染的函数**。
+```javascript
+// 新逻辑：作为触发器
+let needsGlobalRedraw = false;
+
+for (let i = 0; i < nodes.length; i++) {
+    const node = nodes[i];
+    if (node.survival_weight > 0.59 && node.__threeObj) {
+        // ...跳过正在动画的节点...
+        
+        // 如果发现大股东透明度异常
+        if (sphere && sphere.material && sphere.material.opacity < 0.98) {
+            needsGlobalRedraw = true; // 标记需要全局重绘
+            break; // 发现一个异常就足够了，停止遍历
+        }
+    }
+}
+
+// 如果需要重绘，调用全局视界更新函数
+if (needsGlobalRedraw && typeof updateEventHorizonVisibility === 'function') {
+    updateEventHorizonVisibility();
+}
+```
+
+**这样修改的好处是：**
+我们不再“越权”去直接修改某个特定节点的透明度。定时器现在只是一个**“异常检测器”**。一旦它发现大股东的透明度不对（这通常意味着之前的渲染流程因为高频数据推送或动画冲突被打断了），它就会呼叫 `updateEventHorizonVisibility()`。
+
+`updateEventHorizonVisibility()` 是系统里原本就有的、专门负责处理所有节点透明度和视界虚化效果的核心函数。调用它，就能确保**整个画面的所有节点（包括大股东保持最亮、视界外节点变暗、视界内节点正常）都重新按照正确的规则渲染一遍**，从而彻底解决画面状态不一致的问题。
