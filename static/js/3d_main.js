@@ -501,18 +501,32 @@ function updateEventHorizonVisibility() {
                 }
             } else {
                 // 视界内或无视界（上帝视角）：恢复基础透明度
+                let finalOpacity = baseOpacity;
+                
+                // 【新增逻辑】如果处于事件视界中，且该节点在视界内，且不是大股东
+                if (hasHorizon && horizonNodes.has(node.id) && node.survival_weight <= 0.59) {
+                    finalOpacity = baseOpacity * 1.5; // 1.5倍增益
+                    
+                    if (finalOpacity < 0.65) {
+                        finalOpacity = 0.65; // 低亮度保底
+                    }
+                    if (finalOpacity > 0.95) {
+                        finalOpacity = 0.95; // 高亮度上限
+                    }
+                }
+
                 if (sphere && sphere.material) {
                     sphere.material.transparent = true;
                     const duty = node.action_tag;
                     if (duty === '又贞') {
-                        sphere.material.opacity = baseOpacity * 0.85;
+                        sphere.material.opacity = finalOpacity * 0.85;
                     } else {
-                        sphere.material.opacity = baseOpacity;
+                        sphere.material.opacity = finalOpacity;
                     }
                     sphere.material.needsUpdate = true;
                 }
                 if (sprite && sprite.material) {
-                    sprite.material.opacity = baseOpacity;
+                    sprite.material.opacity = finalOpacity;
                     sprite.material.needsUpdate = true;
                 }
             }
