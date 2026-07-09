@@ -484,15 +484,20 @@ function updateEventHorizonVisibility() {
             const weight = getVisualWeight(node.survival_weight);
             const baseOpacity = 0.4 + weight * 0.6;
             
+            // 如果节点正在进行透明度动画，跳过视界更新，防止覆盖动画效果
+            if (node.__threeObj.__isAnimatingOpacity) return;
+
             if (hasHorizon && !horizonNodes.has(node.id)) {
                 // 视界外：虚化湮灭（在基础透明度上再降低）
                 const dimmedOpacity = baseOpacity * 0.3;
                 if (sphere && sphere.material) {
                     sphere.material.transparent = true;
                     sphere.material.opacity = dimmedOpacity;
+                    sphere.material.needsUpdate = true;
                 }
                 if (sprite && sprite.material) {
                     sprite.material.opacity = dimmedOpacity;
+                    sprite.material.needsUpdate = true;
                 }
             } else {
                 // 视界内或无视界（上帝视角）：恢复基础透明度
@@ -504,9 +509,11 @@ function updateEventHorizonVisibility() {
                     } else {
                         sphere.material.opacity = baseOpacity;
                     }
+                    sphere.material.needsUpdate = true;
                 }
                 if (sprite && sprite.material) {
                     sprite.material.opacity = baseOpacity;
+                    sprite.material.needsUpdate = true;
                 }
             }
         }
@@ -1066,11 +1073,22 @@ function updateNodeIncremental(data) {
                     const mainSprite = gNode.__threeObj.children[0];
                     if (mainSprite && mainSprite.isSprite) {
                         const spriteScale = targetPhysicalRadius * 2.5;
-                        const targetOpacity = gNode.action_tag === '又贞' ? (0.4 + w * 0.6) * 0.85 : (0.4 + w * 0.6);
+                        let baseOpacity = 0.4 + w * 0.6;
+                        if (gNode.action_tag === '又贞') baseOpacity *= 0.85;
+                        
+                        // 考虑事件视界状态
+                        const hasHorizon = typeof horizonNodes !== 'undefined' && horizonNodes.size > 0;
+                        const isOutsideHorizon = hasHorizon && !horizonNodes.has(gNode.id);
+                        const targetOpacity = isOutsideHorizon ? baseOpacity * 0.3 : baseOpacity;
                         
                         // 使用 Tween 平滑过渡
                         if (typeof TWEEN !== 'undefined') {
-                            new TWEEN.Tween({ 
+                            // 停止之前可能正在运行的动画，防止多端高频同步时动画冲突导致更新不完全
+                            if (gNode.__threeObj.__currentMainTween) {
+                                gNode.__threeObj.__currentMainTween.stop();
+                            }
+                            
+                            gNode.__threeObj.__currentMainTween = new TWEEN.Tween({ 
                                 scale: mainSprite.scale.x,
                                 opacity: mainSprite.material.opacity
                             })
@@ -1083,19 +1101,25 @@ function updateNodeIncremental(data) {
                                 mainSprite.scale.set(obj.scale, obj.scale, 1);
                                 if (mainSprite.material) {
                                     mainSprite.material.opacity = obj.opacity;
+                                    mainSprite.material.needsUpdate = true;
                                 }
-                            // 同步缩放光柱
+                                // 同步缩放光柱
                                 if (typeof activeBeam !== 'undefined' && activeBeam && activeBeam.userData.nodeId === (gNode.id || gNode.node_id)) {
                                     const currentPhysicalRadius = obj.scale / 2.5;
                                     const scaleFactor = currentPhysicalRadius / targetPhysicalRadius;
                                     activeBeam.scale.set(scaleFactor, 1, scaleFactor);
                                 }
                             })
+                            .onComplete(() => {
+                                gNode.__threeObj.__currentMainTween = null;
+                                gNode.__threeObj.__isAnimatingOpacity = false;
+                            })
                             .start();
                         } else {
                             mainSprite.scale.set(spriteScale, spriteScale, 1);
                             if (mainSprite.material) {
                                 mainSprite.material.opacity = targetOpacity;
+                                mainSprite.material.needsUpdate = true;
                             }
                             if (typeof activeBeam !== 'undefined' && activeBeam && activeBeam.userData.nodeId === (gNode.id || gNode.node_id)) {
                                 activeBeam.scale.set(1, 1, 1);
@@ -1112,7 +1136,12 @@ function updateNodeIncremental(data) {
                         const targetY = targetPhysicalRadius + spriteHeight + 4;
                         
                         if (typeof TWEEN !== 'undefined') {
-                            new TWEEN.Tween({
+                            // 停止之前可能正在运行的动画
+                            if (gNode.__threeObj.__currentLabelTween) {
+                                gNode.__threeObj.__currentLabelTween.stop();
+                            }
+                            
+                            gNode.__threeObj.__currentLabelTween = new TWEEN.Tween({
                                 scaleX: labelSprite.scale.x,
                                 scaleY: labelSprite.scale.y,
                                 posY: labelSprite.position.y
@@ -1126,6 +1155,9 @@ function updateNodeIncremental(data) {
                             .onUpdate(obj => {
                                 labelSprite.scale.set(obj.scaleX, obj.scaleY, 1);
                                 labelSprite.position.y = obj.posY;
+                            })
+                            .onComplete(() => {
+                                gNode.__threeObj.__currentLabelTween = null;
                             })
                             .start();
                         } else {
@@ -3625,3 +3657,40 @@ window.addEventListener('load', () => {
         btn.addEventListener('touchcancel', stopNav);
     });
 });
+
+
+// --- [大股东节点透明度定时监控] ---
+setInterval(() => {
+    if (!Graph) return;
+    const { nodes } = Graph.graphData();
+    if (!nodes) return;
+
+    nodes.forEach(node => {
+        // 判断是否为大股东 (survival_weight > 0.59)
+        if (node.survival_weight > 0.59 && node.__threeObj) {
+            const sphere = node.__threeObj.children[0];
+            const sprite = node.__threeObj.children[1];
+            
+            // 如果正在进行动画，暂时不强制覆盖
+            if (node.__threeObj.__isAnimatingOpacity) return;
+
+            let needsUpdate = false;
+
+            if (sphere && sphere.material && sphere.material.opacity < 0.98) {
+                sphere.material.opacity = 0.98;
+                sphere.material.needsUpdate = true;
+                needsUpdate = true;
+            }
+            
+            if (sprite && sprite.material && sprite.material.opacity < 0.98) {
+                sprite.material.opacity = 0.98;
+                sprite.material.needsUpdate = true;
+                needsUpdate = true;
+            }
+            
+            if (needsUpdate) {
+                // console.log(`[Monitor] 强制恢复大股东节点 ${node.id} 的透明度为 1.0`);
+            }
+        }
+    });
+}, 1000);

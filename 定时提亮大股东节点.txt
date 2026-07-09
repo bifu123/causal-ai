@@ -1,0 +1,15 @@
+啊，非常感谢您的指正！我之前误以为大股东的权重是 1.0。既然大股东的 `survival_weight` 是 0.60，那么将判断条件设置为 `survival_weight > 0.59` 是非常合理的。
+
+**更新后的计划：**
+
+1.  **添加定时监控逻辑**：在 `static/js/3d_main.js` 的全局作用域或初始化函数中添加 `setInterval`。
+2.  **监控频率**：每 1000 毫秒（1秒）执行一次。
+3.  **监控内容**：
+    *   遍历 `Graph.graphData().nodes`。
+    *   判断条件修改为：**`survival_weight > 0.59`**。
+    *   如果满足条件，检查其 `__threeObj` 的 `sphere` 和 `sprite` 的 `opacity`。
+    *   如果 `opacity < 1.0`，则强制设置为 `1.0`，并设置 `needsUpdate = true`。
+
+同时，我也会检查一下之前代码中是否有写死 `weight >= 0.99` 的地方，如果有，我会一并修正为 `weight > 0.59`，以确保逻辑的一致性。
+
+请点击下方的 **"Toggle to Act Mode"** 按钮，我将立即为您修改代码！
