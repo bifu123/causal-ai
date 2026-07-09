@@ -5,7 +5,7 @@
  */
 
 // --- [全局配置] ---
-const CONFIG_ENHANCE_HORIZON_NODES = false; // 是否提亮事件视界内的普通节点（权重 <= 0.59）
+const CONFIG_ENHANCE_HORIZON_NODES = true; // 是否提亮事件视界内的普通节点（权重 <= 0.59）
 
 
 // --- [1. 全局状态管理] ---
