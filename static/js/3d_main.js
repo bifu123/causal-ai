@@ -13,6 +13,7 @@ let Graph = null;
 const highlightNodes = new Set();
 const highlightLinks = new Set();
 const horizonNodes = new Set(); // 存储事件视界内的节点ID
+let currentBossNodeId = null; // 记录当前的大股东节点ID
 let hoverNode = null;
 let hoverScaleNode = null; // 追踪当前悬浮绽放的节点（非大股东节点的悬浮放大效果）
 let currentSelectedNodeId = null; 
@@ -480,6 +481,16 @@ function updateEventHorizonVisibility() {
     const { nodes } = Graph.graphData();
     const hasHorizon = horizonNodes.size > 0;
     
+    // 检查是否需要显示望远镜面板
+    const telescopePanel = document.getElementById('telescope-panel');
+    if (telescopePanel) {
+        if (hasHorizon && currentBossNodeId) {
+            telescopePanel.style.display = 'flex';
+        } else {
+            telescopePanel.style.display = 'none';
+        }
+    }
+    
     nodes.forEach(node => {
         if (node.__threeObj) {
             const sphere = node.__threeObj.children[0];
@@ -781,8 +792,10 @@ async function restoreFromNecropolis(node) {
 
 /**
  * 提升节点权重（与原始实现一致）
+ * @param {Object} node 目标节点
+ * @param {Number} maxEyes 可选，望远镜倍率
  */
-async function promoteNodeWeight(node) {
+async function promoteNodeWeight(node, maxEyes = null) {
     if (!node || !node.id) {
         console.error('提升权重失败：节点或节点ID为空');
         return;
@@ -794,17 +807,25 @@ async function promoteNodeWeight(node) {
         // 获取当前用户ID和拥有者ID
         const actorId = window.currentActorId || '';
         const ownerId = window.currentOwnerId || 'default';
-        const requestData = { node_id: node.id };
+        
+        // 优先使用 /api/v1/causal/click 接口，因为它支持 max_eyes 参数并能返回视界数据
+        const requestData = { 
+            serial_id: node.serial_id || node.id, // 兼容处理，click接口需要serial_id
+            owner_id: ownerId !== 'default' ? ownerId : undefined
+        };
+        
         if (actorId) {
             requestData.actor_id = actorId;
         }
-        if (ownerId && ownerId !== 'default') {
-            requestData.owner_id = ownerId;
+        
+        if (maxEyes !== null) {
+            requestData.max_eyes = maxEyes;
         }
         
         console.log(`[权重提升] 请求数据:`, requestData);
         
-        const response = await fetch('/api/v1/causal/promote_chain', {
+        // 使用 click 接口替代 promote_chain，以支持视界计算
+        const response = await fetch('/api/v1/causal/click', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(requestData)
@@ -816,8 +837,9 @@ async function promoteNodeWeight(node) {
         if (data.status === 'success') {
             selectNode = true;
             selectedNodeObj = node;
+            currentBossNodeId = node.id; // 记录当前大股东
             console.log(`全局权重提升成功: ${data.message}`);
-            showSelectionHint(`节点权重已提升到所有节点总权重的60%，更新了 ${data.data.updated_count} 个节点。等待Socket.IO广播具体权重...`);
+            showSelectionHint(`节点权重已提升到所有节点总权重的60%，更新了 ${data.updated_count} 个节点。等待Socket.IO广播具体权重...`);
             return true;
         } else {
             console.log(`全局权重提升失败: ${data.message}`);
@@ -974,6 +996,7 @@ async function loadInitialData() {
             } else if (res.boss_node_id && res.event_horizon && res.event_horizon.length > 0) {
                 // 存在大股东节点：自动进入事件视界模式
                 console.log(`[事件视界] 检测到大股东节点: ${res.boss_node_id}，视界内节点数: ${res.event_horizon.length}`);
+                currentBossNodeId = res.boss_node_id;
                 
                 setTimeout(() => {
                     const latestNodes = Graph.graphData().nodes;
@@ -1278,6 +1301,45 @@ function updateNodeIncremental(data) {
 function initSocketHandlers() {
     if (!window.socket) return;
     
+    // 监听望远镜变焦广播
+    window.socket.on('horizon_updated', (data) => {
+        const currentOwnerId = new URLSearchParams(window.location.search).get('owner_id') || 'default';
+        const currentActorId = new URLSearchParams(window.location.search).get('actor_id');
+        
+        // 检查是否属于当前拥有者
+        if (data.owner_id && data.owner_id !== currentOwnerId) {
+            return;
+        }
+        
+        // 检查是否属于当前用户
+        if (currentActorId && data.actor_id && data.actor_id !== currentActorId) {
+            return;
+        }
+
+        console.log(`[Socket.IO] 收到 horizon_updated 广播: max_eyes=${data.max_eyes}, 视界节点数=${data.event_horizon.length}`);
+        
+        // 1. 更新 UI 滑块
+        const slider = document.getElementById('telescope-slider');
+        const display = document.getElementById('telescope-value-display');
+        if (slider && display) {
+            slider.value = data.max_eyes;
+            display.textContent = data.max_eyes;
+        }
+
+        // 2. 更新本地视界集合
+        currentBossNodeId = data.boss_node_id;
+        horizonNodes.clear();
+        if (data.event_horizon && Array.isArray(data.event_horizon)) {
+            data.event_horizon.forEach(id => horizonNodes.add(id));
+        }
+
+        // 3. 触发深空闪烁特效 (Cosmic Flash)
+        triggerCosmicFlash();
+
+        // 4. 重绘节点（星体浮现/湮灭）
+        updateHighlight();
+    });
+
     window.socket.on('node_updated', (data) => {
         const currentOwnerId = new URLSearchParams(window.location.search).get('owner_id') || 'default';
         const currentActorId = new URLSearchParams(window.location.search).get('actor_id');
@@ -2327,7 +2389,71 @@ async function submitDeriveNode(tag, parentId) {
     }
 }
 
+/**
+ * 初始化望远镜滑块事件
+ */
+function initTelescopeSlider() {
+    const slider = document.getElementById('telescope-slider');
+    const display = document.getElementById('telescope-value-display');
+    
+    if (!slider || !display) return;
+
+    // 实时更新数值显示
+    slider.addEventListener('input', (e) => {
+        display.textContent = e.target.value;
+    });
+
+    // 拖动结束时发送请求
+    slider.addEventListener('change', (e) => {
+        const maxEyes = parseFloat(e.target.value);
+        console.log(`[望远镜] 调整倍率至: ${maxEyes}`);
+        
+        if (currentBossNodeId) {
+            const { nodes } = Graph.graphData();
+            const bossNode = nodes.find(n => n.id === currentBossNodeId || n.node_id === currentBossNodeId);
+            if (bossNode) {
+                // 调用 promoteNodeWeight 并传入 maxEyes
+                promoteNodeWeight(bossNode, maxEyes);
+            } else {
+                console.warn(`[望远镜] 未找到当前大股东节点: ${currentBossNodeId}`);
+            }
+        } else {
+            console.warn(`[望远镜] 当前没有大股东节点，无法调整视界`);
+            showSelectionHint("请先点击一个节点使其成为大股东");
+        }
+    });
+}
+
+/**
+ * 触发深空闪烁特效 (Cosmic Flash)
+ */
+function triggerCosmicFlash() {
+    let overlay = document.getElementById('cosmic-flash-overlay');
+    
+    // 如果不存在则创建
+    if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.id = 'cosmic-flash-overlay';
+        document.body.appendChild(overlay);
+    }
+    
+    // 移除可能存在的 active 类，强制重置动画状态
+    overlay.classList.remove('cosmic-flash-active');
+    
+    // 强制浏览器重绘
+    void overlay.offsetWidth;
+    
+    // 添加 active 类触发闪烁
+    overlay.classList.add('cosmic-flash-active');
+    
+    // 动画结束后移除类
+    setTimeout(() => {
+        overlay.classList.remove('cosmic-flash-active');
+    }, 100); // 100ms 后开始消散（CSS 中定义了 0.8s 的消散过渡）
+}
+
 window.addEventListener('load', () => {
+    initTelescopeSlider();
     const container = document.getElementById('3d-graph');
 
     // --- [1. 核心常量配置] ---

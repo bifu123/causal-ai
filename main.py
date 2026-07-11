@@ -966,6 +966,18 @@ async def handle_node_click(click_data: dict):
             
             await sm.emit('node_updated', updated_node)
         
+        # 如果显式传递了 max_eyes，则广播 horizon_updated 事件
+        if req_max_eyes is not None:
+            horizon_data = {
+                "boss_node_id": node_id,
+                "max_eyes": max_eyes,
+                "event_horizon": event_horizon_ids,
+                "actor_id": actor_id,
+                "owner_id": owner_id
+            }
+            await sm.emit('horizon_updated', horizon_data)
+            print(f"[点击事件] 广播 horizon_updated: max_eyes={max_eyes}, 视界节点数={len(event_horizon_ids)}")
+            
         print(f"[点击事件] 完成处理，更新了 {len(updated_nodes)} 个节点")
         
         return {

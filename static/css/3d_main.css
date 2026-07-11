@@ -116,6 +116,115 @@ body::after {
     z-index: 1999;
 }
 
+/* 望远镜控制面板 */
+#telescope-panel {
+    position: fixed;
+    bottom: 20px;
+    left: 80px; /* 位于 controls 右侧 */
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    padding: 12px 15px;
+    pointer-events: auto;
+    z-index: 1999;
+    width: 200px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    transition: all 0.3s ease;
+}
+
+#telescope-panel:hover {
+    background: rgba(0, 0, 0, 0.85);
+    border-color: rgba(96, 165, 250, 0.4);
+    box-shadow: 0 0 15px rgba(96, 165, 250, 0.2);
+}
+
+.telescope-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.telescope-title {
+    font-size: 12px;
+    color: #94a3b8;
+    letter-spacing: 0.5px;
+}
+
+.telescope-value {
+    font-size: 14px;
+    color: #60a5fa;
+    font-weight: bold;
+    font-family: 'Monaco', monospace;
+}
+
+.telescope-slider {
+    -webkit-appearance: none;
+    width: 100%;
+    height: 4px;
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 2px;
+    outline: none;
+    margin-top: 5px;
+}
+
+.telescope-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #60a5fa;
+    cursor: pointer;
+    box-shadow: 0 0 10px rgba(96, 165, 250, 0.5);
+    transition: all 0.2s ease;
+}
+
+.telescope-slider::-webkit-slider-thumb:hover {
+    transform: scale(1.2);
+    background: #93c5fd;
+    box-shadow: 0 0 15px rgba(96, 165, 250, 0.8);
+}
+
+.telescope-slider::-moz-range-thumb {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #60a5fa;
+    cursor: pointer;
+    border: none;
+    box-shadow: 0 0 10px rgba(96, 165, 250, 0.5);
+    transition: all 0.2s ease;
+}
+
+.telescope-slider::-moz-range-thumb:hover {
+    transform: scale(1.2);
+    background: #93c5fd;
+    box-shadow: 0 0 15px rgba(96, 165, 250, 0.8);
+}
+
+/* 深空闪烁特效层 */
+#cosmic-flash-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    pointer-events: none;
+    z-index: 5; /* 在画布之上，UI之下 */
+    background: radial-gradient(circle at center, rgba(96, 165, 250, 0.15) 0%, rgba(14, 165, 233, 0.05) 40%, transparent 80%);
+    opacity: 0;
+    transition: opacity 0.8s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+    mix-blend-mode: screen;
+}
+
+.cosmic-flash-active {
+    opacity: 1 !important;
+    transition: opacity 0.1s ease-out !important;
+}
+
 /* 星际导航盘容器 */
 #nav-container {
     position: fixed;
