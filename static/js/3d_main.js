@@ -2369,9 +2369,27 @@ window.addEventListener('load', () => {
                 window.nodeTextureCache = {};
             }
 
+            // 判断是否为孤立节点（无父节点且无子节点）
+            const pIds = node.parent_ids || (node.parent_id ? [node.parent_id] : []);
+            let isIsolated = pIds.length === 0;
+            if (isIsolated && Graph && Graph.graphData) {
+                const { links } = Graph.graphData();
+                if (links) {
+                    const hasChildren = links.some(l => {
+                        const sourceId = typeof l.source === 'object' ? l.source.id : l.source;
+                        return sourceId === (node.id || node.node_id) && l.type === 'causal';
+                    });
+                    if (hasChildren) {
+                        isIsolated = false;
+                    }
+                }
+            }
+
             // 映射图片路径
             let imagePath = './static/images/zhen.png'; // 默认
-            if (duty === '贞') {
+            if (isIsolated) {
+                imagePath = './static/images/glaxy.png';
+            } else if (duty === '贞') {
                 imagePath = './static/images/zhen.png';
             } else if (duty === '又贞') {
                 imagePath = './static/images/youzhen.png';

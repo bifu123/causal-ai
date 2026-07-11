@@ -134,7 +134,7 @@ def search_causal_by_embed(keyword, owner_id='222302526', limit=100, threshold=0
     return result
 
 ## 点击事件
-def search_causal_by_serial(serial_id, actor_id="user2", owner_id="222302526"):
+def search_causal_by_serial(serial_id, actor_id="user2", owner_id="222302526", max_eyes=None):
     """
     【存在主义检索】聚焦某事件节点（大股东），一次性获取：
     1. 该节点的全息内容（自动从地宫恢复，如果已被提炼）
@@ -145,6 +145,7 @@ def search_causal_by_serial(serial_id, actor_id="user2", owner_id="222302526"):
     - serial_id (int): 事件节点的物理ID
     - actor_id (str, optional): 用户ID，用于个性化权重更新,默认为"user2"
     - owner_id (str, optional): 事件拥有者ID，默认为"222302526"
+    - max_eyes (float, optional): 望远镜功率（事件视界半径），建议范围30-60。如果为None，则使用.env中的默认值
 
     返回:
     - dict: API响应结果，包含：
@@ -193,6 +194,9 @@ def search_causal_by_serial(serial_id, actor_id="user2", owner_id="222302526"):
 
     if actor_id is not None:
         payload["actor_id"] = actor_id
+
+    if max_eyes is not None:
+        payload["max_eyes"] = max_eyes
 
     response = requests.post(url, json=payload)
     result = response.json()

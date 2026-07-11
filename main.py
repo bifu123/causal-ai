@@ -870,7 +870,17 @@ async def handle_node_click(click_data: dict):
         # 动态读取 .env 文件，无需重启服务器即可生效
         from dotenv import dotenv_values
         env_config = dotenv_values(".env")
-        max_eyes = float(env_config.get("MAX_EYES", 30))
+        
+        # 优先使用请求中传入的 max_eyes，如果为 None 则回退到 .env 中的配置
+        req_max_eyes = click_data.get('max_eyes')
+        if req_max_eyes is not None:
+            try:
+                max_eyes = float(req_max_eyes)
+            except (ValueError, TypeError):
+                max_eyes = float(env_config.get("MAX_EYES", 30))
+        else:
+            max_eyes = float(env_config.get("MAX_EYES", 30))
+            
         horizon_show_links = env_config.get("HORIZON_DETAIL", "0") == "1"
         
         event_horizon_nodes = db.get_event_horizon(node_id, max_eyes, focal_owner_id, show_links=horizon_show_links)
