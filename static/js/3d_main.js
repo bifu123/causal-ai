@@ -1320,10 +1320,18 @@ function initSocketHandlers() {
         
         // 1. 更新 UI 滑块
         const slider = document.getElementById('telescope-slider');
-        const display = document.getElementById('telescope-value-display');
-        if (slider && display) {
+        if (slider) {
             slider.value = data.max_eyes;
-            display.textContent = data.max_eyes;
+            // 直接计算百分比更新 reticle 和背景
+            const min = parseFloat(slider.min || '0');
+            const max = parseFloat(slider.max || '100');
+            const percent = ((data.max_eyes - min) / (max - min)) * 100;
+            const reticleThumb = document.getElementById('reticle-thumb');
+            if (reticleThumb) reticleThumb.style.left = percent + '%';
+            const reticleValue = document.getElementById('reticle-value-display');
+            if (reticleValue) reticleValue.textContent = Math.round(data.max_eyes).toString();
+            // 灰色背景渐变
+            slider.style.background = `linear-gradient(to top, rgba(128, 128, 128, 0.6) 0%, rgba(128, 128, 128, 0.6) ${percent}%, rgba(128, 128, 128, 0.15) ${percent}%, rgba(128, 128, 128, 0.15) 100%)`;
         }
 
         // 2. 更新本地视界集合
@@ -2394,20 +2402,62 @@ async function submitDeriveNode(tag, parentId) {
  */
 function initTelescopeSlider() {
     const slider = document.getElementById('telescope-slider');
-    const display = document.getElementById('telescope-value-display');
-    
-    if (!slider || !display) return;
+    const reticle = document.getElementById('telescope-reticle');
+    const reticleValue = document.getElementById('reticle-value-display');
+    const reticleThumb = document.getElementById('reticle-thumb');
 
-    // 实时更新数值显示
+    if (!slider) return;
+
+    const updateReticle = (value) => {
+        const min = parseFloat(slider.min || '0');
+        const max = parseFloat(slider.max || '100');
+        const current = Math.max(min, Math.min(max, parseFloat(value || min)));
+        const percent = ((current - min) / (max - min)) * 100;
+
+        if (reticleValue) {
+            reticleValue.textContent = Math.round(current).toString();
+        }
+        if (reticleThumb) {
+            reticleThumb.style.left = `${percent}%`;
+        }
+    };
+
+    // 初始化中央水平刻度滑块位置
+    updateReticle(slider.value);
+
+    // 按下时显示瞄准刻度
+    const showReticle = () => {
+        updateReticle(slider.value);
+        if (reticle) reticle.classList.remove('hidden');
+    };
+
+    // 松开时隐藏瞄准刻度
+    const hideReticle = () => {
+        if (reticle) reticle.classList.add('hidden');
+    };
+
+    slider.addEventListener('mousedown', showReticle);
+    slider.addEventListener('touchstart', showReticle, {passive: true});
+
+    // 实时更新数值与中央水平滑块位置
     slider.addEventListener('input', (e) => {
-        display.textContent = e.target.value;
+        updateReticle(e.target.value);
+        
+        // 动态更新滑块背景渐变，实现科技感填充效果
+        const min = parseFloat(slider.min || '0');
+        const max = parseFloat(slider.max || '100');
+        const val = parseFloat(e.target.value);
+        const percent = ((val - min) / (max - min)) * 100;
+        // 灰色背景渐变
+        slider.style.background = `linear-gradient(to top, rgba(128, 128, 128, 0.6) 0%, rgba(128, 128, 128, 0.6) ${percent}%, rgba(128, 128, 128, 0.15) ${percent}%, rgba(128, 128, 128, 0.15) 100%)`;
     });
 
     // 拖动结束时发送请求
     slider.addEventListener('change', (e) => {
+        hideReticle();
         const maxEyes = parseFloat(e.target.value);
         console.log(`[望远镜] 调整倍率至: ${maxEyes}`);
-        
+
         if (currentBossNodeId) {
             const { nodes } = Graph.graphData();
             const bossNode = nodes.find(n => n.id === currentBossNodeId || n.node_id === currentBossNodeId);
@@ -2422,6 +2472,10 @@ function initTelescopeSlider() {
             showSelectionHint("请先点击一个节点使其成为大股东");
         }
     });
+
+    // 处理鼠标在外部松开的情况
+    document.addEventListener('mouseup', hideReticle);
+    document.addEventListener('touchend', hideReticle);
 }
 
 /**
@@ -2615,6 +2669,9 @@ window.addEventListener('load', () => {
                 })
                 .then(response => response.json())
                 .then(data => {
+                    if (data.status === 'success') {
+                        currentBossNodeId = node.id; // 记录当前大股东
+                    }
                     if (data.status === 'success' && data.event_horizon) {
                         console.log('[事件视界] 收到视界内节点数: ' + data.event_horizon.length);
                         horizonNodes.clear();
@@ -2687,6 +2744,9 @@ window.addEventListener('load', () => {
             })
             .then(response => response.json())
             .then(data => {
+                if (data.status === 'success') {
+                    currentBossNodeId = node.id; // 记录当前大股东
+                }
                 if (data.status === 'success' && data.event_horizon) {
                     console.log(`[事件视界] 收到视界内节点数: ${data.event_horizon.length}`);
                     horizonNodes.clear();

@@ -79,11 +79,28 @@
 
         <!-- 望远镜控制面板 -->
         <div id="telescope-panel">
-            <div class="telescope-header">
-                <span class="telescope-title">望远镜倍率 (MAX_EYES)</span>
-                <span class="telescope-value" id="telescope-value-display">30</span>
+            <input type="range" id="telescope-slider" class="telescope-slider" min="0" max="100" step="1" value="{{ max_eyes }}">
+        </div>
+
+        <!-- 屏幕中央瞄准刻度：无外圈水平刻度 + 滑块 -->
+        <div id="telescope-reticle" class="hidden">
+            <div class="reticle-scale">
+                <div class="reticle-track">
+                    <div class="reticle-tick" style="left: 0%;"></div>
+                    <div class="reticle-tick" style="left: 10%;"></div>
+                    <div class="reticle-tick" style="left: 20%;"></div>
+                    <div class="reticle-tick" style="left: 30%;"></div>
+                    <div class="reticle-tick" style="left: 40%;"></div>
+                    <div class="reticle-tick reticle-tick-center" style="left: 50%;"></div>
+                    <div class="reticle-tick" style="left: 60%;"></div>
+                    <div class="reticle-tick" style="left: 70%;"></div>
+                    <div class="reticle-tick" style="left: 80%;"></div>
+                    <div class="reticle-tick" style="left: 90%;"></div>
+                    <div class="reticle-tick" style="left: 100%;"></div>
+                    <div class="reticle-thumb" id="reticle-thumb"></div>
+                </div>
             </div>
-            <input type="range" id="telescope-slider" class="telescope-slider" min="10" max="100" step="1" value="30">
+            <div class="reticle-value" id="reticle-value-display">30</div>
         </div>
 
         <!-- 星际导航盘 -->

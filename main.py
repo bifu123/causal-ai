@@ -128,7 +128,10 @@ async def get_ui(request: Request):
 @app.get("/3d", response_class=HTMLResponse)
 async def get_3d_visualization(request: Request):
     """3D 因果星空可视化页面"""
-    return templates.TemplateResponse(request=request, name="3d_main.html")
+    from dotenv import dotenv_values
+    env_config = dotenv_values(".env")
+    max_eyes = env_config.get("MAX_EYES", 30)
+    return templates.TemplateResponse(request=request, name="3d_main.html", context={"max_eyes": max_eyes})
 
 @app.get("/socketio-test", response_class=HTMLResponse)
 async def get_socketio_test(request: Request):
