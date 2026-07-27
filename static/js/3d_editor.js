@@ -11,7 +11,8 @@
         modalId: 'event-tuple-modal',
         expandBtnId: 'expand-event-tuple-btn',
         closeBtnId: 'close-event-tuple-modal-btn',
-        copyBtnId: 'copy-event-tuple-btn'
+        copyBtnId: 'copy-event-tuple-btn',
+        shareBtnId: 'share-event-tuple-btn'
     };
 
     function init() {
@@ -49,12 +50,24 @@
         } else {
             console.error('[3d_editor] 未找到复制按钮:', CONFIG.copyBtnId);
         }
+
+        // 绑定分享事件
+        const shareBtn = document.getElementById(CONFIG.shareBtnId);
+        if (shareBtn) {
+            shareBtn.addEventListener('click', shareNodeLink);
+            console.log('[3d_editor] 分享按钮事件已绑定');
+        } else {
+            console.error('[3d_editor] 未找到分享按钮:', CONFIG.shareBtnId);
+        }
         
         console.log('[3d_editor] 初始化完成');
     }
 
     function openEditor() {
-        console.log('[3d_editor] 打开编辑器');
+        console.log('[3d_editor] 打开编辑器（编辑模式）');
+        isReadOnlyMode = false;       // 编辑模式：可读写
+        currentViewingNode = null;    // 清除只读查看节点记录
+
         const modal = document.getElementById(CONFIG.modalId);
         const sourceArea = document.getElementById(CONFIG.sourceId);
         
@@ -122,6 +135,11 @@
             console.log('[3d_editor] 同步数据，长度:', sourceValue.length);
             mdeInstance.value(sourceValue);
             
+            // 编辑模式：取消只读
+            if (mdeInstance.codemirror) {
+                mdeInstance.codemirror.setOption("readOnly", false);
+            }
+            
             // 4. 【关键补丁】延迟刷新渲染
             // 必须等浏览器完成本次DOM渲染（由hidden变为可见）后，CodeMirror才能计算高度
             setTimeout(() => {
@@ -136,23 +154,181 @@
         }
     }
 
+    /**
+     * 只读查看模式：供3D视图右键点击节点时调用
+     * 复用现有模态框和EasyMDE实例，以只读方式展示节点全文
+     * @param {Object} node - 节点对象，需含 event_tuple 和 serial_id 字段
+     */
+    window.openNodeViewerModal = function(node) {
+        console.log('[3d_editor] 打开查看器（只读模式）', node);
+        if (!node) {
+            console.error('[3d_editor] openNodeViewerModal: 节点对象为空');
+            return;
+        }
+
+        isReadOnlyMode = true;
+        currentViewingNode = node;
+
+        const modal = document.getElementById(CONFIG.modalId);
+        if (!modal) {
+            console.error('[3d_editor] 未找到模态框:', CONFIG.modalId);
+            return;
+        }
+
+        // 1. 显示模态框
+        modal.classList.remove('hidden');
+        modal.style.display = 'flex';
+        modal.style.zIndex = '9999';
+
+        // 2. 初始化或获取EasyMDE实例
+        if (!mdeInstance) {
+            console.log('[3d_editor] 初始化EasyMDE实例（只读模式）');
+            const editorElement = document.getElementById(CONFIG.editorId);
+            if (!editorElement) {
+                console.error('[3d_editor] 未找到编辑器元素:', CONFIG.editorId);
+                return;
+            }
+            const isMobile = window.innerWidth < 768;
+            try {
+                mdeInstance = new EasyMDE({
+                    element: editorElement,
+                    spellChecker: false,
+                    autoDownloadFontAwesome: true,
+                    status: isMobile ? false : ["lines", "words"],
+                    renderingConfig: { codeSyntaxHighlighting: true },
+                    theme: "sober",
+                    minHeight: isMobile ? "200px" : "400px",
+                    placeholder: "（只读模式）节点事件叙述...",
+                    toolbar: isMobile 
+                        ? ["preview", "|", "guide"]
+                        : ["preview", "side-by-side", "fullscreen", "|", "guide"]
+                });
+                console.log('[3d_editor] EasyMDE实例创建成功（只读模式）');
+            } catch (error) {
+                console.error('[3d_editor] EasyMDE初始化失败:', error);
+                return;
+            }
+        }
+
+        // 3. 填充节点全文并设为只读
+        if (mdeInstance) {
+            const content = node.event_tuple || node.事件二元组描述 || '（该节点无事件叙述）';
+            console.log('[3d_editor] 只读模式填充内容，长度:', content.length);
+            mdeInstance.value(content);
+
+            // 设置只读
+            if (mdeInstance.codemirror) {
+                mdeInstance.codemirror.setOption("readOnly", true);
+            }
+
+            // 4. 延迟刷新渲染
+            setTimeout(() => {
+                if (mdeInstance && mdeInstance.codemirror) {
+                    mdeInstance.codemirror.refresh();
+                    console.log('[3d_editor] 只读查看器刷新完成');
+                }
+            }, 150);
+        }
+    };
+
     function closeAndSave() {
         console.log('[3d_editor] 关闭并保存');
         const modal = document.getElementById(CONFIG.modalId);
         const sourceArea = document.getElementById(CONFIG.sourceId);
 
-        if (mdeInstance && sourceArea) {
-            // 回写数据
+        // 只读模式：不回写数据，避免污染抽屉编辑区
+        if (!isReadOnlyMode && mdeInstance && sourceArea) {
             const editorValue = mdeInstance.value() || '';
             console.log('[3d_editor] 回写数据，长度:', editorValue.length);
             sourceArea.value = editorValue;
             // 手动触发 input 事件，确保 3d_main.js 中可能存在的监听器（如自动保存逻辑）能感应到
             sourceArea.dispatchEvent(new Event('input', { bubbles: true }));
+        } else {
+            console.log('[3d_editor] 只读模式，跳过数据回写');
         }
+
+        // 重置只读状态
+        isReadOnlyMode = false;
+        currentViewingNode = null;
 
         if (modal) {
             modal.classList.add('hidden');
             console.log('[3d_editor] 模态框隐藏');
+        }
+    }
+
+    /**
+     * 分享节点链接：拼接URL并复制到剪贴板
+     * 只读模式使用 currentViewingNode，编辑模式使用 window.selectedNodeObj
+     */
+    async function shareNodeLink() {
+        console.log('[3d_editor] 分享节点链接');
+        const btn = document.getElementById(CONFIG.shareBtnId);
+        if (!btn) return;
+
+        // 优先使用只读模式记录的节点，其次使用全局选中节点
+        const node = currentViewingNode || (window.selectedNodeObj || null);
+        if (!node) {
+            console.error('[3d_editor] 分享失败：未找到节点对象');
+            const oldInner = btn.innerHTML;
+            btn.innerHTML = '❌';
+            setTimeout(() => btn.innerHTML = oldInner, 2000);
+            return;
+        }
+
+        const serialId = node.serial_id || node.本事件ID;
+        if (!serialId) {
+            console.error('[3d_editor] 分享失败：节点缺少 serial_id');
+            const oldInner = btn.innerHTML;
+            btn.innerHTML = '❌';
+            setTimeout(() => btn.innerHTML = oldInner, 2000);
+            return;
+        }
+
+        // 拼接完整URL
+        const baseUrl = window.location.origin + window.location.pathname;
+        const params = new URLSearchParams();
+        params.append('serial_id', serialId);
+        if (window.currentOwnerId && window.currentOwnerId !== 'default') {
+            params.append('owner_id', window.currentOwnerId);
+        }
+        if (window.currentActorId) {
+            params.append('actor_id', window.currentActorId);
+        }
+        // 附加 max_eyes（从滑块或URL获取）
+        const slider = document.getElementById('telescope-slider');
+        if (slider && slider.value) {
+            params.append('max_eyes', slider.value);
+        }
+        const shareUrl = `${baseUrl}?${params.toString()}`;
+        console.log('[3d_editor] 分享链接:', shareUrl);
+
+        try {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                await navigator.clipboard.writeText(shareUrl);
+            } else {
+                const textArea = document.createElement('textarea');
+                textArea.value = shareUrl;
+                textArea.style.position = 'fixed';
+                textArea.style.left = '-999999px';
+                textArea.style.top = '-999999px';
+                document.body.appendChild(textArea);
+                textArea.focus();
+                textArea.select();
+                const successful = document.execCommand('copy');
+                document.body.removeChild(textArea);
+                if (!successful) {
+                    throw new Error('复制失败：浏览器不支持复制功能');
+                }
+            }
+            const oldInner = btn.innerHTML;
+            btn.innerHTML = '✅';
+            setTimeout(() => btn.innerHTML = oldInner, 2000);
+        } catch (err) {
+            console.error('[3d_editor] 分享链接复制失败', err);
+            const oldInner = btn.innerHTML;
+            btn.innerHTML = '❌';
+            setTimeout(() => btn.innerHTML = oldInner, 2000);
         }
     }
 

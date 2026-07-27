@@ -1030,6 +1030,27 @@ async function loadInitialData() {
                     Graph.cameraPosition({ x: 0, y: 0, z: 900 }, { x: 0, y: 0, z: 0 }, 1200);
                 }, 600);
             }
+
+            // URL 参数自动聚焦逻辑
+            const urlParams = new URLSearchParams(window.location.search);
+            const urlSerialId = urlParams.get('serial_id');
+            if (urlSerialId) {
+                console.log(`[URL聚焦] 检测到 serial_id=${urlSerialId}，准备自动聚焦`);
+                const urlMaxEyes = urlParams.get('max_eyes');
+                
+                // 等待引擎渲染完成
+                setTimeout(() => {
+                    const latestNodes = Graph.graphData().nodes;
+                    const targetNode = latestNodes.find(n => String(n.serial_id) === urlSerialId || String(n.本事件ID) === urlSerialId);
+                    
+                    if (targetNode) {
+                        console.log(`[URL聚焦] 找到目标节点:`, targetNode);
+                        handleSearchResultClick(urlSerialId, targetNode.id, urlMaxEyes);
+                    } else {
+                        console.warn(`[URL聚焦] 未在当前图谱中找到 serial_id=${urlSerialId} 的节点`);
+                    }
+                }, 2000);
+            }
         }
     } catch (error) {
         console.error("数据加载失败:", error);
@@ -2622,6 +2643,14 @@ window.addEventListener('load', () => {
         })
 
         // --- [4. 交互：抽屉避让聚焦算法] ---
+        .onNodeRightClick(node => {
+            if (!node) return;
+            if (window.openNodeViewerModal) {
+                window.openNodeViewerModal(node);
+            } else {
+                console.warn('openNodeViewerModal 未定义');
+            }
+        })
         .onNodeClick(node => {
             if (!node) return;
 
@@ -3371,8 +3400,8 @@ window.addEventListener('load', () => {
     }
     
     // 处理搜索结果点击事件 - 定义为全局函数
-    window.handleSearchResultClick = async function(serialId, nodeId) {
-        console.log(`[搜索点击] 点击搜索结果: serial_id=${serialId}, node_id=${nodeId}`);
+    window.handleSearchResultClick = async function(serialId, nodeId, maxEyes = null) {
+        console.log(`[搜索点击] 点击搜索结果: serial_id=${serialId}, node_id=${nodeId}, maxEyes=${maxEyes}`);
         lastLocalActionTime = Date.now(); // 记录操作时间，屏蔽远端跃迁干扰
         
         try {
@@ -3382,6 +3411,9 @@ window.addEventListener('load', () => {
                 actor_id: window.currentActorId || '',
                 owner_id: window.currentOwnerId || 'default'
             };
+            if (maxEyes !== null) {
+                requestData.max_eyes = maxEyes;
+            }
             
             console.log(`[搜索点击] 调用点击API:`, requestData);
             
