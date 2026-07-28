@@ -17,6 +17,9 @@ from core.metabolism import MetabolismEngine
 # --- 应用初始化 ---
 app = FastAPI(title="AINS Causal Station")
 
+# 全局缓存：记录用户最后一次设置的 max_eyes
+USER_MAX_EYES_CACHE = {}
+
 # 目录配置 - 使用当前工作目录，因为文件可能在 symbolic link 或不同位置
 # 首先尝试使用当前工作目录
 CURRENT_DIR = os.getcwd()
@@ -627,7 +630,8 @@ async def get_causal_history(actor_id: str = None, owner_id: str = None):
             "actor_id": actor_id,
             "owner_id": owner_id,
             "boss_node_id": boss_node_id,
-            "event_horizon": event_horizon_ids
+            "event_horizon": event_horizon_ids,
+            "current_max_eyes": USER_MAX_EYES_CACHE.get(actor_id) if actor_id else None
         }
     except Exception as e:
         print(f"[API 错误] 获取历史数据失败: {e}")
@@ -900,6 +904,9 @@ async def handle_node_click(request: Request):
         if req_max_eyes is not None:
             try:
                 max_eyes = float(req_max_eyes)
+                # 缓存用户设置的 max_eyes
+                if actor_id:
+                    USER_MAX_EYES_CACHE[actor_id] = max_eyes
             except (ValueError, TypeError):
                 max_eyes = float(env_config.get("MAX_EYES", 30))
         else:
