@@ -805,15 +805,19 @@ async def search_by_serial(search_data: dict):
         print(f"[API 错误] 序列ID搜索失败: {e}")
         return {"status": "error", "message": str(e)}
 
-# --- 点击事件接口 ---
-@app.post("/api/v1/causal/click")
-async def handle_node_click(click_data: dict):
+# --- 点击事件接口（同时支持 GET 和 POST）---
+@app.api_route("/api/v1/causal/click", methods=["GET", "POST"])
+async def handle_node_click(request: Request):
     """
-    职责：处理节点点击事件
+    职责：处理节点点击事件（同时支持 GET 和 POST 请求）
     支持参数：
         serial_id: 事件节点的物理ID
         actor_id: 用户ID（可选）
         owner_id: 事件拥有者ID（可选）
+        max_eyes: 望远镜功率/事件视界半径（可选）
+    请求方式：
+        - POST: 参数通过 JSON body 传递（原有方式，供 Agent/前端 JS 调用）
+        - GET: 参数通过 URL query string 传递（便于直接用浏览器/curl 访问）
     Action:
         1. 从地宫恢复内容（如果存在）
         2. 提升节点权重到60%（大股东模式）
@@ -821,6 +825,23 @@ async def handle_node_click(click_data: dict):
         4. 通过socketio更新到前端
     """
     try:
+        # 根据请求方法提取参数，统一存入 click_data 字典
+        if request.method == "GET":
+            click_data = dict(request.query_params)
+            # query_params 返回字符串，需做类型转换
+            if 'serial_id' in click_data:
+                try:
+                    click_data['serial_id'] = int(click_data['serial_id'])
+                except (ValueError, TypeError):
+                    pass
+            if 'max_eyes' in click_data:
+                try:
+                    click_data['max_eyes'] = float(click_data['max_eyes'])
+                except (ValueError, TypeError):
+                    pass
+        else:
+            click_data = await request.json()
+
         serial_id = click_data.get('serial_id')
         actor_id = click_data.get('actor_id')
         if serial_id is None:

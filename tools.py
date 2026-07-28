@@ -66,7 +66,6 @@ def search_causal_by_keyword(keyword, owner_id='222302526', limit=100):
     
     return result
 
-
 ## 从向量搜索事件列表
 def search_causal_by_embed(keyword, owner_id='222302526', limit=100, threshold=0.0):
     """
@@ -143,7 +142,7 @@ def search_causal_by_serial(serial_id, actor_id="user2", owner_id="222302526", m
     
     参数:
     - serial_id (int): 事件节点的物理ID
-    - actor_id (str, optional): 用户ID，用于个性化权重更新,默认为"user2"
+    - actor_id (str, optional): 用户ID，用于个性化权重更新,默认为"415135222"
     - owner_id (str, optional): 事件拥有者ID，默认为"222302526"
     - max_eyes (float, optional): 望远镜功率（事件视界半径），建议范围30-60。如果为None，则使用.env中的默认值
 
@@ -182,6 +181,21 @@ def search_causal_by_serial(serial_id, actor_id="user2", owner_id="222302526", m
         print(f"=== 事件视界（语义相关节点）===")
         for n in result.get('event_horizon_details', []):
             print(f"  [{n.get('distance', 0):.1f}] {n['node_id']}: {n['event_tuple'][:60]}...")
+
+    # 该接口同时支持 GET 和 POST 两种访问方式，返回相同的 JSON 数据结构。
+    # 以下为直接使用 HTTP GET 访问的等价方式（无需通过本 Python 函数）：
+
+    # 1. curl 示例（命令行直接调用）
+    curl "http://127.0.0.1:8094/api/v1/causal/click?serial_id=601&owner_id=222302526&actor_id=415135222&max_eyes=40"
+
+    # 2. 完整 HTTP URL 示例（可直接粘贴到浏览器地址栏访问）
+    http://192.168.66.39:8094/api/v1/causal/click?serial_id=601&owner_id=222302526&actor_id=415135222&max_eyes=40
+
+    # 参数说明（GET 方式通过 URL query string 传递）：
+    #   serial_id : 事件节点的物理ID（必需）
+    #   actor_id  : 用户ID（可选，用于个性化权重更新）
+    #   owner_id  : 事件拥有者ID（可选，默认回退到节点自身的 owner_id）
+    #   max_eyes  : 望远镜功率/事件视界半径（可选，默认回退到 .env 中的 MAX_EYES）
     """
     import requests
 
