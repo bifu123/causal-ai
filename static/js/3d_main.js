@@ -1038,18 +1038,12 @@ async function loadInitialData() {
                 console.log(`[URL聚焦] 检测到 serial_id=${urlSerialId}，准备自动聚焦`);
                 const urlMaxEyes = urlParams.get('max_eyes');
                 
-                // 等待引擎渲染完成
+                // 直接调用后端接口，利用其从地宫恢复节点的强大逻辑
                 setTimeout(() => {
-                    const latestNodes = Graph.graphData().nodes;
-                    const targetNode = latestNodes.find(n => String(n.serial_id) === urlSerialId || String(n.本事件ID) === urlSerialId);
-                    
-                    if (targetNode) {
-                        console.log(`[URL聚焦] 找到目标节点:`, targetNode);
-                        handleSearchResultClick(urlSerialId, targetNode.id, urlMaxEyes);
-                    } else {
-                        console.warn(`[URL聚焦] 未在当前图谱中找到 serial_id=${urlSerialId} 的节点`);
+                    if (window.handleSearchResultClick) {
+                        window.handleSearchResultClick(urlSerialId, null, urlMaxEyes);
                     }
-                }, 2000);
+                }, 1000);
             }
         }
     } catch (error) {
@@ -2654,7 +2648,18 @@ window.addEventListener('load', () => {
         .onNodeClick(node => {
             if (!node) return;
 
-            lastLocalActionTime = Date.now(); // 记录操作时间，屏蔽远端跃迁干扰
+            // 移动端长按/双击兼容：如果两次点击间隔小于 500ms，视为双击，触发右键逻辑
+            const now = Date.now();
+            if (node.__lastClickTime && (now - node.__lastClickTime < 500)) {
+                if (window.openNodeViewerModal) {
+                    window.openNodeViewerModal(node);
+                }
+                node.__lastClickTime = 0; // 重置
+                return; // 阻止后续的单击逻辑
+            }
+            node.__lastClickTime = now;
+
+            lastLocalActionTime = now; // 记录操作时间，屏蔽远端跃迁干扰
 
             // 物理锁定
             const sim = Graph.d3Force('charge') ? Graph.d3Force('charge').simulation : null;
@@ -3403,10 +3408,10 @@ window.addEventListener('load', () => {
     window.handleSearchResultClick = async function(serialId, nodeId, maxEyes = null) {
         console.log(`[搜索点击] 点击搜索结果: serial_id=${serialId}, node_id=${nodeId}, maxEyes=${maxEyes}`);
         lastLocalActionTime = Date.now(); // 记录操作时间，屏蔽远端跃迁干扰
-        
+
         try {
             // 调用点击事件API
-            const requestData = { 
+            const requestData = {
                 serial_id: serialId,
                 actor_id: window.currentActorId || '',
                 owner_id: window.currentOwnerId || 'default'
@@ -3414,19 +3419,21 @@ window.addEventListener('load', () => {
             if (maxEyes !== null) {
                 requestData.max_eyes = maxEyes;
             }
-            
+
             console.log(`[搜索点击] 调用点击API:`, requestData);
-            
+
             const response = await fetch('/api/v1/causal/click', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(requestData)
             });
-            
+
             const data = await response.json();
-            
+
             if (data.status === 'success') {
-                showSelectionHint(`已瞄定事件 "${nodeId}"，权重提升到60%`);
+                // 如果 nodeId 为空（例如通过 URL 触发），尝试从返回数据中获取
+                const displayNodeId = nodeId || (data.node && data.node.node_id) || serialId;
+                showSelectionHint(`已瞄定事件 "${displayNodeId}"，权重提升到60%`);
                 
                 // 同步更新语义连线，让物理引擎重新计算距离
                 if (data.semantic_links && data.semantic_links.length > 0) {
