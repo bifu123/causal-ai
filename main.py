@@ -131,9 +131,20 @@ async def get_ui(request: Request):
 @app.get("/3d", response_class=HTMLResponse)
 async def get_3d_visualization(request: Request):
     """3D 因果星空可视化页面"""
-    from dotenv import dotenv_values
-    env_config = dotenv_values(".env")
-    max_eyes = env_config.get("MAX_EYES", 30)
+    # 提取 URL 参数
+    actor_id = request.query_params.get("actor_id")
+    owner_id = request.query_params.get("owner_id", "default")
+    
+    # 优先从全局缓存中获取该用户对该星空的 max_eyes 设置
+    cache_key = f"{actor_id}_{owner_id}" if actor_id else None
+    max_eyes = USER_MAX_EYES_CACHE.get(cache_key) if cache_key else None
+    
+    # 如果缓存中没有，则回退到 .env 配置
+    if max_eyes is None:
+        from dotenv import dotenv_values
+        env_config = dotenv_values(".env")
+        max_eyes = env_config.get("MAX_EYES", 30)
+        
     return templates.TemplateResponse(request=request, name="3d_main.html", context={"max_eyes": max_eyes})
 
 @app.get("/socketio-test", response_class=HTMLResponse)
@@ -631,7 +642,7 @@ async def get_causal_history(actor_id: str = None, owner_id: str = None):
             "owner_id": owner_id,
             "boss_node_id": boss_node_id,
             "event_horizon": event_horizon_ids,
-            "current_max_eyes": USER_MAX_EYES_CACHE.get(actor_id) if actor_id else None
+            "current_max_eyes": USER_MAX_EYES_CACHE.get(f"{actor_id}_{owner_id}") if actor_id else None
         }
     except Exception as e:
         print(f"[API 错误] 获取历史数据失败: {e}")
@@ -904,9 +915,10 @@ async def handle_node_click(request: Request):
         if req_max_eyes is not None:
             try:
                 max_eyes = float(req_max_eyes)
-                # 缓存用户设置的 max_eyes
+                # 缓存用户设置的 max_eyes，绑定 actor_id 和 owner_id
                 if actor_id:
-                    USER_MAX_EYES_CACHE[actor_id] = max_eyes
+                    cache_key = f"{actor_id}_{owner_id}"
+                    USER_MAX_EYES_CACHE[cache_key] = max_eyes
             except (ValueError, TypeError):
                 max_eyes = float(env_config.get("MAX_EYES", 30))
         else:
