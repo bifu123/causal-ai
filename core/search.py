@@ -298,28 +298,29 @@ final_nodes AS (
     UNION ALL
     SELECT * FROM fallback_search
 )
-SELECT 
-    root.serial_id,
-    COALESCE(
-        (SELECT parent.serial_id::text FROM ains_active_nodes parent WHERE parent.node_id = root.parent_id), 
-        '根节点'
-    ) AS preview_id, 
-    root.block_tag, 
-    root.action_tag, 
-    -- 职责：动态输出最全内容作为 display_content
-    CASE 
-        WHEN root.is_refined AND root.raw_content IS NOT NULL THEN root.raw_content 
-        ELSE root.event_tuple 
-    END AS display_content,
-    root.node_id,
-    root.parent_id,
-    root.survival_weight,
-    root.full_image_url,
-    root.owner_id,
-    COALESCE((
-        SELECT STRING_AGG(sub.serial_id::text, ', ') FROM ains_active_nodes AS sub WHERE sub.parent_id = root.node_id
-    ) , '末端') AS next_id_list
-FROM final_nodes AS root
+ SELECT 
+     root.serial_id,
+     COALESCE((
+         SELECT STRING_AGG(parent.serial_id::text, ',')
+         FROM ains_active_nodes parent
+         WHERE parent.node_id = ANY(string_to_array(root.parent_id, '|'))
+     ), '') AS parent_id_list,
+     root.block_tag, 
+     root.action_tag, 
+     -- 职责：动态输出最全内容作为 display_content
+     CASE 
+         WHEN root.is_refined AND root.raw_content IS NOT NULL THEN root.raw_content 
+         ELSE root.event_tuple 
+     END AS display_content,
+     root.node_id,
+     root.parent_id,
+     root.survival_weight,
+     root.full_image_url,
+     root.owner_id,
+     COALESCE((
+         SELECT STRING_AGG(sub.serial_id::text, ',') FROM ains_active_nodes AS sub WHERE ('|' || sub.parent_id || '|') LIKE '%|' || root.node_id || '|%'
+     ), '') AS next_id_list
+ FROM final_nodes AS root
 ORDER BY root.survival_weight DESC
     """
 
@@ -352,15 +353,15 @@ ORDER BY root.survival_weight DESC
                     "action_tag": raw_dict['action_tag'],
                     "full_image_url": raw_dict['full_image_url'],
                     "owner_id": raw_dict['owner_id'],
-                    "parent_id": raw_dict.get('parent_id'),
+                    "previous_node": raw_dict.get('parent_id'),
                     
                     # 2. Agent 需要的中文语义键
                     "本事件ID": raw_dict['serial_id'],
-                    "前事件ID列表": raw_dict['preview_id'] if raw_dict['preview_id'] != '根节点' else '',
+                    "前事件ID列表": [int(x.strip()) for x in raw_dict['parent_id_list'].split(',') if x.strip().isdigit()] if raw_dict['parent_id_list'] else [],
                     "因缘标签": raw_dict['block_tag'],
                     "动作标签": raw_dict['action_tag'],
                     "事件二元组描述": display_content,
-                    "后续事件ID列表": [int(x.strip()) for x in raw_dict['next_id_list'].split(',') if x.strip().isdigit()] if raw_dict['next_id_list'] and raw_dict['next_id_list'] != '末端' else [],
+                    "后续事件ID列表": [int(x.strip()) for x in raw_dict['next_id_list'].split(',') if x.strip().isdigit()] if raw_dict['next_id_list'] else [],
                     "本事件权重": weight_val,
                     "本事件标题": raw_dict['node_id'],
                     "截图": raw_dict['full_image_url'],
@@ -368,13 +369,10 @@ ORDER BY root.survival_weight DESC
                 }
 
                 if raw_dict.get('parent_id'):
-                    parent_titles = db._string_to_parents(raw_dict['parent_id'])
+                    parent_titles = db._string_to_previous(raw_dict['parent_id'])
                     item["前事件标题列表"] = parent_titles
-                    # 同时添加物理键名版本
-                    item["parent_ids"] = parent_titles
                 else:
                     item["前事件标题列表"] = []
-                    item["parent_ids"] = []
                     
                 # 相关度计算职责：基于最终显示的完整内容进行评分
                 res_score = v5.calculate_relevance_score(display_content, keyword)
@@ -426,27 +424,28 @@ WITH search_base AS (
     LEFT JOIN ains_archive_necropolis archive ON root.necropolis_id = archive.necropolis_id
     WHERE root.semantic_vector IS NOT NULL {owner_filter}
 )
-SELECT 
-    root.serial_id,
-    COALESCE(
-        (SELECT parent.serial_id::text FROM ains_active_nodes parent WHERE parent.node_id = root.parent_id), 
-        '根节点'
-    ) AS preview_id, 
-    root.block_tag, 
-    root.action_tag, 
-    CASE 
-        WHEN root.is_refined AND root.raw_content IS NOT NULL THEN root.raw_content 
-        ELSE root.event_tuple 
-    END AS display_content,
-    root.node_id,
-    root.parent_id,
-    root.survival_weight,
-    root.full_image_url,
-    root.owner_id,
-    COALESCE((
-        SELECT STRING_AGG(sub.serial_id::text, ', ') FROM ains_active_nodes AS sub WHERE sub.parent_id = root.node_id
-    ) , '末端') AS next_id_list,
-    1 - (root.semantic_vector <=> %s::vector) AS similarity
+ SELECT 
+     root.serial_id,
+     COALESCE((
+         SELECT STRING_AGG(parent.serial_id::text, ',')
+         FROM ains_active_nodes parent
+         WHERE parent.node_id = ANY(string_to_array(root.parent_id, '|'))
+     ), '') AS parent_id_list,
+     root.block_tag, 
+     root.action_tag, 
+     CASE 
+         WHEN root.is_refined AND root.raw_content IS NOT NULL THEN root.raw_content 
+         ELSE root.event_tuple 
+     END AS display_content,
+     root.node_id,
+     root.parent_id,
+     root.survival_weight,
+     root.full_image_url,
+     root.owner_id,
+     COALESCE((
+         SELECT STRING_AGG(sub.serial_id::text, ',') FROM ains_active_nodes AS sub WHERE ('|' || sub.parent_id || '|') LIKE '%%|' || root.node_id || '|%%'
+     ), '') AS next_id_list,
+     1 - (root.semantic_vector <=> %s::vector) AS similarity
 FROM search_base AS root
 ORDER BY similarity DESC
     '''
@@ -479,14 +478,14 @@ ORDER BY similarity DESC
                     "action_tag": raw_dict['action_tag'],
                     "full_image_url": raw_dict['full_image_url'],
                     "owner_id": raw_dict['owner_id'],
-                    "parent_id": raw_dict.get('parent_id'),
+                    "previous_node": raw_dict.get('parent_id'),
                     
                     "本事件ID": raw_dict['serial_id'],
-                    "前事件ID列表": raw_dict['preview_id'] if raw_dict['preview_id'] != '根节点' else '',
+                    "前事件ID列表": [int(x.strip()) for x in raw_dict['parent_id_list'].split(',') if x.strip().isdigit()] if raw_dict['parent_id_list'] else [],
                     "因缘标签": raw_dict['block_tag'],
                     "动作标签": raw_dict['action_tag'],
                     "事件二元组描述": display_content,
-                    "后续事件ID列表": [int(x.strip()) for x in raw_dict['next_id_list'].split(',') if x.strip().isdigit()] if raw_dict['next_id_list'] and raw_dict['next_id_list'] != '末端' else [],
+                    "后续事件ID列表": [int(x.strip()) for x in raw_dict['next_id_list'].split(',') if x.strip().isdigit()] if raw_dict['next_id_list'] else [],
                     "本事件权重": weight_val,
                     "本事件标题": raw_dict['node_id'],
                     "截图": raw_dict['full_image_url'],
@@ -494,12 +493,10 @@ ORDER BY similarity DESC
                 }
 
                 if raw_dict.get('parent_id'):
-                    parent_titles = db._string_to_parents(raw_dict['parent_id'])
+                    parent_titles = db._string_to_previous(raw_dict['parent_id'])
                     item["前事件标题列表"] = parent_titles
-                    item["parent_ids"] = parent_titles
                 else:
                     item["前事件标题列表"] = []
-                    item["parent_ids"] = []
                     
                 # 向量搜索的相关度直接使用余弦相似度 * 100
                 # 与关键字搜索的 V5 算法不同：向量搜索基于语义空间距离，V5 基于字面匹配
@@ -527,12 +524,19 @@ def get_event_by_sid(serial_id: int, actor_id: str = None) -> Dict[str, Any]:
     sql = f'''
 SELECT 
     root.serial_id,
-    COALESCE(
-        (SELECT parent.serial_id FROM ains_active_nodes parent 
-         WHERE parent.node_id = root.parent_id), 0
-    ) AS preview_id, 
     root.block_tag, root.action_tag, root.event_tuple,
-    COALESCE((SELECT STRING_AGG(sub.serial_id::text, ',') FROM ains_active_nodes AS sub WHERE sub.parent_id = root.node_id), '') AS next_id_list,
+    -- 父节点 serial_id 列表（多因：parent_id 以 | 分隔，支持多父节点）
+    COALESCE((
+        SELECT STRING_AGG(parent.serial_id::text, ',')
+        FROM ains_active_nodes parent
+        WHERE parent.node_id = ANY(string_to_array(root.parent_id, '|'))
+    ), '') AS parent_id_list,
+    -- 子节点 serial_id 列表（多果：用 | 分隔符匹配，兼容多因多果）
+    COALESCE((
+        SELECT STRING_AGG(sub.serial_id::text, ',')
+        FROM ains_active_nodes AS sub 
+        WHERE ('|' || sub.parent_id || '|') LIKE '%|' || root.node_id || '|%'
+    ), '') AS next_id_list,
     root.node_id, root.parent_id, root.survival_weight, root.full_image_url, root.owner_id
 FROM ains_active_nodes root
 WHERE root.serial_id = {serial_id};
@@ -558,8 +562,11 @@ WHERE root.serial_id = {serial_id};
                         print(f"[搜索调试] 用户 {actor_id} 没有个性化权重，使用全局权重: {weight} (serial_id: {serial_id})")
                 
                 # 构建返回字典，同时包含物理键名和中文键名
-                parent_titles = db._string_to_parents(d['parent_id']) if d['parent_id'] else []
+                # parent_ids / next_ids 统一为 serial_id 整数列表（多因多果）
+                parent_ids = [int(x) for x in d['parent_id_list'].split(',')] if d['parent_id_list'] else []
                 next_ids = [int(x) for x in d['next_id_list'].split(',')] if d['next_id_list'] else []
+                # 前事件标题列表（供 Agent 辅助理解，仍保留标题）
+                parent_titles = db._string_to_previous(d['parent_id']) if d['parent_id'] else []
                 
                 return {
                     # 1. 引擎需要的物理键（保持与 DDL 一致）
@@ -571,14 +578,13 @@ WHERE root.serial_id = {serial_id};
                     "action_tag": d['action_tag'],
                     "full_image_url": d['full_image_url'],
                     "owner_id": d['owner_id'],
-                    "parent_id": d['parent_id'],
-                    "parent_ids": parent_titles,
+                    "previous_node": d['parent_id'],
+                    "previous_ids": parent_ids,
                     "next_ids": next_ids,
-                    "preview_id": d['preview_id'],
                     
                     # 2. Agent 需要的中文语义键
                     "本事件ID": d['serial_id'],
-                    "前事件ID列表": d['preview_id'],
+                    "前事件ID列表": parent_ids,
                     "因缘标签": d['block_tag'],
                     "动作标签": d['action_tag'],
                     "事件二元组描述": d['event_tuple'],

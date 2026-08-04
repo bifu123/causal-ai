@@ -166,11 +166,11 @@ def cmd_click(args):
 
     print()
 
-    print("前事件：", anchor.get("parent_ids", []))
+    print("前事件(serial_id)：", anchor.get("previous_ids", []))
 
-    print("前事件中首事件：", anchor.get("preview_id"))
+    print("前事件标题：", anchor.get("previous_node"))
 
-    print("后事件：", anchor.get("next_ids", []))
+    print("后事件(serial_id)：", anchor.get("next_ids", []))
 
     print()
 

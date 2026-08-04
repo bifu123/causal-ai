@@ -310,8 +310,8 @@ const nodeSize = 20 + (weight * weight * 40); // 20 + (0.0 * 0.0 * 40) = 20, 20 
     });
     
     // 处理多父节点连接
-    if (node.previous_ids && node.previous_ids.length > 0) {
-        node.previous_ids.forEach(parentId => {
+    if (node.parent_ids && node.parent_ids.length > 0) {
+        node.parent_ids.forEach(parentId => {
             const edgeId = `${parentId}-${node.node_id}`;
             // 边的宽度也随权重变化
             const edgeWidth = 1 + (weight * 2);
@@ -327,13 +327,13 @@ const nodeSize = 20 + (weight * weight * 40); // 20 + (0.0 * 0.0 * 40) = 20, 20 
                 }
             });
         });
-    } else if (node.previous_id) {
+    } else if (node.parent_id) {
         // 向后兼容：处理单个父节点
-        const edgeId = `${node.previous_id}-${node.node_id}`;
+        const edgeId = `${node.parent_id}-${node.node_id}`;
         const edgeWidth = 1 + (weight * 2);
         edges.update({ 
             id: edgeId, 
-            from: node.previous_id, 
+            from: node.parent_id, 
             to: node.node_id, 
             label: node.action_tag,
             width: edgeWidth,
@@ -561,7 +561,7 @@ async function submitCreateNode() {
         event_tuple: eventTuple, 
         full_image_url: fullImageUrl,
         owner_id: currentOwnerId
-        // 不发送block_tag、action_tag和previous_id，让后端处理
+        // 不发送block_tag、action_tag和parent_id，让后端处理
     };
     
     // 提交事件创建
@@ -705,8 +705,8 @@ async function submitDeriveNode(tag, parentId) {
 postNode({ 
     node_id: nodeId, 
     block_tag: blockTag,
-    previous_node: [parentId],
-    event_tuple: eventTuple,
+    parent_id: [parentId],
+    event_tuple: eventTuple, 
     action_tag: tag,
     full_image_url: fullImageUrl,
     owner_id: currentOwnerId
@@ -884,7 +884,7 @@ async function saveNodeChanges() {
     
     // 如果有父ID，添加到更新数据中
     if (parentIds.length > 0) {
-        updateData.previous_ids = parentIds;
+        updateData.parent_ids = parentIds;
     }
     
     console.log('发送更新数据:', updateData);
@@ -1225,8 +1225,8 @@ async function submitChildNode(parentIds) {
     postNode({ 
         node_id: nodeId, 
         block_tag: blockTag,
-        previous_node: parentIds,
-        event_tuple: eventTuple,
+        parent_id: parentIds,
+        event_tuple: eventTuple, 
         action_tag: actionTag,
         full_image_url: fullImageUrl,
         owner_id: currentOwnerId
@@ -1680,10 +1680,10 @@ function updateDrawerWithNecropolisData(nodeId, necropolisData) {
     
     // 填充父ID字段
     let parentIds = [];
-    if (necropolisData.previous_ids && necropolisData.previous_ids.length > 0) {
-        parentIds = necropolisData.previous_ids;
-    } else if (necropolisData.previous_id) {
-        parentIds = [necropolisData.previous_id];
+    if (necropolisData.parent_ids && necropolisData.parent_ids.length > 0) {
+        parentIds = necropolisData.parent_ids;
+    } else if (necropolisData.parent_id) {
+        parentIds = [necropolisData.parent_id];
     }
     document.getElementById('d-parent-ids').value = parentIds.join(' | ');
     
@@ -1765,10 +1765,10 @@ function openDrawerWithLatestData(nodeId) {
     
     // 填充父ID字段
     let parentIds = [];
-    if (data.previous_ids && data.previous_ids.length > 0) {
-        parentIds = data.previous_ids;
-    } else if (data.previous_id) {
-        parentIds = [data.previous_id];
+    if (data.parent_ids && data.parent_ids.length > 0) {
+        parentIds = data.parent_ids;
+    } else if (data.parent_id) {
+        parentIds = [data.parent_id];
     }
     document.getElementById('d-parent-ids').value = parentIds.join(' | ');
     
@@ -2171,10 +2171,10 @@ function openDrawer(nodeId) {
     // 填充父ID字段
     if (data) {
         let parentIds = [];
-        if (data.previous_ids && data.previous_ids.length > 0) {
-            parentIds = data.previous_ids;
-        } else if (data.previous_id) {
-            parentIds = [data.previous_id];
+        if (data.parent_ids && data.parent_ids.length > 0) {
+            parentIds = data.parent_ids;
+        } else if (data.parent_id) {
+            parentIds = [data.parent_id];
         }
         document.getElementById('d-parent-ids').value = parentIds.join(' | ');
     } else {

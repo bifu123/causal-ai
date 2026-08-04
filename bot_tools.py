@@ -1,3 +1,10 @@
+
+"""
+langchain 工具
+"""
+from langchain_core.runnables import RunnableConfig
+from langchain_core.tools import tool
+
 #*************************
 #                        #
 #  因果推理和数据操作工具  #
@@ -5,11 +12,12 @@
 #*************************
 
 ## 从关键字搜索事件列表
-def search_causal_by_keyword(keyword, owner_id='222302526', limit=100):
+def search_causal_by_keyword(keyword, config: RunnableConfig=None, owner_id=None, limit=100):
     """
     根据关键字搜索事件列表
     
     参数:
+    - config (RunnableConfig): langchain 内置内象，不用管它
     - keyword (str): 搜索关键词，支持逻辑与（&）操作符
     - owner_id (str, optional): 事件拥有者ID，如果为None则搜索所有事件
     - limit (int, optional): 返回结果数量限制，默认为100
@@ -40,23 +48,25 @@ def search_causal_by_keyword(keyword, owner_id='222302526', limit=100):
         print(f"事件标题: {item['node_id']}, 相关度: {item['relevance_score']}, 搜索模式: {item['search_mode']}")
     
     # 搜索特定用户的事件
-    results = search_causal_by_keyword("祭祀", owner_id="worker", limit=50)
+    results = search_causal_by_keyword("祭祀", owner_id="222302526", limit=50)
     """
+    
     import requests
-
-    url = "http://127.0.0.1:8094/api/v1/causal/search/keyword"
+    url = "http://192.168.66.39:8094/api/v1/causal/search/keyword"
     
-    payload = {
-        "keyword": keyword
-    }
+    # 1. Initialize payload with required keyword
+    payload = {"keyword": keyword}
     
-    if owner_id is not None:
-        payload["owner_id"] = owner_id
-    
+    # 2. Determine owner_id: prioritize explicit argument, then config
+    payload["owner_id"] = owner_id or config["configurable"].get("data", {}).get("source_id")
+        
+    # 3. Add limit
     if limit is not None:
         payload["limit"] = limit
     
+    # 4. Execute request
     response = requests.post(url, json=payload)
+    
     result = response.json()
     
     if result.get('status') == 'success':
@@ -66,12 +76,13 @@ def search_causal_by_keyword(keyword, owner_id='222302526', limit=100):
     
     return result
 
-## 从向量搜索事件列表
-def search_causal_by_embed(keyword, owner_id='222302526', limit=100, threshold=0.0):
+## 从关键字搜索事件列表
+def search_causal_by_embed(keyword, config: RunnableConfig=None, owner_id=None, limit=100):
     """
-    根据关键字的语义向量搜索事件列表
+    根据自然语言搜索事件列表
     
     参数:
+    - config (RunnableConfig): langchain 内置内象，不用管它
     - keyword (str): 搜索关键词（自然语言描述）
     - owner_id (str, optional): 事件拥有者ID，如果为None则搜索所有事件
     - limit (int, optional): 返回结果数量限制，默认为100
@@ -106,207 +117,132 @@ def search_causal_by_embed(keyword, owner_id='222302526', limit=100, threshold=0
         print(f"事件标题: {item['node_id']}, 相关度: {item['relevance_score']}, 搜索模式: {item['search_mode']}, 向量相似度: {item.get('vector_similarity')}")
     """
     import requests
-
-    url = "http://127.0.0.1:8094/api/v1/causal/search/vector"
+    url = "http://192.168.66.39:8094/api/v1/causal/search/vector"
     
-    payload = {
-        "keyword": keyword
-    }
+    # 1. Initialize payload with required keyword
+    payload = {"keyword": keyword}
     
-    if owner_id is not None:
-        payload["owner_id"] = owner_id
+    # 2. Determine owner_id: prioritize explicit argument, then config
+    final_owner_id = owner_id
+    if not final_owner_id and config and "configurable" in config:
+        final_owner_id = config["configurable"].get("data", {}).get("source_id")
     
+    if final_owner_id:
+        payload["owner_id"] = final_owner_id
+        
+    # 3. Add limit
     if limit is not None:
         payload["limit"] = limit
     
-    if threshold > 0:
-        payload["threshold"] = threshold
-    
+    # 4. Execute request
     response = requests.post(url, json=payload)
     result = response.json()
     
     if result.get('status') == 'success':
-        print(f"搜索到 {result.get('count', 0)} 个相关事件 (阈值={result.get('threshold', threshold)})")
+        print(f"搜索到 {result.get('count', 0)} 个相关事件")
     else:
         print(f"搜索失败: {result.get('message')}")
     
     return result
 
 ## 点击事件
-def search_causal_by_serial(serial_id, actor_id="user2", owner_id="222302526", max_eyes=None):
+def search_causal_by_serial(serial_id, config: RunnableConfig=None, actor_id=None, owner_id=None, max_eyes=None):
     """
-    【存在主义检索】聚焦某事件节点（大股东），一次性获取：
-    1. 该节点的全息内容（自动从地宫恢复，如果已被提炼）
-    2. 该节点的父、子ID列表
-    3. 事件视界（Event Horizon）内的所有相关节点内容
+    处理事件节点点击、获取事件视界内容
     
     参数:
+    - config (RunnableConfig): agent 主代理自动传参，不用理会
     - serial_id (int): 事件节点的物理ID
-    - actor_id (str, optional): 用户ID，用于个性化权重更新,默认为"415135222"
-    - owner_id (str, optional): 事件拥有者ID，默认为"222302526"
-    - max_eyes (float, optional): 望远镜功率（事件视界半径），建议范围30-60。如果为None，则使用.env中的默认值
-
+    - actor_id (str, optional): 事件观察者ID，用于个性化权重更新，**若非用户指定，请保持默认值为None**
+    - owner_id (str, optional): 事件拥有者ID，因果链的创建者，**若非用户指定，请保持默认值为None**
+    - max_eyes (float, optional): 望远镜功率（事件视界半径），默认值为None
+    
     返回:
-    - dict: API响应结果，包含：
-        - data: 当前节点全息内容，其中因果链字段为 serial_id 整数列表：
-            - serial_id: 当前事件物理ID
-            - node_id: 事件标题
-            - event_tuple: 事件叙述
-            - survival_weight: 权重（大股东为0.6）
-            - block_tag / action_tag: 因缘/动作标签
-            - previous_ids: 前事件（父事件）serial_id 整数列表，无则为 []
-            - next_ids: 后事件（子事件）serial_id 整数列表，无则为 []
-            - preview_id: 兼容字段，取 previous_ids[0]，无则为 0
-        - event_horizon: 视界内节点ID列表
-        - event_horizon_details: 视界内节点详情列表，每条包含：serial_id, node_id, event_tuple, distance
-                （当 .env 中 HORIZON_DETAIL=1 时，额外包含 previous_ids, next_ids 因果链字段）
-
-    核心概念（因果星空本体论）:
-
-    【第一层：三维语义空间 — 因果链不是图】
-    - 事件节点由语义向量的余弦距离确定在三维空间中的坐标，不存在固定的"边"
-    - 同一因果链在不同观测者视角下，节点的空间分布（距离、引力）是不同的
-    - previous_ids/next_ids 是观测者的逻辑选认，而在客体视觉下，决定事件关系的是语义空间中的实时距离
-
-    【第二层：四维时空 — 时间矢量和叙事清晰度】
-    - 每个事件携带隐式的时间矢量，叙事清晰度在以下两极之间膨胀/坍缩：
-      膨胀方向（趋清晰）："谁|做了什么" → 时|地|人|起|冲|结
-      坍缩方向（趋模糊）：时|地|人|起|冲|结 → "谁|做了什么" → [已提炼]→地宫
-    - 代谢引擎（Metabolism Engine）以无情的上帝之手持续对所有事件施加时间衰减：
-      不投入观测能量（点击、搜索）的事件，清晰度单调递减，最终坍缩入地宫
-
-    【第三层：因果场 — 多观察者造成时空弯曲】
-    - 不同 owner_id（事件拥有者）和 actor_id（观测者）对事件施加不同的 survival_weight
-    - 观测者将某个节点提升为大股东（60% 权重），会造成语义空间的局部引力异常
-    - event_horizon 的本质：给定观测者在给定因果场中的光锥截面
-      同一事件在不同观测者眼中处于不同的"位置"——这是相对论性的参考系依赖
-
-    【第四层：碳硅跨界转述 — 因果配平方程】
-    - 四大因果配平方程不仅是底层算法，更是碳基生命智慧转述给硅基智慧的思想表达
-    - Agent（硅基）藉此与人类（碳基）在同一套存在主义本体论中实现因果共振与协同推演
-
-    【存在主义检索机制】:
-    - **大股东节点**：当前聚焦节点，权重提升到60%，弯曲局部时空
-    - **事件视界（Event Horizon）**：语义距离 D <= MAX_EYES 的所有节点
-      距离公式：D = (1 - 余弦相似度) * 100
-    - Agent 只需"看一眼"大股东节点，就能用"余光"扫到视界内所有节点
-    - 通过 MAX_EYES 完美锁死上下文 Token 的消耗上限
-
-    底层流程:
-      1. 从地宫恢复内容（如果节点已被提炼）
-      2. 计算事件视界（动态扫描语义空间内所有相关节点）
+    - dict: API响应结果，包含更新后的事件数据
+    
+    注意:
+    - 此函数执行完整的点击事件处理流程：
+      1. 获取节点基本信息
+      2. 从地宫恢复内容（如果存在）
       3. 提升节点权重到60%（大股东模式）
       4. 重新计算其他节点权重
       5. 通过Socket.IO实时更新到前端
-
+    - 如果提供actor_id参数，权重更新只影响用户权重表（ains_user_weights），
+      不影响全局权重表（ains_active_nodes）
+    - 此函数会触发实时更新，所有连接到观测站的客户端都会收到更新通知
+    
     示例:
-    # 聚焦 serial_id=312 的节点，获取全息内容 + 视界内所有相关节点
-    result = search_causal_by_serial(312)
+    # 处理serial_id为123的节点点击（全局权重更新）
+    result = search_causal_by_serial(123)
     if result.get('status') == 'success':
-        anchor = result.get('data')
-        print(f"=== 大股东节点 ===")
-        print(f"  事件: {anchor['node_id']}")
-        print(f"  叙述: {anchor['event_tuple'][:100]}...")
-        print(f"  父链: {anchor.get("previous_ids", [])}")
-        print(f"  子链: {anchor.get('next_ids', [])}")
-        print(f"=== 事件视界（语义相关节点）===")
-        for n in result.get('event_horizon_details', []):
-            print(f"  [{n.get('distance', 0):.1f}] {n['node_id']}: {n['event_tuple'][:60]}...")
-
-    # 该接口同时支持 GET 和 POST 两种访问方式，返回相同的 JSON 数据结构。
-    # 以下为直接使用 HTTP GET 访问的等价方式（无需通过本 Python 函数）：
-
-    # 1. curl 示例（命令行直接调用）
-    curl "http://127.0.0.1:8094/api/v1/causal/click?serial_id=601&owner_id=222302526&actor_id=415135222&max_eyes=40"
-
-    # 2. 完整 HTTP URL 示例（可直接粘贴到浏览器地址栏访问）
-    http://192.168.66.39:8094/api/v1/causal/click?serial_id=601&owner_id=222302526&actor_id=415135222&max_eyes=40
-
-    # 参数说明（GET 方式通过 URL query string 传递）：
-    #   serial_id : 事件节点的物理ID（必需）
-    #   actor_id  : 用户ID（可选，用于个性化权重更新）
-    #   owner_id  : 事件拥有者ID（可选，默认回退到节点自身的 owner_id）
-    #   max_eyes  : 望远镜功率/事件视界半径（可选，默认回退到 .env 中的 MAX_EYES）
+        event = result.get('data')
+        print(f"节点 {event['node_id']} 权重已提升到60%")
+        print(f"共更新了 {result.get('updated_count', 0)} 个节点")
+    
+    # 处理serial_id为123的节点点击（用户个性化权重更新）
+    result = search_causal_by_serial(123, actor_id=<当前观测者ID>, owner_id=<事件拥有者ID>)
+    if result.get('status') == 'success':
+        event = result.get('data')
+        print(f"用户 user2 的节点 {event['node_id']} 权重已提升到60%")
+        print(f"观察者用户: {event.get('actor_id')}")
+        print(f"事件拥有者: {event.get('owner_id')}")
+    else:
+        print(f"点击处理失败: {result.get('message')}")
+        
+    # curl 示例（命令行直接调用）
+    curl "http://192.168.66.39:8094/api/v1/causal/click?serial_id=646&owner_id=222302526&actor_id=415135222&max_eyes=40" （局域网）
+    curl "http://aicity.wang:8094/api/v1/causal/click?serial_id=646&owner_id=222302526&actor_id=415135222&max_eyes=40" （互联网）
     """
     import requests
 
-    url = "http://127.0.0.1:8094/api/v1/causal/click"
-
+    url = "http://192.168.66.39:8094/api/v1/causal/click"
+    
+    if config and "configurable" in config and "data" in config["configurable"]:
+        owner_id = owner_id or config["configurable"]["data"]["source_id"]
+        actor_id = actor_id or config["configurable"]["data"]["from_user"]["user_id"]
+   
     payload = {
         "serial_id": serial_id,
-        "owner_id": owner_id
+        "owner_id": owner_id,
+        "actor_id": actor_id
     }
-
-    if actor_id is not None:
-        payload["actor_id"] = actor_id
-
+    
     if max_eyes is not None:
         payload["max_eyes"] = max_eyes
-
+    
     response = requests.post(url, json=payload)
     result = response.json()
-
+    
+    result["owner_id"] = owner_id
+    result["actor_id"] = actor_id
+    
+    
     if result.get('status') == 'success':
-        anchor = result.get('data', {})
-        horizon_ids = result.get('event_horizon', [])
-        horizon_details = result.get('event_horizon_details', [])
-
-        # 1. 大股东节点全息内容
-        print(f"=== 大股东节点（权重60%）===")
-        print(f"  事件: {anchor.get('node_id', '未知')}")
-        print(f"  序列: {anchor.get('serial_id', '未知')}")
-        print(f"  权重: {anchor.get('survival_weight', 0):.2%}")
-        print(f"  动作: {anchor.get('action_tag', '贞')} | 因缘: {anchor.get('block_tag', '未知')}")
-        
-        event_tuple = anchor.get('event_tuple', '无叙述')
-        print(f"  叙述: {event_tuple[:200]}{'...' if len(event_tuple) > 200 else ''}")
-        
-        prev_ids = anchor.get("previous_ids", [])
-        next_ids = anchor.get('next_ids', [])
-        preview_id = anchor.get('preview_id', [])
-        print(f"  前链 ({len(prev_ids)}): {prev_ids}")
-        print(f"  前事件ID: {preview_id}")
-        print(f"  后链 ({len(next_ids)}): {next_ids}")
-        
-        # 2. 事件视界扫描结果
-        print(f"\n=== 事件视界（MAX_EYES={result.get('max_eyes', '?')}，共{len(horizon_ids)}个节点）===")
-        if horizon_details:
-            for i, n in enumerate(horizon_details):
-                dist_str = f"{n.get('distance', 0):.1f}" if n.get('distance') is not None else "?"
-                n_event_tuple = n.get('event_tuple', '')
-                # 截取前80个字符展示
-                print(f"  [{dist_str}] {n.get('node_id', '?')}: {n_event_tuple[:80]}{'...' if len(n_event_tuple) > 80 else ''}")
-        elif horizon_ids:
-            print(f"  视界内节点ID: {horizon_ids}")
-        else:
-            print(f"  (视界内无其他节点，语义空间内仅此一星)")
-        
-        print(f"\n[存在主义检索] 更新节点数: {result.get('updated_count', 0)}")
+        event = result.get('data', {})
+        print(f"点击处理成功: {event.get('node_id', '未知节点')}")
+        print(f"权重提升到: {event.get('survival_weight', 0):.2%}")
+        print(f"更新节点数: {result.get('updated_count', 0)}")
         if actor_id:
-            print(f"[存在主义检索] 用户({actor_id})个性化权重已更新")
+            print(f"用户个性化权重已更新")
     else:
-        print(f"聚焦失败: {result.get('message')}")
-
+        print(f"点击处理失败: {result.get('message')}")
+    
     return result
 
 ## 记录因果数据
-def trigger_causal_node(node_id, action_tag, block_tag, event_tuple, previous_node=None, full_image_url=None, owner_id="222302526", return_serial_id=None):
+def trigger_causal_node(node_id, action_tag, block_tag, event_tuple, config: RunnableConfig, previous_node=None, full_image_url=None, owner_id=None, return_serial_id=True):
     """
     进行因果事件记录。
-    
-    【叙事清晰度】事件以 event_tuple（二元组 "谁|做了什么"）为初始形态，
-    随时间推移和观测积累可向六元组（时|地|人|起|冲|结）膨胀；
-    反之，缺乏持续观测的事件会坍缩为标签 [已提炼] 并进入地宫。
-    
+ 
     参数:
-    - node_id (str): 事件的唯一标识（建议使用因果描述）
+    - node_id (str): 事件的唯一标识（建议使用因果事件内容提炼为简要标题）
     - action_tag (str): 动作标签，可选值：贞、又贞、对贞
     - block_tag (str): 因缘标签，可选值：因、相、果
     - event_tuple (str): 事件二元组内容描述
-    - previous_node (str/list, optional): 前事件ID（因果链中的前置事件），可以是单个字符串或列表（多前事件），默认为None（首贞）
+    - previous_node (str/list, optional): 前事件node_id（因果链中的前置事件），可以是单个字符串或列表（多前事件），默认为None（首贞）
     - full_image_url (str, optional): 全息图片URL，默认为None
-    - owner_id (str, optional): 事件拥有者ID，默认为"222302526"
-    - return_serial_id (bool, optional): 是否返回物理序列ID，默认为None（使用系统默认配置）
+    - owner_id (str, optional): 事件拥有者ID，**若非用户指定，请保持默认值为None**
+    - return_serial_id (bool, optional): 是否返回物理序列ID，默认为True
     
     返回:
     - dict: API响应结果
@@ -319,7 +255,7 @@ def trigger_causal_node(node_id, action_tag, block_tag, event_tuple, previous_no
         block_tag="因",
         event_tuple="那一天阴云密布...",
         full_image_url="uploads/raw/zhen.png",
-        owner_id="worker"
+        owner_id="222302526"
     )
     
     # 发起又贞（事件链的中间事件）
@@ -329,7 +265,7 @@ def trigger_causal_node(node_id, action_tag, block_tag, event_tuple, previous_no
         block_tag="因",
         event_tuple="不觉到了丙申那天...",
         previous_node="王占曰：吉，其来",
-        owner_id="worker"
+        owner_id="222302526"
     )
     
     # 发起对贞（事件链的结果事件）
@@ -339,11 +275,18 @@ def trigger_causal_node(node_id, action_tag, block_tag, event_tuple, previous_no
         block_tag="果",
         event_tuple="终于在距离首贞十二天后...",
         previous_node="丙申，王占曰：吉",
-        owner_id="worker"
+        owner_id="222302526"
     )
+
+    注意:
+    - 若非用户的明确示意，在执行此工具前必须征求用户同意
+    - 如果`action_tag`为`对贞`时，`block_tag`必须为`果`
     """
     import requests
-    url = "http://127.0.0.1:8094/api/v1/causal/genesis"
+    url = "http://192.168.66.39:8094/api/v1/causal/genesis"
+    
+    if owner_id is None:
+        owner_id = owner_id or config["configurable"]["data"]["source_id"]
     
     payload = {
         "node_id": node_id,
@@ -351,14 +294,12 @@ def trigger_causal_node(node_id, action_tag, block_tag, event_tuple, previous_no
         "block_tag": block_tag,
         "action_tag": action_tag,
         "event_tuple": event_tuple,
-        "owner_id": owner_id
+        "owner_id": owner_id,
+        "return_serial_id": return_serial_id
     }
     
     if full_image_url:
         payload["full_image_url"] = full_image_url
-        
-    if return_serial_id is not None:
-        payload["return_serial_id"] = return_serial_id
     
     response = requests.post(url, json=payload)
     result = response.json()
@@ -366,8 +307,8 @@ def trigger_causal_node(node_id, action_tag, block_tag, event_tuple, previous_no
     return result
 
 ## 修改因果数据事件节点
-def update_causal_node(old_node_id, new_node_id, event_tuple=None, full_image_url=None, 
-                       previous_ids=None, action_tag=None, block_tag=None, owner_id="222302526"):
+def update_causal_node(old_node_id, new_node_id, config: RunnableConfig, event_tuple=None, full_image_url=None, 
+                       previous_ids=None, action_tag=None, block_tag=None, owner_id=None):
     """
     编辑因果事件
     
@@ -376,10 +317,10 @@ def update_causal_node(old_node_id, new_node_id, event_tuple=None, full_image_ur
     - new_node_id (str): 新事件ID（如果要修改事件ID）
     - event_tuple (str, optional): 新的事件叙述
     - full_image_url (str, optional): 新的图片URL
-    - previous_ids (str/list, optional): 新的前事件ID列表，可以是字符串（|分隔）或列表
+    - previous_ids (str/list, optional): 新的前事件ID列表，单个前事件直接写前事件node_id，多个前事件用`|`分隔node_id
     - action_tag (str, optional): 新的动作标签
     - block_tag (str, optional): 新的因缘标签
-    - owner_id (str, optional): 事件拥有者ID，默认为"222302526"
+    - owner_id (str, optional): 事件拥有者ID，默认为None
     
     返回:
     - dict: API响应结果
@@ -411,7 +352,10 @@ def update_causal_node(old_node_id, new_node_id, event_tuple=None, full_image_ur
     )
     """
     import requests
-    url = "http://127.0.0.1:8094/api/v1/causal/update"
+    url = "http://192.168.66.39:8094/api/v1/causal/update"
+    
+    if not owner_id:
+        owner_id = config["configurable"]["data"]["source_id"]
     
     payload = {
         "old_node_id": old_node_id,
@@ -440,13 +384,13 @@ def update_causal_node(old_node_id, new_node_id, event_tuple=None, full_image_ur
     return result
 
 ## 删除因果数据事件节点
-def delete_causal_node(node_id, owner_id="222302526"):
+def delete_causal_node(node_id, config: RunnableConfig, owner_id=None):
     """
     删除因果事件
     
     参数:
     - node_id (str): 要删除的事件ID
-    - owner_id (str, optional): 事件拥有者ID，默认为"222302526"
+    - owner_id (str, optional): 事件拥有者ID，**若非用户指定，请保持默认值为None**
     
     返回:
     - dict: API响应结果
@@ -461,8 +405,10 @@ def delete_causal_node(node_id, owner_id="222302526"):
     示例:
     delete_causal_node("王占曰：吉，其来")
     """
+    owner_id = owner_id or config["configurable"]["data"]["source_id"]
+        
     import requests
-    url = "http://127.0.0.1:8094/api/v1/causal/delete"
+    url = "http://192.168.66.39:8094/api/v1/causal/delete"
     
     payload = {
         "node_id": node_id,
@@ -475,14 +421,14 @@ def delete_causal_node(node_id, owner_id="222302526"):
     return result
 
 ## 因果链骨架查询
-def get_causal_skeleton(serial_id, actor_id=None, owner_id="222302526"):
+def get_causal_skeleton(serial_id, config: RunnableConfig, actor_id=None, owner_id=None):
     """
     获取事件的因果链全息图骨架
     
     参数:
     - serial_id (int): 事件的物理序列ID（必需）
-    - actor_id (str, optional): 用户ID，如果提供则返回用户个性化权重
-    - owner_id (str, optional): 事件拥有者ID，默认为"222302526"
+    - actor_id (str, optional): 用户ID，如果提供则返回用户个性化权重,默认值为None
+    - owner_id (str, optional): 事件拥有者ID，默认值为None
     
     返回:
     - dict: API响应结果
@@ -491,27 +437,25 @@ def get_causal_skeleton(serial_id, actor_id=None, owner_id="222302526"):
     result = get_causal_skeleton(312)
     """
     import requests
-    url = "http://127.0.0.1:8094/api/v1/causal/skeleton"
+    url = "http://192.168.66.39:8094/api/v1/causal/skeleton"
+ 
+    owner_id = owner_id or config["configurable"]["data"]["source_id"]
+    actor_id = actor_id or config["configurable"]["data"]["from_user"]["user_id"]
     
     payload = {
         "serial_id": serial_id,
         "owner_id": owner_id
     }
-    
-    if actor_id is not None:
-        payload["actor_id"] = actor_id
-    
+
     response = requests.post(url, json=payload)
     return response.json()
 
 ## 获取当前事件视界
-def get_current_event_horizon(actor_id="415135222", owner_id="222302526", max_eyes=None):
+def get_current_event_horizon(config: RunnableConfig, actor_id=None, owner_id=None, max_eyes=None):
     """
     获取当前观测者在指定因果场中的事件视界。
-    系统自动找到当前大股东节点（最高 survival_weight 事件），并以该节点为中心，
-    返回语义距离 <= MAX_EYES 的光锥截面内的所有相关事件。
-    注意：不同 actor_id 在同一 owner_id 的因果场中的大股东节点可能不同——
-    这是因果场的参考系依赖效应。
+    系统自动找到当前大股东节点（最高 survival_weight 事件），并以该节点为中心，返回语义距离 <= MAX_EYES 的光锥截面内的所有相关事件。
+    不同 actor_id 对同一 owner_id 的大股东节点可能不同——因果场的参考系依赖。
     
     参数:
     - actor_id (str, optional): 用户ID，默认为"415135222"
@@ -523,10 +467,15 @@ def get_current_event_horizon(actor_id="415135222", owner_id="222302526", max_ey
     """
     import requests
     
-    url = f"http://127.0.0.1:8094/api/v1/causal/history"
+    owner_id = owner_id or config["configurable"]["data"]["source_id"]
+    actor_id = actor_id or config["configurable"]["data"]["from_user"]["user_id"]
+    
+    
+    url = f"http://192.168.66.39:8094/api/v1/causal/history"
     params = {
         "actor_id": actor_id,
-        "owner_id": owner_id
+        "owner_id": owner_id,
+        "max_eyes": max_eyes
     }
     
     try:
@@ -560,7 +509,7 @@ def get_current_event_horizon(actor_id="415135222", owner_id="222302526", max_ey
                     print(f"使用用户 {actor_id} 适时的 max_eyes: {max_eyes}")
                     
                 print(f"找到当前大股东节点: {boss_node_id} (serial_id: {serial_id})，正在获取事件视界...")
-                return search_causal_by_serial(serial_id=serial_id, actor_id=actor_id, owner_id=owner_id, max_eyes=max_eyes)
+                return f'请执行工具：\nsearch_causal_by_serial(serial_id="{serial_id}", actor_id="{actor_id}", owner_id="{owner_id}", max_eyes={max_eyes})'
             else:
                 print(f"数据异常：未在节点列表中找到大股东节点 {boss_node_id} 的详细信息")
                 return {"status": "error", "message": "未找到大股东节点详细信息"}
@@ -571,11 +520,3 @@ def get_current_event_horizon(actor_id="415135222", owner_id="222302526", max_ey
     except requests.exceptions.RequestException as e:
         print(f"请求失败，请检查后端服务是否运行: {e}")
         return {"status": "error", "message": str(e)}
-
-if __name__ == "__main__":
-    response = search_causal_by_serial(serial_id=501, owner_id="test")
-    # response = trigger_causal_node(node_id="test", action_tag="贞", block_tag="因", event_tuple="这是一个测试节点", previous_node=None, full_image_url=None, owner_id="222302526", return_serial_id=True)
-    import json
-    print("\n\n")
-    print("*" * 60)
-    print(json.dumps(response, ensure_ascii=False, indent=4))

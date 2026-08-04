@@ -115,7 +115,7 @@ metabolism = MetabolismEngine(socket_manager=sm, decay_rate=0.03, tick_interval=
 # AINS 协议模型
 class CausalNodeRequest(BaseModel):
     node_id: str
-    previous_node: Optional[Union[str, List[str]]] = None
+    parent_id: Optional[Union[str, List[str]]] = None
     block_tag: str = "因"
     action_tag: str = "贞"
     event_tuple: str
@@ -164,7 +164,7 @@ async def get_similar_nodes(node_id: str, limit: int = 5, threshold: float = 0.5
         for node in similar_nodes:
             formatted_nodes.append({
                 'node_id': node['node_id'],
-                'previous_ids': node.get('previous_ids', []),
+                'parent_ids': node.get('previous_ids', []),
                 'block_tag': node.get('block_tag'),
                 'action_tag': node.get('action_tag'),
                 'event_tuple': node.get('event_tuple'),
@@ -407,7 +407,7 @@ async def update_node(update_data: dict):
         new_node_id = update_data.get('new_node_id')
         event_tuple = update_data.get('event_tuple')
         full_image_url = update_data.get('full_image_url')
-        previous_ids = update_data.get('previous_ids')
+        parent_ids = update_data.get('parent_ids')
         owner_id = update_data.get('owner_id', 'default')
         
         if not old_node_id or not new_node_id:
@@ -443,32 +443,32 @@ async def update_node(update_data: dict):
             update_node_data['block_tag'] = original_node.get('block_tag')
         
         # 处理父ID
-        previous_ids_list = []
-        if previous_ids is not None:
+        parent_ids_list = []
+        if parent_ids is not None:
             # 解析父ID字符串为列表
-            if isinstance(previous_ids, str):
-                if previous_ids.strip():
-                    previous_ids_list = [pid.strip() for pid in previous_ids.split('|') if pid.strip()]
+            if isinstance(parent_ids, str):
+                if parent_ids.strip():
+                    parent_ids_list = [pid.strip() for pid in parent_ids.split('|') if pid.strip()]
                 else:
-                    previous_ids_list = []
-            elif isinstance(previous_ids, list):
-                previous_ids_list = previous_ids
+                    parent_ids_list = []
+            elif isinstance(parent_ids, list):
+                parent_ids_list = parent_ids
             else:
-                previous_ids_list = []
+                parent_ids_list = []
         
-        print(f"[更新节点] 父ID处理: previous_ids={previous_ids}, previous_ids_list={previous_ids_list}")
+        print(f"[更新节点] 父ID处理: parent_ids={parent_ids}, parent_ids_list={parent_ids_list}")
         
         # 检查是否为首贞（父ID为空）
-        is_first_node = not previous_ids_list
+        is_first_node = not parent_ids_list
         print(f"[更新节点] 是否为首贞: {is_first_node}")
         
         # 如果有父节点，验证它们是否存在
-        if previous_ids_list:
+        if parent_ids_list:
             missing_parents = []
-            for previous_id in previous_ids_list:
-                parent = db.get_node_by_id(previous_id)
+            for parent_id in parent_ids_list:
+                parent = db.get_node_by_id(parent_id)
                 if not parent:
-                    missing_parents.append(previous_id)
+                    missing_parents.append(parent_id)
             
             if missing_parents:
                 return {
@@ -483,8 +483,8 @@ async def update_node(update_data: dict):
             print(f"[更新节点] 设置前事件为空列表（首贞）")
         else:
             # 非首贞：有前事件
-            update_node_data['previous_ids'] = previous_ids_list
-            print(f"[更新节点] 设置前事件为: {previous_ids_list}")
+            update_node_data['previous_ids'] = parent_ids_list
+            print(f"[更新节点] 设置前事件为: {parent_ids_list}")
         
         # 设置标签（如果是首贞，强制设置为"贞"和"因"）
         if is_first_node:
@@ -503,12 +503,12 @@ async def update_node(update_data: dict):
             elif original_node.get('block_tag'):
                 update_node_data['block_tag'] = original_node.get('block_tag')
         
-        # 如果node_id改变了，需要更新所有子事件的previous_id
+        # 如果node_id改变了，需要更新所有子事件的parent_id
         if old_node_id != new_node_id:
             # 更新当前事件
             db.update_node(old_node_id, update_node_data)
             
-            # 更新所有子事件的previous_id
+            # 更新所有子事件的parent_id
             db.update_children_parent_id(old_node_id, new_node_id)
             
             message = f"事件ID已从 '{old_node_id}' 更新为 '{new_node_id}'，并更新了所有子事件"
@@ -685,8 +685,9 @@ async def search_by_keyword(search_data: dict):
                 "action_tag": result.get("动作标签"),
                 "full_image_url": result.get("截图"),
                 "owner_id": result.get("事件拥有者"),
-                "previous_ids": result.get("前事件ID列表", []) or [],
-                "next_ids": result.get("后续事件ID列表", []) or [],
+                "parent_ids": result.get("前事件标题列表", []),
+                "preview_id": result.get("前事件ID列表"),
+                "next_ids": result.get("后续事件ID列表", []),
                 "search_mode": "keyword"  # 标识为关键字搜索，帮助 Agent 理解相似度基于 V5 字面匹配算法
             }
             converted_results.append(converted)
@@ -747,8 +748,9 @@ async def search_by_vector(search_data: dict):
                 "action_tag": result.get("动作标签"),
                 "full_image_url": result.get("截图"),
                 "owner_id": result.get("事件拥有者"),
-                "previous_ids": result.get("前事件ID列表", []) or [],
-                "next_ids": result.get("后续事件ID列表", []) or [],
+                "parent_ids": result.get("前事件标题列表", []),
+                "preview_id": result.get("前事件ID列表"),
+                "next_ids": result.get("后续事件ID列表", []),
                 "relevance_score": result.get("本事件相关度", 0),
                 "vector_similarity": similarity,
                 "search_mode": "vector"  # 标识为向量搜索，帮助 Agent 理解相似度基于语义空间
@@ -803,8 +805,9 @@ async def search_by_serial(search_data: dict):
             "action_tag": result.get("动作标签"),
             "full_image_url": result.get("截图"),
             "owner_id": result.get("事件拥有者"),
-            "previous_ids": result.get("前事件ID列表", []) or [],
-            "next_ids": result.get("后续事件ID列表", []) or [],
+            "parent_ids": result.get("前事件标题列表", []),
+            "preview_id": result.get("前事件ID列表"),
+            "next_ids": result.get("后续事件ID列表", []),
             "actor_id": actor_id if actor_id else None  # 添加actor_id字段
         }
         
@@ -875,8 +878,9 @@ async def handle_node_click(request: Request):
             "action_tag": search_result.get("动作标签"),
             "full_image_url": search_result.get("截图"),
             "owner_id": search_result.get("事件拥有者"),
-            "previous_ids": search_result.get("前事件ID列表", []) or [],
-            "next_ids": search_result.get("后续事件ID列表", []) or []
+            "parent_ids": search_result.get("前事件标题列表", []),
+            "preview_id": search_result.get("前事件ID列表"),
+            "next_ids": search_result.get("后续事件ID列表", [])
         }
         
         node_id = node.get('node_id')
@@ -966,9 +970,9 @@ async def handle_node_click(request: Request):
         # 4.5 注入因果链 serial_id 列表（多因多果）
         # 覆盖 get_node_by_id 返回的标题列表，改为 serial_id 整数列表
         node_links = db.get_node_links(node_id)
-        current_node['previous_ids'] = node_links.get('previous_ids', [])
+        current_node['parent_ids'] = node_links.get('previous_ids', [])
         current_node['next_ids'] = node_links.get('next_ids', [])
-        print(f"[点击事件] 因果链: previous_ids={current_node['previous_ids']}, next_ids={current_node['next_ids']}")
+        print(f"[点击事件] 因果链: parent_ids={current_node['parent_ids']}, next_ids={current_node['next_ids']}")
         
         # 5. 广播所有更新的事件
         for updated_node in updated_nodes:
@@ -997,8 +1001,8 @@ async def handle_node_click(request: Request):
                 updated_node['action_tag'] = current_node['action_tag']
             if 'full_image_url' not in updated_node and 'full_image_url' in current_node:
                 updated_node['full_image_url'] = current_node['full_image_url']
-            if 'previous_ids' not in updated_node and 'previous_ids' in current_node:
-                updated_node['previous_ids'] = current_node['previous_ids']
+            if 'parent_ids' not in updated_node and 'parent_ids' in current_node:
+                updated_node['parent_ids'] = current_node['parent_ids']
             # 同步 previous_ids（内部字段）
             if 'previous_ids' not in updated_node and 'previous_ids' in current_node:
                 updated_node['previous_ids'] = current_node['previous_ids']
@@ -1085,31 +1089,31 @@ async def create_genesis_node(node: CausalNodeRequest):
     """
     职责：接收因果推演请求。
     逻辑：
-    1. 如果指定 previous_node，必须验证其在数据库中是否存在（溯源）。
+    1. 如果指定 parent_id，必须验证其在数据库中是否存在（溯源）。
     2. 严格执行 INSERT， node_id 重复则报错（禁止覆盖）。
-    3. 对于首贞（没有父节点），强制设置：previous_node=None, action_tag="贞", block_tag="因"
+    3. 对于首贞（没有父节点），强制设置：parent_id=None, action_tag="贞", block_tag="因"
     """
     
     # 处理父节点ID：可能是字符串、列表或|分隔的字符串
-    previous_ids = []
-    if node.previous_node is not None:
-        if isinstance(node.previous_node, list):
-            previous_ids = node.previous_node
-        elif isinstance(node.previous_node, str):
+    parent_ids = []
+    if node.parent_id is not None:
+        if isinstance(node.parent_id, list):
+            parent_ids = node.parent_id
+        elif isinstance(node.parent_id, str):
             # 如果是|分隔的字符串，解析为列表
-            if '|' in node.previous_node:
-                previous_ids = [pid.strip() for pid in node.previous_node.split('|') if pid.strip()]
+            if '|' in node.parent_id:
+                parent_ids = [pid.strip() for pid in node.parent_id.split('|') if pid.strip()]
             else:
-                previous_ids = [node.previous_node.strip()] if node.previous_node.strip() else []
+                parent_ids = [node.parent_id.strip()] if node.parent_id.strip() else []
     
     # 1. 因果溯源校验（支持多父节点）
-    if previous_ids:
+    if parent_ids:
         # 验证所有父节点是否存在
         missing_parents = []
-        for previous_id in previous_ids:
-            parent = db.get_node_by_id(previous_id)
+        for parent_id in parent_ids:
+            parent = db.get_node_by_id(parent_id)
             if not parent:
-                missing_parents.append(previous_id)
+                missing_parents.append(parent_id)
         
         if missing_parents:
             return {
@@ -1118,7 +1122,7 @@ async def create_genesis_node(node: CausalNodeRequest):
             }
     
     # 2. 确定是否为首贞（没有父节点）
-    is_first_node = not previous_ids
+    is_first_node = not parent_ids
     
     # 3. 构造新事件字典
     new_node = {
@@ -1132,10 +1136,10 @@ async def create_genesis_node(node: CausalNodeRequest):
     # 设置父节点
     if is_first_node:
         # 首贞：没有父节点
-        new_node["previous_node"] = None
+        new_node["parent_id"] = None
     else:
         # 非首贞：有父节点
-        new_node["previous_node"] = previous_ids
+        new_node["parent_id"] = parent_ids
     
     # 设置标签
     if is_first_node:

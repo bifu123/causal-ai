@@ -39,13 +39,13 @@ description: 处理因果链数据和有关因果AI的专用技能。了解事�
 ## 常用操作组合
 
 ### 因果事件推理（局部）
-1. 将用户问题中的关键字作为参数之一，使用`search_causal_by_keyword`工具查询相关事件列表，将获得事件ID。**可以尝试更细小颗粒的关键词来提高搜索命中率**
-2. 使用获取的事件ID作为`search_causal_by_serial`的参数之一，从而得到当前事件详情和前事件ID（父ID）列表、后续事件ID（子ID）列表
+1. 将用户问题中的关键字作为参数之一，使用`search_causal_by_embed`或`search_causal_by_keyword`工具查询相关事件列表，将获得事件ID。**如果使用`search_causal_by_keyword`，可以尝试更细小颗粒的关键词来扩大搜索范围**
+2. 使用获取的事件ID作为`search_causal_by_serial`的参数之一，从而得到当前`事件视界`内的内容（见`事件视界返回数据解读.md`），其中包含当前事件详情以及前事件ID（父ID）列表`previous_ids`、后续事件ID（子ID）列表`next_ids`（均为 serial_id 整数列表，无则为 `[]`）
 3. 根据需要，使用前事件ID（父ID）、后续事件ID（子ID）、继续使用`search_causal_by_serial`工具来历经因果事件链，从而获得体系的、更科学的数据记录
-4. 如果已有数据足以回答用户问题时，回复用户问题
+4. 如果已有数据逻辑足以回答用户问题时，回复用户问题
 
 ### 因果事件推理（全局）
-1. 将用户问题中的关键字作为参数之一，使用`search_causal_by_keyword`工具查询相关事件列表，将获得事件ID。**可以尝试更细小颗粒的关键词来提高搜索命中率**
+1. 将用户问题中的关键字作为参数之一，使用`search_causal_by_embed`或`search_causal_by_keyword`工具查询相关事件列表，将获得事件ID。**如果使用`search_causal_by_keyword`，可以尝试更细小颗粒的关键词来扩大搜索范围**
 2. 使用当前瞄定的事件ID作为参数之一，使用`get_causal_skeleton`工具获取整个因果事件链的全息图骨架，从而知晓该链的全局概貌
 3. 使用因果骨架中事件ID作为`search_causal_by_serial`的参数之一，从根事件级依次遍历各层级节点，从而了解整个事件链的所有节点信息
 4. 根据对整个因果事件链的读取了解，回复用户问题

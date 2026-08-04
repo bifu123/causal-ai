@@ -32,30 +32,30 @@ class CausalDatabase:
             raise e
     
     @staticmethod
-    def _parents_to_string(parent_ids):
+    def _previous_to_string(previous_ids):
         """
-        职责：将父节点ID列表转换为|分隔的字符串
+        职责：将前事件ID列表转换为|分隔的字符串
         """
-        if not parent_ids:
+        if not previous_ids:
             return None
-        if isinstance(parent_ids, list):
+        if isinstance(previous_ids, list):
             # 过滤空值并去重
-            filtered_ids = [str(pid).strip() for pid in parent_ids if pid and str(pid).strip()]
+            filtered_ids = [str(pid).strip() for pid in previous_ids if pid and str(pid).strip()]
             if not filtered_ids:
                 return None
             return '|'.join(filtered_ids)
-        return str(parent_ids).strip() if str(parent_ids).strip() else None
+        return str(previous_ids).strip() if str(previous_ids).strip() else None
     
     @staticmethod
-    def _string_to_parents(parent_str):
+    def _string_to_previous(parent_str):
         """
-        职责：将|分隔的字符串解析为父节点ID列表
+        职责：将|分隔的字符串解析为前事件ID列表
         """
         if not parent_str:
             return []
         # 分割字符串，过滤空值并去重
-        parents = [pid.strip() for pid in str(parent_str).split('|') if pid.strip()]
-        return list(dict.fromkeys(parents))  # 保持顺序并去重
+        previous = [pid.strip() for pid in str(parent_str).split('|') if pid.strip()]
+        return list(dict.fromkeys(previous))  # 保持顺序并去重
 
     def _init_db(self):
         """
@@ -146,16 +146,82 @@ class CausalDatabase:
                     node['serial_id'] = None
                 if 'parent_id' in node:
                     # 将|分隔的字符串解析为列表
-                    node['parent_ids'] = self._string_to_parents(node.get('parent_id'))
+                    node['previous_ids'] = self._string_to_previous(node.get('parent_id'))
+                    # 重命名 parent_id → previous_node（API 字段名统一，存的是 node_id 标题）
+                    node['previous_node'] = node.pop('parent_id')
             return node
+
+    def get_node_links(self, node_id: str):
+        """
+        职责：获取节点的因果链 serial_id 列表（多因多果）
+        参数：
+            node_id: 当前节点的 node_id（标题）
+        返回：
+            dict: {
+                "previous_ids": [前事件 serial_id 整数列表]，无则为 []
+                "next_ids": [后事件 serial_id 整数列表]，无则为 []
+            }
+        说明：
+            - parent_id 字段在数据库中以 | 分隔的字符串存储，支持多前事件
+            - 查询子节点时使用 | 分隔符匹配，兼容多因多果
+        """
+        # 1. 查询父节点 serial_id 列表
+        parent_sql = """
+            SELECT parent.serial_id
+            FROM ains_active_nodes parent
+            WHERE parent.node_id = ANY(string_to_array(%s, '|'))
+        """
+        # 2. 查询子节点 serial_id 列表（parent_id 字段以 | 分隔，需用 LIKE 匹配）
+        next_sql = """
+            SELECT sub.serial_id
+            FROM ains_active_nodes sub
+            WHERE ('|' || sub.parent_id || '|') LIKE '%%|' || %s || '|%%'
+        """
+
+        result = {"previous_ids": [], "next_ids": []}
+
+        try:
+            with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
+                # 先获取当前节点的 parent_id 字符串
+                cur.execute(
+                    "SELECT parent_id FROM ains_active_nodes WHERE node_id = %s",
+                    (node_id,),
+                )
+                row = cur.fetchone()
+                parent_id_str = row.get("parent_id") if row else None
+
+                # 查询前事件 serial_id
+                if parent_id_str:
+                    cur.execute(parent_sql, (parent_id_str,))
+                    parent_rows = cur.fetchall()
+                    result["previous_ids"] = [
+                        int(r["serial_id"])
+                        for r in parent_rows
+                        if r["serial_id"] is not None
+                    ]
+
+                # 查询子节点 serial_id
+                cur.execute(next_sql, (node_id,))
+                next_rows = cur.fetchall()
+                result["next_ids"] = [
+                    int(r["serial_id"])
+                    for r in next_rows
+                    if r["serial_id"] is not None
+                ]
+
+        except Exception as e:
+            print(f"[数据库错误] 获取节点链路失败: {e}")
+
+        return result
 
     def insert_node(self, node_data: dict):
         """
         职责：严格执行 INSERT。如果 node_id 已存在，将触发唯一约束异常，防止覆盖。
         """
-        # 处理父节点：将列表转换为|分隔的字符串
-        parent_ids = node_data.get('parent_id')
-        parent_id_str = self._parents_to_string(parent_ids)
+        # 处理前事件：将列表转换为|分隔的字符串
+        # main.py genesis 端点传递的键名为 previous_node（可能是列表或 None）
+        previous_ids = node_data.get('previous_node')
+        parent_id_str = self._previous_to_string(previous_ids)
         
         # 获取owner_id，默认为'default'
         owner_id = node_data.get('owner_id', 'default')
@@ -219,10 +285,11 @@ class CausalDatabase:
         with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute(sql, tuple(params))
             nodes = cur.fetchall()
-            # 为每个节点解析父节点列表
+            # 为每个节点解析前事件列表
             for node in nodes:
                 if 'parent_id' in node:
-                    node['parent_ids'] = self._string_to_parents(node.get('parent_id'))
+                    node['previous_ids'] = self._string_to_previous(node.get('parent_id'))
+                    node['previous_node'] = node.pop('parent_id')
             return nodes
 
     def delete_node(self, node_id: str):
@@ -344,13 +411,13 @@ class CausalDatabase:
             update_values.append(node_data['block_tag'])
             print(f"[数据库更新] 更新block_tag: {node_data['block_tag']}")
         
-        # 处理父节点ID
-        if 'parent_ids' in node_data:
-            # 将父节点ID列表转换为|分隔的字符串
-            parent_id_str = self._parents_to_string(node_data['parent_ids'])
+        # 处理前事件ID
+        if 'previous_ids' in node_data:
+            # 将前事件ID列表转换为|分隔的字符串
+            parent_id_str = self._previous_to_string(node_data['previous_ids'])
             update_fields.append("parent_id = %s")
             update_values.append(parent_id_str)
-            print(f"[数据库更新] 更新parent_id: {parent_id_str} (原始列表: {node_data['parent_ids']})")
+            print(f"[数据库更新] 更新parent_id: {parent_id_str} (原始列表: {node_data['previous_ids']})")
         
         # 总是更新 last_accessed
         update_fields.append("last_accessed = CURRENT_TIMESTAMP")
@@ -476,67 +543,67 @@ class CausalDatabase:
             except Exception as e:
                 print(f"[文件系统警告] 删除图片文件失败: {e}")
 
-    def update_children_to_new_parent(self, old_parent_id: str, new_parent_ids):
+    def update_children_to_new_previous(self, old_previous_id: str, new_previous_ids):
         """
-        职责：将子事件的父ID更新为新的父ID（支持多父节点）
+        职责：将子事件的前事件ID更新为新的前事件ID（支持多前事件）
         """
-        # 获取所有以old_parent_id为父节点的子节点
+        # 获取所有以old_previous_id为前事件的子节点
         sql = "SELECT node_id, parent_id FROM ains_active_nodes WHERE parent_id LIKE %s"
         with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute(sql, (f'%{old_parent_id}%',))
+            cur.execute(sql, (f'%{old_previous_id}%',))
             children = cur.fetchall()
             
             for child in children:
-                # 解析子节点的当前父节点列表
-                current_parents = self._string_to_parents(child['parent_id'])
+                # 解析子节点的当前前事件列表
+                current_previous = self._string_to_previous(child['parent_id'])
                 
-                # 替换old_parent_id为new_parent_ids
-                new_parents = []
-                for parent in current_parents:
-                    if parent == old_parent_id:
-                        # 如果是被删除的父节点，替换为新的父节点列表
-                        if isinstance(new_parent_ids, list):
-                            new_parents.extend(new_parent_ids)
+                # 替换old_previous_id为new_previous_ids
+                new_previous = []
+                for prev in current_previous:
+                    if prev == old_previous_id:
+                        # 如果是被删除的前事件，替换为新的前事件列表
+                        if isinstance(new_previous_ids, list):
+                            new_previous.extend(new_previous_ids)
                         else:
-                            new_parents.append(new_parent_ids)
+                            new_previous.append(new_previous_ids)
                     else:
-                        # 保留其他父节点
-                        new_parents.append(parent)
+                        # 保留其他前事件
+                        new_previous.append(prev)
                 
                 # 去重
-                new_parents = list(dict.fromkeys(new_parents))
+                new_previous = list(dict.fromkeys(new_previous))
                 
-                # 更新子节点的父节点
-                new_parent_str = self._parents_to_string(new_parents)
+                # 更新子节点的前事件
+                new_previous_str = self._previous_to_string(new_previous)
                 update_sql = "UPDATE ains_active_nodes SET parent_id = %s WHERE node_id = %s"
-                cur.execute(update_sql, (new_parent_str, child['node_id']))
+                cur.execute(update_sql, (new_previous_str, child['node_id']))
 
-    def update_children_to_null_parent(self, parent_id: str):
+    def update_children_to_null_previous(self, previous_id: str):
         """
-        职责：将子事件的父ID更新为NULL（支持多父节点）
+        职责：将子事件的前事件ID更新为NULL（支持多前事件）
         """
-        # 获取所有以parent_id为父节点的子节点
+        # 获取所有以previous_id为前事件的子节点
         sql = "SELECT node_id, parent_id FROM ains_active_nodes WHERE parent_id LIKE %s"
         with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute(sql, (f'%{parent_id}%',))
+            cur.execute(sql, (f'%{previous_id}%',))
             children = cur.fetchall()
             
             for child in children:
-                # 解析子节点的当前父节点列表
-                current_parents = self._string_to_parents(child['parent_id'])
+                # 解析子节点的当前前事件列表
+                current_previous = self._string_to_previous(child['parent_id'])
                 
-                # 移除被删除的父节点
-                new_parents = [p for p in current_parents if p != parent_id]
+                # 移除被删除的前事件
+                new_previous = [p for p in current_previous if p != previous_id]
                 
-                # 如果移除后没有父节点，设置为NULL，否则转换为字符串
-                if not new_parents:
-                    new_parent_str = None
+                # 如果移除后没有前事件，设置为NULL，否则转换为字符串
+                if not new_previous:
+                    new_previous_str = None
                 else:
-                    new_parent_str = self._parents_to_string(new_parents)
+                    new_previous_str = self._previous_to_string(new_previous)
                 
-                # 更新子节点的父节点
+                # 更新子节点的前事件
                 update_sql = "UPDATE ains_active_nodes SET parent_id = %s WHERE node_id = %s"
-                cur.execute(update_sql, (new_parent_str, child['node_id']))
+                cur.execute(update_sql, (new_previous_str, child['node_id']))
 
     def seal_to_necropolis(self, node_id: str):
         """
@@ -582,7 +649,7 @@ class CausalDatabase:
             import json
             holographic_bundle = {
                 "node_id": node['node_id'],
-                "parent_id": node.get('parent_id'),
+                "previous_node": node.get('previous_node', node.get('parent_id')),
                 "block_tag": node.get('block_tag'),
                 "action_tag": node.get('action_tag'),
                 "survival_weight": float(node['survival_weight']) if node.get('survival_weight') else 1.0,
@@ -796,17 +863,17 @@ class CausalDatabase:
             if not node:
                 return None
             
-            # 获取父节点
-            parent_ids = node.get('parent_ids', [])
+            # 获取前事件
+            previous_ids = node.get('previous_ids', [])
             
-            # 如果没有父节点，这就是根节点
-            if not parent_ids:
+            # 如果没有前事件，这就是根节点
+            if not previous_ids:
                 return current_id
             
-            # 递归查找父节点的根节点
-            # 如果有多个父节点，选择第一个父节点的根节点
-            if parent_ids:
-                return find_root(parent_ids[0], visited)
+            # 递归查找前事件的根节点
+            # 如果有多个前事件，选择第一个前事件的根节点
+            if previous_ids:
+                return find_root(previous_ids[0], visited)
             
             return None
         
@@ -892,15 +959,16 @@ class CausalDatabase:
         with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute(sql, (actor_id,))
             nodes = cur.fetchall()
-            # 为每个节点解析父节点列表
+            # 为每个节点解析前事件列表
             for node in nodes:
                 if 'parent_id' in node:
-                    node['parent_ids'] = self._string_to_parents(node.get('parent_id'))
+                    node['previous_ids'] = self._string_to_previous(node.get('parent_id'))
+                    node['previous_node'] = node.pop('parent_id')
                 # 使用用户权重覆盖全局权重
                 if node.get('user_weight') is not None:
                     node['survival_weight'] = node['user_weight']
             return nodes
-    
+
     def get_user_causal_chain(self, node_id: str, actor_id: str):
         """
         职责：获取用户视角下的因果链（包含用户权重）
@@ -925,7 +993,8 @@ class CausalDatabase:
                 node = cur.fetchone()
                 if node:
                     if 'parent_id' in node:
-                        node['parent_ids'] = self._string_to_parents(node.get('parent_id'))
+                        node['previous_ids'] = self._string_to_previous(node.get('parent_id'))
+                        node['previous_node'] = node.pop('parent_id')
                     # 使用用户权重覆盖全局权重
                     if node.get('user_weight') is not None:
                         node['survival_weight'] = node['user_weight']
@@ -1000,10 +1069,11 @@ class CausalDatabase:
             cur.execute(sql, (node_id, node_id, node_id, node_id, threshold, limit))
             nodes = cur.fetchall()
             
-            # 为每个节点解析父节点列表
+            # 为每个节点解析前事件列表
             for node in nodes:
                 if 'parent_id' in node:
-                    node['parent_ids'] = self._string_to_parents(node.get('parent_id'))
+                    node['previous_ids'] = self._string_to_previous(node.get('parent_id'))
+                    node['previous_node'] = node.pop('parent_id')
                 # 移除向量数据以减少传输量
                 if 'semantic_vector' in node:
                     del node['semantic_vector']
@@ -1078,8 +1148,8 @@ class CausalDatabase:
             
             # 后处理：多因多果 → 始终解析为列表，根据开关决定保留与否
             for node in nodes:
-                # 父链：原始 parent_id 字符串 → parent_ids 列表
-                node['parent_ids'] = self._string_to_parents(node.get('parent_id'))
+                # 前链：原始 parent_id 字符串 → previous_ids 列表（node_id 列表）
+                node['previous_ids'] = self._string_to_previous(node.get('parent_id'))
                 # 移除原始 parent_id 字符串（始终冗余）
                 node.pop('parent_id', None)
                 
@@ -1093,7 +1163,7 @@ class CausalDatabase:
                 
                 # 非焦点节点默认不返回因果链，节省 LLM Token
                 if not show_links:
-                    node.pop('parent_ids', None)
+                    node.pop('previous_ids', None)
                     node.pop('next_ids', None)
                     
             return nodes
@@ -1144,7 +1214,8 @@ class CausalDatabase:
             # 为每个节点解析父节点列表
             for node in nodes:
                 if 'parent_id' in node:
-                    node['parent_ids'] = self._string_to_parents(node.get('parent_id'))
+                    node['previous_ids'] = self._string_to_previous(node.get('parent_id'))
+                    node['previous_node'] = node.pop('parent_id')
             return nodes
     
     def promote_all_weights(self, node_id: str, actor_id=None, owner_id=None, set_as_boss=True):
