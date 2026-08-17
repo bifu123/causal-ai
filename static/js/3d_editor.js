@@ -300,7 +300,9 @@
         if (slider && slider.value) {
             params.append('max_eyes', slider.value);
         }
-        const shareUrl = `${baseUrl}?${params.toString()}`;
+        const shareUrl_human = `${baseUrl}?${params.toString()}`;
+        const shareUrl_agent = shareUrl_human.replace('3d', 'api/v1/causal/click');
+        const shareUrl = 'Agent:\n' + shareUrl_agent + '\n\n人类:\n' + shareUrl_human;
         console.log('[3d_editor] 分享链接:', shareUrl);
 
         try {

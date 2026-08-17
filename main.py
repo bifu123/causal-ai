@@ -649,8 +649,8 @@ async def get_causal_history(actor_id: str = None, owner_id: str = None):
         return {"status": "error", "message": str(e)}
 
 # --- 搜索接口：关键字搜索 ---
-@app.post("/api/v1/causal/search/keyword")
-async def search_by_keyword(search_data: dict):
+@app.api_route("/api/v1/causal/search/keyword", methods=["GET", "POST"])
+async def search_by_keyword(request: Request):
     """
     职责：根据关键字搜索事件节点
     支持参数：
@@ -659,9 +659,22 @@ async def search_by_keyword(search_data: dict):
         limit: 返回结果数量限制，如果为None则返回所有行
     """
     try:
+        if request.method == "POST":
+            try:
+                search_data = await request.json()
+            except Exception:
+                search_data = {}
+        else:
+            search_data = dict(request.query_params)
+
         keyword = search_data.get('keyword')
         owner_id = search_data.get('owner_id', 'default')
-        limit = search_data.get('limit', 100)
+        
+        limit_val = search_data.get('limit', 100)
+        try:
+            limit = int(limit_val) if limit_val is not None else None
+        except ValueError:
+            limit = 100
         
         if not keyword:
             return {"status": "error", "message": "缺少搜索关键词"}

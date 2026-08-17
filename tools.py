@@ -5,7 +5,7 @@
 #*************************
 
 ## 从关键字搜索事件列表
-def search_causal_by_keyword(keyword, owner_id='222302526', limit=100):
+def search_causal_by_keyword(keyword, owner_id='222302526', limit=100, method="POST"):
     """
     根据关键字搜索事件列表
     
@@ -13,6 +13,7 @@ def search_causal_by_keyword(keyword, owner_id='222302526', limit=100):
     - keyword (str): 搜索关键词，支持逻辑与（&）操作符
     - owner_id (str, optional): 事件拥有者ID，如果为None则搜索所有事件
     - limit (int, optional): 返回结果数量限制，默认为100
+    - method (str, optional): HTTP请求方法，"GET" 或 "POST"，默认为"POST"
     
     返回:
     - dict: API响应结果，包含：
@@ -41,6 +42,9 @@ def search_causal_by_keyword(keyword, owner_id='222302526', limit=100):
     
     # 搜索特定用户的事件
     results = search_causal_by_keyword("祭祀", owner_id="worker", limit=50)
+
+    # 也可以使用 GET 请求 (相当于请求 URL: http://127.0.0.1:8094/api/v1/causal/search/keyword?keyword=祭祀&owner_id=222302526&limit=10 )
+    results = search_causal_by_keyword("祭祀", owner_id="worker", limit=50, method="GET")
     """
     import requests
 
@@ -56,7 +60,10 @@ def search_causal_by_keyword(keyword, owner_id='222302526', limit=100):
     if limit is not None:
         payload["limit"] = limit
     
-    response = requests.post(url, json=payload)
+    if method.upper() == "GET":
+        response = requests.get(url, params=payload)
+    else:
+        response = requests.post(url, json=payload)
     result = response.json()
     
     if result.get('status') == 'success':

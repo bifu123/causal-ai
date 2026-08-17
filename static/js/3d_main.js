@@ -145,7 +145,7 @@ function showDivineBeam(node, colorType = 'divine') {
     
     // 1. 获取目标节点在引擎中的确切物理半径
     const MIN_RADIUS = 1.2;
-    const MAX_RADIUS = 9.0;
+    const MAX_RADIUS = 4.2;
     const REL_SIZE = 7;
     const weight = getVisualWeight(node.survival_weight);
     const targetRadius = MIN_RADIUS + (weight * (MAX_RADIUS - MIN_RADIUS));
@@ -1120,7 +1120,7 @@ function updateNodeIncremental(data) {
                 // 【核心修复3：平滑的三维视觉缩放】直接操作 Three.js Mesh，杜绝全图重绘导致抖动
                 if (gNode.__threeObj) {
                     const MIN_RADIUS = 1.2;
-                    const MAX_RADIUS = 9.0; // 统一为全局一致的 9.0
+                    const MAX_RADIUS = 4.2; // 统一为全局一致的 9.0
                     const REL_SIZE = 7;
                     const w = getVisualWeight(gNode.survival_weight);
                     const targetRadius = MIN_RADIUS + (w * (MAX_RADIUS - MIN_RADIUS));
@@ -2527,7 +2527,7 @@ window.addEventListener('load', () => {
 
     // --- [1. 核心常量配置] ---
     const MIN_RADIUS = 1.2;  // 最小半径（改小）
-    const MAX_RADIUS = 9.0;  // 最大半径（改大，增加视觉区分度）
+    const MAX_RADIUS = 4.2;  // 最大半径（改大，增加视觉区分度）
     const REL_SIZE = 7;      // 引擎缩放系数
     const FOCUS_DIST = 350;  // 聚焦时的相机距离
     const DRAWER_WIDTH = 450; // 右侧抽屉宽度（像素）- 与正确版本一致
@@ -2624,7 +2624,7 @@ window.addEventListener('load', () => {
                 );
                 // 标签大小控制：与节点大小成正比
                 // 基础缩放0.3，权重为1时缩放为0.7
-                const baseScale = 0.3 + (weight * 0.4);
+                const baseScale = 0.3 + (weight * 0.25);
                 const spriteHeight = texture.baseHeight * baseScale;
                 sprite.scale.set(texture.baseWidth * baseScale, spriteHeight, 1);
                 
@@ -3548,7 +3548,7 @@ window.addEventListener('load', () => {
                 console.log('父ID文本框点击，原始值:', originalValue);
                 
                 // 清空文本框
-                this.value = '';
+                // this.value = '';
                 console.log('父ID文本框已清空');
                 
                 // 设置 is_change = false
