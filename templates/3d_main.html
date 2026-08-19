@@ -4,26 +4,26 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
     <meta charset="UTF-8">
     <title>因果星空 - 3D 视觉实现 v1.0</title>
-    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <script src="/static/js/socket.io.min.js"></script>
     
     <!-- 关键修复：先加载THREE.js -->
     <!-- 使用明确创建全局THREE变量的版本 -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r110/three.min.js"></script>
+    <script src="/static/js/three.min.js"></script>
     
     <!-- 添加Tween.js用于相机动画 -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/tween.js/18.6.4/tween.umd.js"></script>
+    <script src="/static/js/tween.umd.js"></script>
     
     <!-- 加载d3.js库（3d-force-graph依赖） -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+    <script src="/static/js/d3.min.js"></script>
     
     <!-- 然后加载3d-force-graph，它会使用已存在的THREE实例 -->
-    <script src="https://cdn.jsdelivr.net/npm/3d-force-graph@1.70.0/dist/3d-force-graph.min.js"></script>
+    <script src="/static/js/3d-force-graph.min.js"></script>
     
     <link rel="stylesheet" href="/static/css/3d_main.css">
     <link rel="stylesheet" href="/static/css/3d_form.css">
     <!-- EasyMDE Markdown编辑器 -->
-    <link rel="stylesheet" href="https://unpkg.com/easymde/dist/easymde.min.css">
-    <script src="https://unpkg.com/easymde/dist/easymde.min.js"></script>
+    <link rel="stylesheet" href="/static/css/easymde.min.css">
+    <script src="/static/js/easymde.min.js"></script>
 </head>
 <body>
     <div id="3d-graph"></div>

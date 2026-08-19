@@ -718,7 +718,11 @@
     resize: none;
 }
 
-.event-tuple-modal-footer {
+.drawer-derive {
+        display: grid !important; visibility: visible !important; opacity: 1 !important;
+    }
+
+    .event-tuple-modal-footer {
     padding: 12px 24px;
     background: rgba(31, 41, 55, 0.8);
     border-top: 1px solid rgba(75, 85, 99, 0.5);
@@ -850,6 +854,10 @@
         width: 28px;
         height: 28px;
         font-size: 12px;
+    }
+
+    .drawer-derive {
+        display: grid !important; visibility: visible !important; opacity: 1 !important;
     }
 
     .event-tuple-modal-footer {
