@@ -35,14 +35,6 @@
         <div id="header">
             <h1>因果星空 · 3D 视觉实现</h1>
             <div class="subtitle">阶段一：逻辑建模期 · 骨架与巡航</div>
-            <div id="header-hud" class="header-hud">
-                <div class="header-hud-row">
-                    <span id="hud-serial">序列 <span>-</span></span>
-                    <span class="hud-sep">|</span>
-                    <span id="hud-weight">权重 <span class="hud-w-val">-</span> <span class="hud-w-stat"></span></span>
-                </div>
-                <div class="header-hud-event" id="hud-event">-</div>
-            </div>
         </div>
         
         <div id="node-info">

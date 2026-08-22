@@ -1056,6 +1056,236 @@ async def handle_node_click(request: Request):
         print(f"[API 错误] 点击事件处理失败: {e}")
         return {"status": "error", "message": str(e)}
 
+# --- 获取当前事件视界接口（同时支持 GET 和 POST）---
+@app.api_route("/api/v1/causal/horizon", methods=["GET", "POST"])
+async def get_current_event_horizon(request: Request):
+    """
+    职责：获取当前观测者在指定因果场中的事件视界。
+    系统自动找到当前大股东节点（最高 survival_weight 事件），并以该节点为中心，
+    返回语义距离 <= MAX_EYES 的光锥截面内的所有相关事件。
+    注意：不同 actor_id 在同一 owner_id 的因果场中的大股东节点可能不同——
+    这是因果场的参考系依赖效应。
+
+    支持参数：
+        actor_id: 用户ID（可选），用于个性化权重更新
+        owner_id: 事件拥有者ID（可选，默认 'default'）
+        max_eyes: 望远镜功率/事件视界半径（可选）
+
+    请求方式：
+        - POST: 参数通过 JSON body 传递（供 Agent/前端 JS 调用）
+        - GET: 参数通过 URL query string 传递（便于直接用浏览器/curl 访问）
+
+    返回:
+        - status: success / error
+        - data: 大股东节点全息内容（含 serial_id, node_id, event_tuple, previous_ids, next_ids 等）
+        - event_horizon: 视界内节点ID列表
+        - event_horizon_details: 视界内节点详情列表（含 distance）
+        - updated_count: 权重更新节点数
+        - actor_id: 观测者ID
+        - owner_id: 因果场拥有者ID
+        - max_eyes: 实际使用的视界半径
+
+    示例:
+
+    # 1. curl POST 示例
+    curl -X POST http://127.0.0.1:8094/api/v1/causal/horizon \
+      -H "Content-Type: application/json" \
+      -d '{"actor_id":"415135222","owner_id":"222302526","max_eyes":40}'
+
+    # 2. curl GET 示例
+    curl "http://127.0.0.1:8094/api/v1/causal/horizon?actor_id=415135222&owner_id=222302526&max_eyes=40"
+
+    # 3. 浏览器直接访问
+    http://127.0.0.1:8094/api/v1/causal/horizon?actor_id=415135222&owner_id=222302526
+    """
+    try:
+        # 根据请求方法提取参数
+        if request.method == "GET":
+            req_data = dict(request.query_params)
+            if 'max_eyes' in req_data:
+                try:
+                    req_data['max_eyes'] = float(req_data['max_eyes'])
+                except (ValueError, TypeError):
+                    pass
+        else:
+            req_data = await request.json()
+
+        actor_id = req_data.get('actor_id')
+        owner_id = req_data.get('owner_id', 'default')
+        req_max_eyes = req_data.get('max_eyes')
+
+        # 1. 获取指定 owner_id 的活跃事件（复用 history 逻辑）
+        active_nodes = db.get_all_active(owner_id)
+
+        # 2. 如果指定了 actor_id，应用用户个性化权重
+        if actor_id:
+            for node in active_nodes:
+                serial_id = node.get('serial_id')
+                if serial_id:
+                    user_weight = db.get_user_weight(actor_id, serial_id)
+                    if user_weight is not None:
+                        node['survival_weight'] = user_weight
+                    else:
+                        # 初始化默认权重
+                        default_weight = float(node.get('survival_weight', 1.0))
+                        db.set_user_weight(actor_id, serial_id, default_weight)
+                        node['survival_weight'] = default_weight
+
+        if not active_nodes:
+            return {"status": "error", "message": f"owner_id {owner_id} 的因果星空中还没有事件"}
+
+        # 3. 查找大股东节点（权重 >= 0.59）
+        boss_node_id = None
+        boss_serial_id = None
+        for node in active_nodes:
+            if float(node.get('survival_weight', 0)) >= 0.59:
+                boss_node_id = node.get('node_id')
+                boss_serial_id = node.get('serial_id')
+                break
+
+        if not boss_node_id:
+            return {
+                "status": "error", 
+                "message": f"该 actor_id ({actor_id}) 尚未对 owner_id ({owner_id}) 的因果星空实施观测，未找到大股东节点"
+            }
+
+        # 4. 处理 max_eyes（优先请求参数，其次缓存，最后 .env 默认值）
+        from dotenv import dotenv_values
+        env_config = dotenv_values(".env")
+
+        if req_max_eyes is not None:
+            try:
+                max_eyes = float(req_max_eyes)
+                if actor_id:
+                    cache_key = f"{actor_id}_{owner_id}"
+                    USER_MAX_EYES_CACHE[cache_key] = max_eyes
+            except (ValueError, TypeError):
+                max_eyes = float(env_config.get("MAX_EYES", 30))
+        else:
+            cache_key = f"{actor_id}_{owner_id}" if actor_id else None
+            cached_max_eyes = USER_MAX_EYES_CACHE.get(cache_key) if cache_key else None
+            if cached_max_eyes is not None:
+                max_eyes = cached_max_eyes
+            else:
+                max_eyes = float(env_config.get("MAX_EYES", 30))
+
+        print(f"[事件视界] 大股东节点: {boss_node_id} (serial_id: {boss_serial_id}), actor_id: {actor_id}, owner_id: {owner_id}, max_eyes: {max_eyes}")
+
+        # 5. 通过 serial_id 获取节点详细信息（复用 click 接口逻辑）
+        from core.search import get_event_by_sid
+        search_result = get_event_by_sid(boss_serial_id, actor_id=actor_id)
+        if not search_result:
+            return {"status": "error", "message": f"找不到 serial_id 为 {boss_serial_id} 的节点"}
+
+        node = {
+            "serial_id": search_result.get("本事件ID"),
+            "node_id": search_result.get("本事件标题"),
+            "event_tuple": search_result.get("事件二元组描述"),
+            "survival_weight": search_result.get("本事件权重"),
+            "block_tag": search_result.get("因缘标签"),
+            "action_tag": search_result.get("动作标签"),
+            "full_image_url": search_result.get("截图"),
+            "owner_id": search_result.get("事件拥有者"),
+            "previous_ids": search_result.get("前事件ID列表", []) or [],
+            "next_ids": search_result.get("后续事件ID列表", []) or []
+        }
+        node_id = node.get('node_id')
+        focal_owner_id = node.get('owner_id', owner_id)
+
+        # 6. 从地宫恢复内容（如果存在）
+        restored_node = db.restore_from_necropolis(node_id)
+        if restored_node:
+            print(f"[事件视界] 已从地宫恢复节点 {node_id} 的完整内容")
+            node = restored_node
+            node.pop('semantic_vector', None)
+            node.pop('visual_vector', None)
+
+        # 7. 计算事件视界
+        horizon_show_links = env_config.get("HORIZON_DETAIL", "0") == "1"
+        event_horizon_nodes = db.get_event_horizon(node_id, max_eyes, focal_owner_id, show_links=horizon_show_links)
+        event_horizon_ids = [n['node_id'] for n in event_horizon_nodes]
+        print(f"[事件视界] 扫描完成，半径: {max_eyes}，视界内节点数: {len(event_horizon_ids)}")
+
+        # 8. 提升节点权重到 60%（大股东模式）
+        updated_nodes = db.promote_all_weights(
+            node_id=node_id,
+            actor_id=actor_id,
+            owner_id=owner_id,
+            set_as_boss=True
+        )
+
+        # 9. 从更新节点中找到当前节点
+        current_node = None
+        for updated_node in updated_nodes:
+            if updated_node.get('node_id') == node_id:
+                current_node = updated_node
+                break
+        if not current_node:
+            current_node = node
+
+        # 10. 注入因果链 serial_id 列表
+        node_links = db.get_node_links(node_id)
+        current_node['previous_ids'] = node_links.get('previous_ids', [])
+        current_node['next_ids'] = node_links.get('next_ids', [])
+
+        # 11. 广播所有更新的事件
+        for updated_node in updated_nodes:
+            updated_node.pop('semantic_vector', None)
+            updated_node.pop('visual_vector', None)
+            if 'survival_weight' in updated_node:
+                updated_node['survival_weight'] = float(updated_node['survival_weight'])
+            if 'last_accessed' in updated_node:
+                updated_node['last_accessed'] = str(updated_node['last_accessed'])
+            if 'created_at' in updated_node:
+                updated_node['created_at'] = str(updated_node['created_at'])
+            if 'serial_id' not in updated_node and 'serial_id' in current_node:
+                updated_node['serial_id'] = current_node['serial_id']
+            if 'node_id' not in updated_node:
+                updated_node['node_id'] = current_node.get('node_id', '')
+            if 'event_tuple' not in updated_node and 'event_tuple' in current_node:
+                updated_node['event_tuple'] = current_node['event_tuple']
+            if 'block_tag' not in updated_node and 'block_tag' in current_node:
+                updated_node['block_tag'] = current_node['block_tag']
+            if 'action_tag' not in updated_node and 'action_tag' in current_node:
+                updated_node['action_tag'] = current_node['action_tag']
+            if 'full_image_url' not in updated_node and 'full_image_url' in current_node:
+                updated_node['full_image_url'] = current_node['full_image_url']
+            if 'previous_ids' not in updated_node and 'previous_ids' in current_node:
+                updated_node['previous_ids'] = current_node['previous_ids']
+            if actor_id:
+                updated_node['actor_id'] = actor_id
+            updated_node['owner_id'] = owner_id
+            await sm.emit('node_updated', updated_node)
+
+        # 12. 如果显式传递了 max_eyes，广播 horizon_updated 事件
+        if req_max_eyes is not None:
+            horizon_data = {
+                "boss_node_id": node_id,
+                "max_eyes": max_eyes,
+                "event_horizon": event_horizon_ids,
+                "actor_id": actor_id,
+                "owner_id": owner_id
+            }
+            await sm.emit('horizon_updated', horizon_data)
+
+        return {
+            "status": "success",
+            "message": f"当前大股东节点 {node_id} 的事件视界已获取",
+            "data": current_node,
+            "updated_count": len(updated_nodes),
+            "actor_id": actor_id,
+            "owner_id": owner_id,
+            "max_eyes": max_eyes,
+            "event_horizon": event_horizon_ids,
+            "event_horizon_details": event_horizon_nodes
+        }
+
+    except Exception as e:
+        print(f"[API 错误] 获取事件视界失败: {e}")
+        return {"status": "error", "message": str(e)}
+
+
+
 # --- 因果链骨架接口 ---
 @app.post("/api/v1/causal/skeleton")
 async def get_causal_skeleton(skeleton_data: dict):

@@ -454,69 +454,72 @@ def get_causal_skeleton(serial_id, config: RunnableConfig, actor_id=None, owner_
 def get_current_event_horizon(config: RunnableConfig, actor_id=None, owner_id=None, max_eyes=None):
     """
     获取当前观测者在指定因果场中的事件视界。
-    系统自动找到当前大股东节点（最高 survival_weight 事件），并以该节点为中心，返回语义距离 <= MAX_EYES 的光锥截面内的所有相关事件。
-    不同 actor_id 对同一 owner_id 的大股东节点可能不同——因果场的参考系依赖。
-    
+    系统自动找到当前大股东节点（最高 survival_weight 事件），并以该节点为中心，
+    返回语义距离 <= MAX_EYES 的光锥截面内的所有相关事件。
+    注意：不同 actor_id 在同一 owner_id 的因果场中的大股东节点可能不同——
+    这是因果场的参考系依赖效应。
+
     参数:
-    - actor_id (str, optional): 用户ID，默认为"415135222"
-    - owner_id (str, optional): 事件拥有者ID，默认为"222302526"
+    - config (RunnableConfig): LangGraph 运行时配置，自动提取 owner_id 和 actor_id
+    - actor_id (str, optional): 用户ID，覆盖 config 中的值
+    - owner_id (str, optional): 事件拥有者ID，覆盖 config 中的值
     - max_eyes (float, optional): 望远镜功率（事件视界半径）。如果为None，则使用系统默认值
-    
+
     返回:
-    - dict: API响应结果或错误信息
+    - dict: API响应结果，包含：
+        - data: 大股东节点全息内容，其中因果链字段为 serial_id 整数列表：
+            - serial_id: 当前事件物理ID
+            - node_id: 事件标题
+            - event_tuple: 事件叙述
+            - survival_weight: 权重（大股东为0.6）
+            - block_tag / action_tag: 因缘/动作标签
+            - previous_ids: 前事件（父事件）serial_id 整数列表，无则为 []
+            - provius_ids: 后事件（子事件）serial_id 整数列表，无则为 []
+            - next_ids: 后事件（子事件）serial_id 整数列表，无则为 []
+            ...
+        - event_horizon: 视界内节点ID列表
+        - event_horizon_details: 视界内节点详情列表，每条包含：serial_id, node_id, event_tuple, distance
+        - updated_count: 权重更新的节点数量
+        - max_eyes: 实际使用的视界半径
+
+    示例:
+    # 直接获取当前观测者的事件视界
+    result = get_current_event_horizon(config, max_eyes=40)
+    if result.get('status') == 'success':
+        anchor = result.get('data')
+        print(f"=== 大股东节点 ===")
+        print(f"  事件: {anchor['node_id']}")
+        print(f"  叙述: {anchor['event_tuple'][:100]}...")
+        print(f"  前事件列表: {anchor.get('previous_ids', [])}")
+        print(f"  后事件列表: {anchor.get('next_ids', [])}")
+        print(f"=== 事件视界（语义相关节点）===")
+        for n in result.get('event_horizon_details', []):
+            print(f"  [{n.get('distance', 0):.1f}] {n['node_id']}: {n['event_tuple'][:60]}...")
     """
     import requests
-    
+
+    # 从 config 自动提取，允许显式参数覆盖
     owner_id = owner_id or config["configurable"]["data"]["source_id"]
     actor_id = actor_id or config["configurable"]["data"]["from_user"]["user_id"]
-    
-    
-    url = f"http://192.168.66.39:8094/api/v1/causal/history"
+
+    url = "http://192.168.66.39:8094/api/v1/causal/horizon"
     params = {
         "actor_id": actor_id,
-        "owner_id": owner_id,
-        "max_eyes": max_eyes
+        "owner_id": owner_id
     }
-    
+
+    if max_eyes is not None:
+        params["max_eyes"] = max_eyes
+
     try:
         response = requests.get(url, params=params)
         result = response.json()
-        
+
         if result.get('status') == 'success':
-            data = result.get('data', [])
-            boss_node_id = result.get('boss_node_id')
-            
-            if not data:
-                print(f"owner_id {owner_id}的因果星空中还没有事件")
-                return {"status": "error", "message": f"owner_id {owner_id}的因果星空中还没有事件"}
-                
-            if not boss_node_id:
-                print(f"该actor_id {actor_id}尚未对owner_id {owner_id}的因果星空尚未实施观测")
-                return {"status": "error", "message": f"该actor_id {actor_id}尚未对owner_id {owner_id}的因果星空尚未实施观测"}
-                
-            # 查找大股东节点的 serial_id
-            serial_id = None
-            for node in data:
-                if node.get('node_id') == boss_node_id:
-                    serial_id = node.get('serial_id')
-                    break
-                    
-            if serial_id is not None:
-                # 如果调用者没有显式传入 max_eyes，则尝试使用后端缓存的最新 max_eyes
-                current_max_eyes = result.get('current_max_eyes')
-                if max_eyes is None and current_max_eyes is not None:
-                    max_eyes = current_max_eyes
-                    print(f"使用用户 {actor_id} 适时的 max_eyes: {max_eyes}")
-                    
-                print(f"找到当前大股东节点: {boss_node_id} (serial_id: {serial_id})，正在获取事件视界...")
-                return f'请执行工具：\nsearch_causal_by_serial(serial_id="{serial_id}", actor_id="{actor_id}", owner_id="{owner_id}", max_eyes={max_eyes})'
-            else:
-                print(f"数据异常：未在节点列表中找到大股东节点 {boss_node_id} 的详细信息")
-                return {"status": "error", "message": "未找到大股东节点详细信息"}
-        else:
-            print(f"获取历史数据失败: {result.get('message')}")
             return result
-            
+        else:
+            return {"status": "error", "message": result.get('message', '获取事件视界失败')}
+
     except requests.exceptions.RequestException as e:
         print(f"请求失败，请检查后端服务是否运行: {e}")
         return {"status": "error", "message": str(e)}

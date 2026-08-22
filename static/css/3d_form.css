@@ -9,13 +9,16 @@
     top: 0;
     width: 384px; /* w-96 = 384px */
     height: 100vh;
+    height: -webkit-fill-available; /* iOS Safari 修复 */
     background: rgba(17, 24, 39, 0.95);
     backdrop-filter: blur(10px);
     border-left: 1px solid rgba(75, 85, 99, 0.5);
     box-shadow: -4px 0 20px rgba(0, 0, 0, 0.5);
     z-index: 1000;
     transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
 }
 
 .drawer-hidden {
@@ -104,7 +107,11 @@
 }
 
 .drawer-content {
+    flex: 1;
     padding: 24px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch; /* iOS 流畅滚动 */
 }
 
 .drawer-content section {
@@ -366,8 +373,11 @@
     grid-template-columns: 1fr 1fr;
     gap: 8px;
     padding-top: 12px;
+    padding-bottom: 24px;
     border-top: 1px solid rgba(75, 85, 99, 0.5);
     margin-top: 12px;
+    position: relative;
+    z-index: 1;
 }
 
 .btn-derive {
@@ -817,7 +827,11 @@
     }
     
     .drawer-content {
+        flex: 1;
         padding: 16px;
+        overflow-y: auto;
+        overflow-x: hidden;
+        -webkit-overflow-scrolling: touch;
     }
     
     .modal-content {
@@ -857,7 +871,10 @@
     }
 
     .drawer-derive {
-        display: grid !important; visibility: visible !important; opacity: 1 !important;
+        display: grid !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        padding-bottom: 32px; /* 移动端底部留出安全区域 */
     }
 
     .event-tuple-modal-footer {

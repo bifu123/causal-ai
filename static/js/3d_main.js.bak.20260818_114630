@@ -666,72 +666,6 @@ function hoverScaleNodeRebound(node) {
 let hoverTimeout = null;
 const HOVER_DELAY = 500; // 500毫秒延迟
 
-// --- [星际 HUD 信息栏] ---
-let starHudCollapsed = false;
-const STAR_HUD_STORAGE_KEY = () => `star_hud_collapsed_${window.currentOwnerId || 'default'}_${window.currentActorId || 'guest'}`;
-
-function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-}
-
-function updateStarHud(node) {
-    const headerHud = document.getElementById('header-hud');
-    const headerH1 = document.querySelector('#header h1');
-    if (!headerHud) return;
-    if (!node) {
-        headerHud.classList.remove('active');
-        if (headerH1) headerH1.style.display = '';
-        return;
-    }
-    if (headerH1) headerH1.style.display = 'none';
-    const serialEl = document.getElementById('hud-serial');
-    const weightEl = document.getElementById('hud-weight');
-    const eventEl = document.getElementById('hud-event');
-
-    const serialId = node.serial_id || node.本事件ID || '未知';
-    const weight = parseFloat(node.survival_weight || 0).toFixed(10);
-    const weightValue = parseFloat(weight);
-
-    let weightStatus = '🩸'; //微弱
-    if (weightValue >= 0.9) weightStatus = '🩸🩸🩸🩸🩸'; //强盛🩸🩸🩸🩸💧♡⛽
-    else if (weightValue >= 0.6) weightStatus = '🩸🩸🩸🩸'; //活跃
-    else if (weightValue >= 0.3) weightStatus = '🩸🩸🩸'; //稳健
-    else if (weightValue >= 0.1) weightStatus = '🩸🩸'; //衰减
-
-
-    // let weightStatus = '💧';
-    // if (weightValue >= 0.9) weightStatus = '🩸████'; // 强盛
-    // else if (weightValue >= 0.6) weightStatus = '🩸███'; // 活跃
-    // else if (weightValue >= 0.3) weightStatus = '🩸██'; // 稳健
-    // else if (weightValue >= 0.1) weightStatus = '🩸█'; // 衰减
-
-
-    let eventTuple = node.event_tuple || node.content || '无事件叙述';
-    // 使用 Array.from 安全拆分，防止截断 Unicode 代理对（Emoji/罕见汉字）
-    const maxLen = window.innerWidth <= 768 ? 25 : 40;
-    const tupleChars = Array.from(eventTuple);
-    if (tupleChars.length > maxLen) {
-        eventTuple = tupleChars.slice(0, maxLen).join('') + '...';
-    }
-
-    if (serialEl) serialEl.innerHTML = `序列 <span class="hud-s-val">${escapeHtml(serialId)}</span>`;
-    if (weightEl) weightEl.innerHTML = `权重 <span class="hud-w-val">${weight}</span> <span class="hud-w-stat">${weightStatus}</span>`;
-    if (eventEl) {
-        eventEl.textContent = eventTuple;
-        // 强制触发 DOM 重排，解决部分浏览器 UI 不更新的 Bug
-        void eventEl.offsetHeight;
-    }
-
-    headerHud.classList.add('active');
-}
-
-function initStarHud() {
-    console.log('[Star HUD] 初始化完成');
-}
-
-
 /** 超采样文字纹理渲染：确保 ID 极致清晰，使用2的幂次方尺寸避免警告 */
 function createTextTexture(text, weight, THREE) {
     // 截断过长的节点标签
@@ -1411,7 +1345,8 @@ function initSocketHandlers() {
             if (reticleThumb) reticleThumb.style.left = percent + '%';
             const reticleValue = document.getElementById('reticle-value-display');
             if (reticleValue) reticleValue.textContent = Math.round(data.max_eyes).toString();
-            updateSliderBackground(slider);
+            // 灰色背景渐变
+            slider.style.background = `linear-gradient(to top, rgba(128, 128, 128, 0.6) 0%, rgba(128, 128, 128, 0.6) ${percent}%, rgba(128, 128, 128, 0.15) ${percent}%, rgba(128, 128, 128, 0.15) 100%)`;
         }
 
         // 2. 更新本地视界集合
@@ -2480,17 +2415,6 @@ async function submitDeriveNode(tag, parentId) {
 /**
  * 初始化望远镜滑块事件
  */
-
-/**
- * 更新滑杆背景渐变（科技蓝填充 + 微亮底色）
- */
-function updateSliderBackground(slider) {
-    const min = parseFloat(slider.min || '0');
-    const max = parseFloat(slider.max || '100');
-    const val = parseFloat(slider.value);
-    const percent = ((val - min) / (max - min)) * 100;
-    slider.style.background = `linear-gradient(to top, rgba(60, 140, 255, 0.85) 0%, rgba(60, 140, 255, 0.85) ${percent}%, rgba(255, 255, 255, 0.25) ${percent}%, rgba(255, 255, 255, 0.25) 100%)`;
-}
 function initTelescopeSlider() {
     const slider = document.getElementById('telescope-slider');
     const reticle = document.getElementById('telescope-reticle');
@@ -2535,7 +2459,12 @@ function initTelescopeSlider() {
         updateReticle(e.target.value);
         
         // 动态更新滑块背景渐变，实现科技感填充效果
-        updateSliderBackground(slider);
+        const min = parseFloat(slider.min || '0');
+        const max = parseFloat(slider.max || '100');
+        const val = parseFloat(e.target.value);
+        const percent = ((val - min) / (max - min)) * 100;
+        // 灰色背景渐变
+        slider.style.background = `linear-gradient(to top, rgba(128, 128, 128, 0.6) 0%, rgba(128, 128, 128, 0.6) ${percent}%, rgba(128, 128, 128, 0.15) ${percent}%, rgba(128, 128, 128, 0.15) 100%)`;
     });
 
     // 拖动结束时发送请求
@@ -2550,7 +2479,6 @@ function initTelescopeSlider() {
             if (bossNode) {
                 // 调用 promoteNodeWeight 并传入 maxEyes
                 promoteNodeWeight(bossNode, maxEyes);
-                showDivineBeam(bossNode);
             } else {
                 console.warn(`[望远镜] 未找到当前大股东节点: ${currentBossNodeId}`);
             }
@@ -2563,9 +2491,6 @@ function initTelescopeSlider() {
     // 处理鼠标在外部松开的情况
     document.addEventListener('mouseup', hideReticle);
     document.addEventListener('touchend', hideReticle);
-
-    // 页面加载时同步当前滑杆值并绘制背景
-    updateSliderBackground(slider);
 }
 
 /**
@@ -2892,7 +2817,44 @@ window.addEventListener('load', () => {
         })
 
         // --- [5. 连线与细节配置] ---
-        .nodeLabel(node => '')
+        .nodeLabel(node => {
+            const weight = typeof node.survival_weight === 'number' ? node.survival_weight.toFixed(10) : '0.00';
+            const serialId = node.serial_id || node.本事件ID || '未知';
+            let eventTuple = node.event_tuple || node.content || '无事件叙述';
+            // 获取权重状态描述（参照index.html中的getWeightStatus函数）
+            const weightValue = parseFloat(weight);
+            let weightStatus = '微弱';
+            if (weightValue >= 0.9) weightStatus = '强盛';
+            else if (weightValue >= 0.7) weightStatus = '活跃';
+            else if (weightValue >= 0.5) weightStatus = '稳定';
+            else if (weightValue >= 0.3) weightStatus = '衰减';
+            
+            // 对事件叙述进行字符截取，最多显示150个字符
+            const maxLength = 250;
+            if (eventTuple.length > maxLength) {
+                eventTuple = eventTuple.substring(0, maxLength) + '...';
+            }
+            
+            // 简化tooltip：移除因缘标签、动作标签，移除装饰性样式
+            return `<div class="force-graph-tooltip">
+                <div class="tooltip-title">${node.id}</div>
+                <div class="tooltip-simple">
+                    <div class="tooltip-row">
+                        <span class="tooltip-label">序列:</span>
+                        <span class="tooltip-value" style="color: #7fb4f5ff;">${serialId}</span>
+                    </div>
+                    <div class="tooltip-row">
+                        <span class="tooltip-label">权重:</span>
+                        <span class="tooltip-value weight-value">${weight}</span>
+                        <span class="tooltip-status">(${weightStatus})</span>
+                    </div>
+                    <div class="tooltip-row">
+                        <span class="tooltip-label">事件:</span>
+                        <span class="tooltip-event-content">${eventTuple}</span>
+                    </div>
+                </div>
+            </div>`;
+        })
         .nodeColor(node => highlightNodes.has(node) ? '#ffffff' : '#444')
         .onNodeHover(node => {
             container.style.cursor = node ? 'pointer' : null;
@@ -2913,7 +2875,6 @@ window.addEventListener('load', () => {
                 // 鼠标进入节点：立即显示tooltip
                 hoverNode = node;
                 updateHighlight();
-                updateStarHud(node);
                 
                 // 非大股东节点：悬浮绽放放大 + 低透明度提升
                 if (!selectedNodeObj || (selectedNodeObj && selectedNodeObj.id !== node.id)) {
@@ -2927,7 +2888,6 @@ window.addEventListener('load', () => {
                     hoverNode = null;
                     updateHighlight();
                     hoverTimeout = null;
-                    updateStarHud(null);
                     if (leavingNode) {
                         hoverScaleNodeRebound(leavingNode);
                         hoverScaleNode = null;
@@ -3995,5 +3955,3 @@ setInterval(() => {
         }
     });
 }, 1000);
-
-initStarHud();

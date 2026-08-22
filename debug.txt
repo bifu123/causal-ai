@@ -1,0 +1,5 @@
+前端点击更新节点报错：
+
+{status: 'error', message: 'Object of type datetime is not JSON serializable'}
+
+可能原因：数据表新增的update_at字段没有包含在序列化中

@@ -82,8 +82,7 @@ body::after {
 #header {
     position: absolute;
     top: 20px;
-    left: 40px;
-    max-width: 420px;
+    left: 20px;
     background: rgba(0, 0, 0, 0.7);
     backdrop-filter: blur(10px);
     border: 1px solid rgba(255, 255, 255, 0.1);
@@ -109,7 +108,7 @@ body::after {
 #controls {
     position: fixed;
     bottom: 20px;
-    left: 40px;
+    left: 20px;
     pointer-events: auto;
     display: flex;
     flex-direction: column;
@@ -122,7 +121,7 @@ body::after {
     position: fixed;
     /* 48*3 + 10*2 + controls bottom 20 + 安全间距 18，确保永远在整列 control 上方 */
     bottom: 202px;
-    left: 40px;
+    left: 20px;
     background: transparent;
     border: none;
     padding: 0;
@@ -134,63 +133,61 @@ body::after {
 }
 
 .telescope-slider {
-    -webkit-appearance: none;
-    appearance: none;
-    writing-mode: vertical-lr;
-    direction: rtl;
-    width: 8px;
+    -webkit-appearance: slider-vertical;
+    appearance: slider-vertical;
+    width: 18px;
     height: 190px;
-    background-color: transparent !important;
+    background: rgba(128, 128, 128, 0.3);
     border-radius: 999px;
     outline: none;
     cursor: pointer;
-    box-shadow: 0 0 8px rgba(60, 140, 255, 0.2);
+    /* 移除 accent-color，使用 JS 动态控制背景渐变来实现科技感填充 */
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.5);
 }
 
 .telescope-slider::-webkit-slider-runnable-track {
     width: 2px;
     height: 190px;
     border-radius: 999px;
-    background: transparent;
-    border: none;
+    background: rgba(255, 255, 255, 0.2);
 }
 
 .telescope-slider::-webkit-slider-thumb {
     -webkit-appearance: none;
     appearance: none;
-    width: 16px;
-    height: 16px;
+    width: 22px;
+    height: 22px;
     border-radius: 50%;
-    background: #888888;
-    border: none;
+    background: rgba(3, 7, 18, 0.82);
+    border: 1px solid rgba(148, 163, 184, 0.55);
     cursor: pointer;
-    box-shadow: 0 0 6px rgba(255, 255, 255, 0.3);
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.65), 0 0 10px rgba(128, 128, 128, 0.18);
     transition: all 0.2s ease;
-    margin-left: -5px;
+    margin-left: -10px;
 }
 
 .telescope-slider::-webkit-slider-thumb:hover {
-    transform: scale(1.2);
-    background: #666666;
-    box-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
+    transform: scale(1.16);
+    background: rgba(15, 23, 42, 0.92);
+    border-color: rgba(148, 163, 184, 0.75);
+    box-shadow: 0 0 14px rgba(0, 0, 0, 0.75), 0 0 14px rgba(128, 128, 128, 0.28);
 }
 
 .telescope-slider::-moz-range-track {
     width: 2px;
     height: 190px;
     border-radius: 999px;
-    background: transparent;
-    border: none;
+    background: rgba(255, 255, 255, 0.2);
 }
 
 .telescope-slider::-moz-range-thumb {
-    width: 16px;
-    height: 16px;
+    width: 22px;
+    height: 22px;
     border-radius: 50%;
-    background: #888888;
-    border: none;
+    background: rgba(3, 7, 18, 0.82);
+    border: 1px solid rgba(148, 163, 184, 0.55);
     cursor: pointer;
-    box-shadow: 0 0 6px rgba(255, 255, 255, 0.3);
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.65), 0 0 10px rgba(128, 128, 128, 0.18);
 }
 
 /* 屏幕中央瞄准刻度 */
@@ -1685,10 +1682,6 @@ body::after {
         left: 15px;
         gap: 8px;
     }
-
-    #telescope-panel {
-        left: 30px; /* 移动端向左偏移 10px */
-    }
     
     .control-icon {
         width: 56px;
@@ -1835,8 +1828,6 @@ body::after {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    max-width: 100%;
-    display: block;
     margin-top: 2px;
 }
 
