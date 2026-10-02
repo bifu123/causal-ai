@@ -511,7 +511,7 @@ function updateEventHorizonVisibility() {
                     sphere.material.needsUpdate = true;
                 }
                 if (sprite && sprite.material) {
-                    sprite.material.opacity = dimmedOpacity;
+                    sprite.material.opacity = dimmedOpacity * 0.8; // 降低文字标签的亮度使其稍弱于节点本体
                     sprite.material.needsUpdate = true;
                 }
             } else {
@@ -541,12 +541,45 @@ function updateEventHorizonVisibility() {
                     sphere.material.needsUpdate = true;
                 }
                 if (sprite && sprite.material) {
-                    sprite.material.opacity = finalOpacity;
+                    sprite.material.opacity = finalOpacity * 0.8; // 降低文字标签的亮度使其稍弱于节点本体
                     sprite.material.needsUpdate = true;
+                }
+            }
+            
+            // 每次更新事件视界时，检查并重置标签截断状态
+            // 如果是大股东节点在事件视界中，必须保持非截断显示；其他则恢复截断
+            if (sprite && sprite.material) {
+                const isBossNode = (currentBossNodeId === node.id || currentBossNodeId === node.node_id);
+                const isBossInHorizon = hasHorizon && isBossNode;
+                // 注意：如果该节点此时恰好被 hover（即 hoverNode === node），即使不是大股东，也应保持非截断。
+                const isHovered = (hoverNode === node);
+                const shouldExpand = isBossInHorizon || isHovered;
+                
+                const newTexture = createTextTexture(node.id, weight, getThreeInstance(), shouldExpand);
+                const baseScale = 0.3 + (weight * 0.25);
+                const spriteHeight = newTexture.baseHeight * baseScale;
+                
+                sprite.material.map = newTexture;
+                sprite.material.needsUpdate = true;
+                
+                // 位置对齐调整
+                const targetRadius = 1.2 + (weight * (4.2 - 1.2)); // 依据 MIN_RADIUS 和 MAX_RADIUS
+                const actualPhysicalRadius = targetRadius * 7; // REL_SIZE
+                sprite.position.y = actualPhysicalRadius + spriteHeight + 4;
+                
+                if (!node.__threeObj.__isAnimatingScale) {
+                    sprite.scale.set(newTexture.baseWidth * baseScale, spriteHeight, 1);
                 }
             }
         }
     });
+
+    // 在更新事件视界时，一并重绘连线和箭头颜色以反映最新的亮度变化
+    Graph.linkColor(Graph.linkColor())
+         .linkWidth(Graph.linkWidth())
+         .linkDirectionalParticles(Graph.linkDirectionalParticles())
+         .linkDirectionalParticleColor(Graph.linkDirectionalParticleColor())
+         .linkDirectionalArrowColor(Graph.linkDirectionalArrowColor());
 }
 
 /**
@@ -581,9 +614,34 @@ function hoverScaleNodeBloom(node) {
             new TWEEN.Tween({ opacity: currentOpacity })
                 .to({ opacity: 0.65 }, DURATION)
                 .easing(TWEEN.Easing.Quadratic.Out)
-                .onUpdate(obj => { sphere.material.opacity = obj.opacity; })
+                .onUpdate(obj => { 
+                    sphere.material.opacity = obj.opacity; 
+                    if (sprite && sprite.material) {
+                        sprite.material.opacity = obj.opacity * 0.8;
+                    }
+                })
                 .start();
         }
+    }
+    
+    // 动态更新未悬浮状态的纹理（截断）和悬浮时的纹理（全显示）
+    if (sprite && sprite.material) {
+        const weight = getVisualWeight(node.survival_weight);
+        const newTexture = createTextTexture(node.id, weight, THREE, true); // true = 悬浮时不截断，所有节点悬浮时均完整显示
+        const baseScale = 0.3 + (weight * 0.25);
+        
+        sprite.material.map = newTexture;
+        sprite.material.needsUpdate = true;
+        
+        // 由于行数可能增加，需调整其位置以防止遮挡
+        const targetRadius = 1.2 + (weight * (4.2 - 1.2)); // 依据 MIN_RADIUS 和 MAX_RADIUS
+        const actualPhysicalRadius = targetRadius * 7; // REL_SIZE
+        const spriteHeight = newTexture.baseHeight * baseScale;
+        sprite.position.y = actualPhysicalRadius + spriteHeight + 4;
+        
+        // 缩放会受到 _origScale.sprite 的基准以及 BLOOM_SCALE 的影响，我们这里只需更新纹理本身的比例比例
+        // 后续的 TWEEN 会基于 _origScale 来插值，所以我们要更新 _origScale 中的尺寸以匹配多行的高度
+        node._origScale.sprite = new THREE.Vector3(newTexture.baseWidth * baseScale, spriteHeight, 1);
     }
     
     // Sphere 绽放
@@ -627,7 +685,12 @@ function hoverScaleNodeRebound(node) {
         new TWEEN.Tween({ opacity: currentOpacity })
             .to({ opacity: targetOpacity }, DURATION)
             .easing(TWEEN.Easing.Quadratic.Out)
-            .onUpdate(obj => { sphere.material.opacity = obj.opacity; })
+            .onUpdate(obj => { 
+                sphere.material.opacity = obj.opacity; 
+                if (sprite && sprite.material) {
+                    sprite.material.opacity = obj.opacity * 0.8;
+                }
+            })
             .onComplete(() => {
                 // 保持 transparent 为 true，因为现在透明度与权重成正比
             })
@@ -647,7 +710,26 @@ function hoverScaleNodeRebound(node) {
     }
 
     if (sprite && node._origScale && node._origScale.sprite) {
-        const target = node._origScale.sprite;
+        // 还原截断纹理（但如果是视界中的大股东节点则依然保持展开）
+        const weight = getVisualWeight(node.survival_weight);
+        
+        const hasHorizon = horizonNodes && horizonNodes.size > 0;
+        const isBossNode = (currentBossNodeId === node.id || currentBossNodeId === node.node_id);
+        const shouldExpand = (hasHorizon && isBossNode);
+        
+        const reboundTexture = createTextTexture(node.id, weight, THREE, shouldExpand);
+        const baseScale = 0.3 + (weight * 0.25);
+        
+        sprite.material.map = reboundTexture;
+        sprite.material.needsUpdate = true;
+        
+        const targetRadius = 1.2 + (weight * (4.2 - 1.2));
+        const actualPhysicalRadius = targetRadius * 7;
+        const spriteHeight = reboundTexture.baseHeight * baseScale;
+        sprite.position.y = actualPhysicalRadius + spriteHeight + 4;
+        
+        const target = new THREE.Vector3(reboundTexture.baseWidth * baseScale, spriteHeight, 1);
+        
         new TWEEN.Tween({ x: sprite.scale.x, y: sprite.scale.y, z: sprite.scale.z })
             .to({ x: target.x, y: target.y, z: target.z }, DURATION)
             .easing(TWEEN.Easing.Quadratic.Out)
@@ -733,28 +815,55 @@ function initStarHud() {
 
 
 /** 超采样文字纹理渲染：确保 ID 极致清晰，使用2的幂次方尺寸避免警告 */
-function createTextTexture(text, weight, THREE) {
-    // 截断过长的节点标签
-    const MAX_LENGTH = 10;
-    let displayText = text;
-    if (text && text.length > MAX_LENGTH) {
-        displayText = text.substring(0, MAX_LENGTH) + '...';
+function createTextTexture(text, weight, THREE, isHovered = false) {
+    // 设置每行最大字符数
+    const MAX_LENGTH_PER_LINE = 10;
+    
+    // 如果未被悬浮，截断显示并加省略号，此时只有单行
+    let displayText = text || '';
+    if (!isHovered && displayText.length > MAX_LENGTH_PER_LINE) {
+        displayText = displayText.substring(0, MAX_LENGTH_PER_LINE) + '...';
     }
+    
+    // 将长文本分割成多行
+    const lines = [];
+    
+    if (!isHovered) {
+        // 未悬浮时，直接作为单行，不要被 substring 截断
+        lines.push(displayText);
+    } else {
+        // 悬浮时，根据最大字符数分行
+        for (let i = 0; i < displayText.length; i += MAX_LENGTH_PER_LINE) {
+            lines.push(displayText.substring(i, i + MAX_LENGTH_PER_LINE));
+        }
+    }
+    if (lines.length === 0) lines.push('');
 
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
     const scale = 4;
     ctx.font = `${32 * scale}px "Fira Code"`;
-    const textWidth = ctx.measureText(displayText).width;
+    
+    // 找出最长的一行计算宽度
+    let maxTextWidth = 0;
+    for (const line of lines) {
+        const w = ctx.measureText(line).width;
+        if (w > maxTextWidth) {
+            maxTextWidth = w;
+        }
+    }
+    
     const padding = 6 * scale; // 增加padding让底座更好看
+    const lineHeight = 38 * scale;
     
     // 计算2的幂次方尺寸，避免THREE调整警告
     const calculatePowerOfTwo = (size) => {
         return Math.pow(2, Math.ceil(Math.log2(size)));
     };
     
-    const rawWidth = textWidth + padding * 2;
-    const rawHeight = 44 * scale; 
+    const rawWidth = maxTextWidth + padding * 2;
+    // 总高度根据行数计算
+    const rawHeight = (lines.length * lineHeight) + padding * 2; 
     
     // 使用2的幂次方尺寸
     canvas.width = calculatePowerOfTwo(rawWidth);
@@ -765,8 +874,8 @@ function createTextTexture(text, weight, THREE) {
     const centerY = canvas.height / 2;
     
     // 绘制半透明微光底座
-    const bgWidth = textWidth + padding * 1.5;
-    const bgHeight = 38 * scale;
+    const bgWidth = maxTextWidth + padding * 1.5;
+    const bgHeight = (lines.length * lineHeight) + padding;
     const bgX = centerX - bgWidth / 2;
     const bgY = centerY - bgHeight / 2;
     const radius = 8 * scale;
@@ -806,9 +915,17 @@ function createTextTexture(text, weight, THREE) {
     ctx.textAlign = 'center'; 
     ctx.textBaseline = 'middle';
     
-    // 绘制两次文字以增强阴影的厚重感
-    ctx.fillText(displayText, centerX, centerY);
-    ctx.fillText(displayText, centerX, centerY);
+    // 绘制多行文字
+    // 计算第一行的 centerY (基于整体居中)
+    const startY = centerY - (lines.length * lineHeight) / 2 + lineHeight / 2;
+    
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const lineY = startY + i * lineHeight;
+        // 绘制两次文字以增强阴影的厚重感
+        ctx.fillText(line, centerX, lineY);
+        ctx.fillText(line, centerX, lineY);
+    }
     
     const texture = new THREE.CanvasTexture(canvas);
     texture.baseWidth = rawWidth / scale; 
@@ -2692,7 +2809,12 @@ window.addEventListener('load', () => {
             group.add(spriteNode);
 
             // 【标签对齐】：精准计算文字悬浮位置
-            const texture = createTextTexture(node.id, weight, THREE);
+            // 初始化时如果是在事件视界中且为大股东节点，则不截断显示
+            const hasHorizon = horizonNodes && horizonNodes.size > 0;
+            const isBossNode = (currentBossNodeId === node.id || currentBossNodeId === node.node_id);
+            const isBossInHorizon = hasHorizon && isBossNode;
+            
+            const texture = createTextTexture(node.id, weight, THREE, isBossInHorizon);
             if (texture) {
                 const sprite = new THREE.Sprite(
                     new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false, opacity: baseOpacity })
@@ -2938,24 +3060,108 @@ window.addEventListener('load', () => {
         .linkWidth(l => {
             if (l.type === 'semantic') return 0; // 语义连线不可见
             if (l.type === 'horizon') return 1.5; // 视界连线宽度
-            return highlightLinks.has(l) ? 8.0 : 2.0;
+            
+            // 计算连线基础宽度：基于两端节点平均权重的对数映射
+            let baseWidth = 0.5;
+            if (typeof l.source === 'object' && typeof l.target === 'object') {
+                const sWeight = getVisualWeight(l.source.survival_weight);
+                const tWeight = getVisualWeight(l.target.survival_weight);
+                const avgWeight = (sWeight + tWeight) / 2;
+                baseWidth = 0.5 + Math.pow(avgWeight, 0.5) * 2.5; // 使权重对连线宽度的影响非线性，低权重也有一定可见度
+            }
+            
+            return highlightLinks.has(l) ? 8.0 : baseWidth;
         })
         .linkColor(l => {
             if (l.type === 'semantic') return 'rgba(0,0,0,0)'; // 语义连线完全透明
             if (l.type === 'horizon') return 'rgba(139, 92, 246, 0.6)'; // 视界连线颜色 (紫色)
-            return highlightLinks.has(l) ? '#fff' : 'rgba(0, 255, 255, 0.2)';
+            
+            // 基于节点权重的连线基础颜色
+            let linkOpacity = 0.2;
+            if (typeof l.source === 'object' && typeof l.target === 'object') {
+                const sWeight = getVisualWeight(l.source.survival_weight);
+                const tWeight = getVisualWeight(l.target.survival_weight);
+                const avgWeight = (sWeight + tWeight) / 2;
+                linkOpacity = 0.15 + avgWeight * 0.45; // 权重高的连线稍微不透明一些
+            }
+            
+            return highlightLinks.has(l) ? '#fff' : `rgba(0, 255, 255, ${linkOpacity})`;
         })
         .linkDirectionalParticles(l => {
             if (l.type === 'semantic') return 0; // 语义连线没有光点
             if (l.type === 'horizon') return 4; // 视界连线光点
             return highlightLinks.has(l) ? 10 : 2;
         })
-        .linkDirectionalParticleWidth(l => l.type === 'horizon' ? 3 : 4)
-        .linkDirectionalParticleColor(l => l.type === 'horizon' ? '#a78bfa' : null)
+        .linkDirectionalParticleWidth(l => {
+            if (l.type === 'horizon') return 3;
+            
+            // 基于节点权重的粒子基础大小
+            let pWidth = 2.5;
+            if (typeof l.source === 'object' && typeof l.target === 'object') {
+                const sWeight = getVisualWeight(l.source.survival_weight);
+                const tWeight = getVisualWeight(l.target.survival_weight);
+                const avgWeight = (sWeight + tWeight) / 2;
+                pWidth = 2.0 + avgWeight * 3.5; // 权重高的连线粒子更大，在 2.0 到 5.5 之间
+            }
+            return pWidth;
+        })
+        .linkDirectionalParticleColor(l => {
+            if (l.type === 'horizon') return '#a78bfa';
+            
+            let intensity = 1.0;
+            
+            // 计算亮度与两端节点的权重平均值正相关
+            if (typeof l.source === 'object' && typeof l.target === 'object') {
+                const sWeight = getVisualWeight(l.source.survival_weight);
+                const tWeight = getVisualWeight(l.target.survival_weight);
+                const avgWeight = (sWeight + tWeight) / 2;
+                // 基础亮度 0.4，根据两端平均权重进行叠加，使粒子亮度更强一些
+                intensity = 0.4 + avgWeight * 0.6;
+            }
+            
+            // 若当前处于事件视界模式，且该连线并非直接连接视界内的节点，则大幅降低光点亮度
+            const hasHorizon = horizonNodes && horizonNodes.size > 0;
+            if (hasHorizon) {
+                const sId = typeof l.source === 'object' ? l.source.id : l.source;
+                const tId = typeof l.target === 'object' ? l.target.id : l.target;
+                if (!horizonNodes.has(sId) && !horizonNodes.has(tId)) {
+                    intensity = intensity * 0.35; // 视界外蓝色粒子压低亮度，但保留可见性
+                }
+            }
+            
+            // THREE.Color 会忽略 rgba 中的 alpha 通道！
+            // 因此我们无法直接改变材质的透明度，但可以通过压暗 RGB 的明度（将其变暗）来在黑色背景下完美模拟透明虚化的效果
+            // 非视界连线原本是青蓝色 rgba(0, 255, 255, 0.2)，在黑色背景下模拟半透明时，保持 0, 255, 255 的比例，用明度乘数
+            const colorVal = Math.floor(255 * intensity);
+            return `rgb(0, ${colorVal}, ${colorVal})`;
+        })
         .linkDirectionalArrowLength(l => {
             if (l.type === 'semantic') return 0; // 语义连线没有箭头
             if (l.type === 'horizon') return 0; // 视界连线没有箭头
             return 6;
+        })
+        .linkDirectionalArrowColor(l => {
+            if (l.type === 'horizon') return '#a78bfa';
+
+            let intensity = 1.0;
+            if (typeof l.source === 'object' && typeof l.target === 'object') {
+                const sWeight = getVisualWeight(l.source.survival_weight);
+                const tWeight = getVisualWeight(l.target.survival_weight);
+                const avgWeight = (sWeight + tWeight) / 2;
+                intensity = 0.4 + avgWeight * 0.6;
+            }
+            
+            const hasHorizon = horizonNodes && horizonNodes.size > 0;
+            if (hasHorizon) {
+                const sId = typeof l.source === 'object' ? l.source.id : l.source;
+                const tId = typeof l.target === 'object' ? l.target.id : l.target;
+                if (!horizonNodes.has(sId) && !horizonNodes.has(tId)) {
+                    intensity = intensity * 0.35;
+                }
+            }
+
+            const colorVal = Math.floor(255 * intensity);
+            return `rgb(0, ${colorVal}, ${colorVal})`;
         })
         .linkDirectionalArrowRelPos(1);
 
@@ -3984,7 +4190,7 @@ setInterval(() => {
             }
             
             if (sprite && sprite.material && sprite.material.opacity < 0.98) {
-                sprite.material.opacity = 0.98;
+                sprite.material.opacity = 0.98 * 0.8;
                 sprite.material.needsUpdate = true;
                 needsUpdate = true;
             }
