@@ -5,7 +5,7 @@
  */
 
 // --- [全局配置] ---
-const CONFIG_ENHANCE_HORIZON_NODES = false; // 是否提亮事件视界内的普通节点（权重 <= 0.59）
+const CONFIG_ENHANCE_HORIZON_NODES = true; // 是否提亮事件视界内的普通节点（权重 <= 0.59）
 
 
 // --- [1. 全局状态管理] ---
@@ -14,10 +14,6 @@ const highlightNodes = new Set();
 const highlightLinks = new Set();
 const horizonNodes = new Set(); // 存储事件视界内的节点ID
 let currentBossNodeId = null; // 记录当前的大股东节点ID
-let isGodView = true; // 当前是否处于上帝视角
-const savedHorizonNodes = new Set(); // 缓存的事件视界节点
-let savedBossNodeId = null; // 缓存的大股东节点ID
-
 let hoverNode = null;
 let hoverScaleNode = null; // 追踪当前悬浮绽放的节点（非大股东节点的悬浮放大效果）
 let currentSelectedNodeId = null; 
@@ -485,11 +481,6 @@ function updateEventHorizonVisibility() {
     const { nodes } = Graph.graphData();
     const hasHorizon = horizonNodes.size > 0;
     
-    let bossNode = null;
-    if (hasHorizon && currentBossNodeId) {
-        bossNode = nodes.find(n => n.id === currentBossNodeId || n.node_id === currentBossNodeId);
-    }
-    
     // 检查是否需要显示望远镜面板
     const telescopePanel = document.getElementById('telescope-panel');
     if (telescopePanel) {
@@ -512,16 +503,8 @@ function updateEventHorizonVisibility() {
             if (node.__threeObj.__isAnimatingOpacity) return;
 
             if (hasHorizon && !horizonNodes.has(node.id)) {
-                // 视界外：根据权重与距离双重惩罚（权重成正比，距离成反比）
-                let dimmedOpacity = 0;
-                if (bossNode && node.x !== undefined && bossNode.x !== undefined) {
-                    const dx = node.x - bossNode.x;
-                    const dy = node.y - bossNode.y;
-                    const dz = node.z - bossNode.z;
-                    const distance = Math.max(1, Math.sqrt(dx * dx + dy * dy + dz * dz));
-                    const distancePenalty = (weight * 100) / distance;
-                    dimmedOpacity = Math.min(baseOpacity, baseOpacity * 0.3 * distancePenalty);
-                }
+                // 视界外：虚化湮灭（在基础透明度上再降低）
+                const dimmedOpacity = baseOpacity * 0.3;
                 if (sphere && sphere.material) {
                     sphere.material.transparent = true;
                     sphere.material.opacity = dimmedOpacity;
@@ -1207,13 +1190,6 @@ async function loadInitialData() {
                         horizonNodes.clear();
                         res.event_horizon.forEach(id => horizonNodes.add(id));
                         updateHighlight();
-                        // 任何时候后端返回新的事件视界，都要退出上帝视角强制进入观测者视角
-                        if (isGodView) {
-                            isGodView = false;
-                            const btn = document.getElementById('btn-fit-view');
-                            if (btn) btn.setAttribute('data-tooltip', '上帝视角');
-                        }
-
                         
                         // 聚焦到大股东节点
                         // 确保坐标有效
@@ -1342,24 +1318,7 @@ function updateNodeIncremental(data) {
                         // 考虑事件视界状态
                         const hasHorizon = typeof horizonNodes !== 'undefined' && horizonNodes.size > 0;
                         const isOutsideHorizon = hasHorizon && !horizonNodes.has(gNode.id);
-                        let targetOpacity = baseOpacity;
-                        if (isOutsideHorizon) {
-                            let dimmedOpacity = 0;
-                            if (currentBossNodeId) {
-                                const { nodes } = Graph.graphData();
-                                const bossNode = nodes.find(n => n.id === currentBossNodeId || n.node_id === currentBossNodeId);
-                                if (bossNode && gNode.x !== undefined && bossNode.x !== undefined) {
-                                    const dx = gNode.x - bossNode.x;
-                                    const dy = gNode.y - bossNode.y;
-                                    const dz = gNode.z - bossNode.z;
-                                    const distance = Math.max(1, Math.sqrt(dx * dx + dy * dy + dz * dz));
-                                    const w = getVisualWeight(gNode.survival_weight);
-                                    const distancePenalty = (w * 100) / distance;
-                                    dimmedOpacity = Math.min(baseOpacity, baseOpacity * 0.3 * distancePenalty);
-                                }
-                            }
-                            targetOpacity = dimmedOpacity;
-                        }
+                        const targetOpacity = isOutsideHorizon ? baseOpacity * 0.3 : baseOpacity;
                         
                         // 使用 Tween 平滑过渡
                         if (typeof TWEEN !== 'undefined') {
@@ -1576,12 +1535,6 @@ function initSocketHandlers() {
         currentBossNodeId = data.boss_node_id;
         horizonNodes.clear();
         if (data.event_horizon && Array.isArray(data.event_horizon)) {
-        // 任何时候后端返回新的事件视界，都要退出上帝视角强制进入观测者视角
-        if (isGodView) {
-            isGodView = false;
-            const btn = document.getElementById('btn-fit-view');
-            if (btn) btn.setAttribute('data-tooltip', '上帝视角');
-        }
             data.event_horizon.forEach(id => horizonNodes.add(id));
         }
 
@@ -2438,12 +2391,6 @@ function handleNodeClick(node) {
         if (data.status === 'success' && data.event_horizon) {
             console.log(`[事件视界] 收到视界内节点数: ${data.event_horizon.length}`);
             horizonNodes.clear();
-            // 任何时候后端返回新的事件视界，都要退出上帝视角强制进入观测者视角
-            if (isGodView) {
-                isGodView = false;
-                const btn = document.getElementById('btn-fit-view');
-                if (btn) btn.setAttribute('data-tooltip', '上帝视角');
-            }
             data.event_horizon.forEach(id => horizonNodes.add(id));
             
             // 同步更新语义连线，让物理引擎重新计算距离
@@ -2959,12 +2906,6 @@ window.addEventListener('load', () => {
                     if (data.status === 'success' && data.event_horizon) {
                         console.log('[事件视界] 收到视界内节点数: ' + data.event_horizon.length);
                         horizonNodes.clear();
-                        // 任何时候后端返回新的事件视界，都要退出上帝视角强制进入观测者视角
-                        if (isGodView) {
-                            isGodView = false;
-                            const btn = document.getElementById('btn-fit-view');
-                            if (btn) btn.setAttribute('data-tooltip', '上帝视角');
-                        }
                         data.event_horizon.forEach(id => horizonNodes.add(id));
                         
                         // 同步更新语义连线，让物理引擎重新计算距离
@@ -3040,12 +2981,6 @@ window.addEventListener('load', () => {
                 if (data.status === 'success' && data.event_horizon) {
                     console.log(`[事件视界] 收到视界内节点数: ${data.event_horizon.length}`);
                     horizonNodes.clear();
-                    // 任何时候后端返回新的事件视界，都要退出上帝视角强制进入观测者视角
-                    if (isGodView) {
-                        isGodView = false;
-                        const btn = document.getElementById('btn-fit-view');
-                        if (btn) btn.setAttribute('data-tooltip', '上帝视角');
-                    }
                     data.event_horizon.forEach(id => horizonNodes.add(id));
                     
                     // 同步更新语义连线，让物理引擎重新计算距离
@@ -3425,60 +3360,11 @@ window.addEventListener('load', () => {
     if (expandBtn) expandBtn.onclick = expandDrawer;
     
     document.getElementById('btn-fit-view').onclick = () => {
-        const btn = document.getElementById('btn-fit-view');
-        
-        if (!isGodView) {
-            // 从 观测者视角 -> 上帝视角
-            savedHorizonNodes.clear();
-            horizonNodes.forEach(id => savedHorizonNodes.add(id));
-            savedBossNodeId = currentBossNodeId;
-            
-            horizonNodes.clear();
-            currentBossNodeId = null; // 清除大股东状态以隐藏望远镜面板和光圈
-            isGodView = true;
-            
-            btn.setAttribute('data-tooltip', '观测者视角');
-            
-            updateHighlight();
-            
-            // 隐藏面板逻辑已在 updateHighlight（通过 hasHorizon 重新判断）或 telescopePanel style 设置中更新，但需要确保望远镜面板被隐藏
-            const telescopePanel = document.getElementById('telescope-panel');
-            if (telescopePanel) telescopePanel.style.display = 'none';
-
-            Graph.zoomToFit(800, 40);
-        } else {
-            // 从 上帝视角 -> 观测者视角
-            horizonNodes.clear();
-            savedHorizonNodes.forEach(id => horizonNodes.add(id));
-            currentBossNodeId = savedBossNodeId;
-            isGodView = false;
-            
-            btn.setAttribute('data-tooltip', '上帝视角');
-            
-            updateHighlight();
-            
-            // 如果有大股东节点，恢复望远镜面板显示
-            if (horizonNodes.size > 0 && currentBossNodeId) {
-                const telescopePanel = document.getElementById('telescope-panel');
-                if (telescopePanel) telescopePanel.style.display = 'flex';
-            }
-
-            // 如果有中心节点或当前选中节点，将镜头拉回视界中心；否则退化为全局自适应
-            const targetNodeId = currentBossNodeId || (focusNode ? (focusNode.id || focusNode.node_id) : null);
-            let targetNode = null;
-            if (targetNodeId) {
-                const { nodes } = Graph.graphData();
-                targetNode = nodes.find(n => n.id === targetNodeId || n.node_id === targetNodeId);
-            }
-            
-            if (targetNode) {
-                // 如果是观测者视角恢复，将相机距离默认拉至900附近（保持观测者体验不过远）
-                const { camPos, lookAt } = calculateOffsetView(targetNode, 800);
-                Graph.cameraPosition(camPos, lookAt, 3000);
-            } else if (horizonNodes.size > 0) {
-                Graph.zoomToFit(800, 40); 
-            }
-        }
+        // 清除事件视界，恢复上帝视角
+        horizonNodes.clear();
+        updateHighlight();
+        Graph.zoomToFit(800, 40);
+        // Graph.cameraPosition({ x: 0, y: 0, z: 1200 }, { x: 0, y: 0, z: 0 }, 1200);
     };
     
     // 绑定因果巡航按钮
