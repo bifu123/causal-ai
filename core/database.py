@@ -234,8 +234,8 @@ class CausalDatabase:
 
         sql = """
             INSERT INTO ains_active_nodes 
-            (node_id, parent_id, block_tag, action_tag, event_tuple, survival_weight, full_image_url, owner_id, semantic_vector)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s);
+            (node_id, parent_id, block_tag, action_tag, event_tuple, survival_weight, full_image_url, owner_id, semantic_vector, is_share)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
         """
         with self.conn.cursor() as cur:
             cur.execute(sql, (
@@ -247,7 +247,8 @@ class CausalDatabase:
                 node_data.get('survival_weight', 1.0),
                 node_data.get('full_image_url'),
                 owner_id,
-                semantic_vector
+                semantic_vector,
+                node_data.get('is_share', True)
             ))
 
     def update_node_weight(self, node_id: str, new_weight: float):
@@ -418,6 +419,12 @@ class CausalDatabase:
             update_fields.append("parent_id = %s")
             update_values.append(parent_id_str)
             print(f"[数据库更新] 更新parent_id: {parent_id_str} (原始列表: {node_data['previous_ids']})")
+            
+        # 处理隐私权限标
+        if 'is_share' in node_data:
+            update_fields.append("is_share = %s")
+            update_values.append(node_data['is_share'])
+            print(f"[数据库更新] 更新is_share: {node_data['is_share']}")
         
         # 总是更新 last_accessed
         update_fields.append("last_accessed = CURRENT_TIMESTAMP")
@@ -918,9 +925,9 @@ class CausalDatabase:
             result = cur.fetchone()
             return float(result[0]) if result else None
     
-    def set_user_weight(self, actor_id: str, serial_id: int, weight: float):
+    def set_user_weight(self, actor_id: str, serial_id: int, weight: float, parent_id: str = None):
         """
-        职责：设置用户对特定事件的权重
+        职责：设置用户对特定事件的权重和主管连线(parent_id)
         如果记录不存在则插入，存在则更新
         """
         # 首先检查记录是否存在
@@ -931,19 +938,34 @@ class CausalDatabase:
             
             if exists:
                 # 更新现有记录
-                update_sql = """
-                    UPDATE ains_user_weights 
-                    SET survival_weight = %s, last_accessed = CURRENT_TIMESTAMP
-                    WHERE actor_id = %s AND serial_id = %s
-                """
-                cur.execute(update_sql, (weight, actor_id, serial_id))
+                if parent_id is not None:
+                    update_sql = """
+                        UPDATE ains_user_weights 
+                        SET survival_weight = %s, parent_id = %s, last_accessed = CURRENT_TIMESTAMP
+                        WHERE actor_id = %s AND serial_id = %s
+                    """
+                    cur.execute(update_sql, (weight, parent_id, actor_id, serial_id))
+                else:
+                    update_sql = """
+                        UPDATE ains_user_weights 
+                        SET survival_weight = %s, last_accessed = CURRENT_TIMESTAMP
+                        WHERE actor_id = %s AND serial_id = %s
+                    """
+                    cur.execute(update_sql, (weight, actor_id, serial_id))
             else:
                 # 插入新记录
-                insert_sql = """
-                    INSERT INTO ains_user_weights (actor_id, serial_id, survival_weight)
-                    VALUES (%s, %s, %s)
-                """
-                cur.execute(insert_sql, (actor_id, serial_id, weight))
+                if parent_id is not None:
+                    insert_sql = """
+                        INSERT INTO ains_user_weights (actor_id, serial_id, survival_weight, parent_id)
+                        VALUES (%s, %s, %s, %s)
+                    """
+                    cur.execute(insert_sql, (actor_id, serial_id, weight, parent_id))
+                else:
+                    insert_sql = """
+                        INSERT INTO ains_user_weights (actor_id, serial_id, survival_weight)
+                        VALUES (%s, %s, %s)
+                    """
+                    cur.execute(insert_sql, (actor_id, serial_id, weight))
     
     def get_user_nodes(self, actor_id: str):
         """
@@ -951,7 +973,7 @@ class CausalDatabase:
         返回：包含用户权重的节点列表
         """
         sql = """
-            SELECT n.*, COALESCE(w.survival_weight, n.survival_weight) as user_weight
+            SELECT n.*, COALESCE(w.survival_weight, n.survival_weight) as user_weight, w.parent_id as user_parent_id
             FROM ains_active_nodes n
             LEFT JOIN ains_user_weights w ON n.serial_id = w.serial_id AND w.actor_id = %s
             ORDER BY n.created_at ASC
@@ -961,6 +983,10 @@ class CausalDatabase:
             nodes = cur.fetchall()
             # 为每个节点解析前事件列表
             for node in nodes:
+                # 优先使用用户副本中的连线
+                if node.get('user_parent_id') is not None:
+                    node['parent_id'] = node['user_parent_id']
+                    
                 if 'parent_id' in node:
                     node['previous_ids'] = self._string_to_previous(node.get('parent_id'))
                     node['previous_node'] = node.pop('parent_id')
@@ -1096,7 +1122,7 @@ class CausalDatabase:
         
         if owner_id:
             sql = """
-                SELECT n.serial_id, n.node_id, n.parent_id, n.event_tuple,
+                SELECT n.serial_id, n.node_id, n.parent_id, n.event_tuple, n.owner_id, n.is_share, n.full_image_url,
                        (n.semantic_vector <=> (
                            SELECT semantic_vector FROM ains_active_nodes WHERE node_id = %s
                        )) * 100 as distance,
@@ -1119,7 +1145,7 @@ class CausalDatabase:
             """
         else:
             sql = """
-                SELECT n.serial_id, n.node_id, n.parent_id, n.event_tuple,
+                SELECT n.serial_id, n.node_id, n.parent_id, n.event_tuple, n.owner_id, n.is_share, n.full_image_url,
                        (n.semantic_vector <=> (
                            SELECT semantic_vector FROM ains_active_nodes WHERE node_id = %s
                        )) * 100 as distance,
@@ -1165,6 +1191,59 @@ class CausalDatabase:
                 if not show_links:
                     node.pop('previous_ids', None)
                     node.pop('next_ids', None)
+                    
+            return nodes
+
+    def get_cross_field_contact_surface(self, owner_id: str, actor_id: str = None):
+        """
+        职责：获取本场与异场之间的交集接触面连线。
+        如果异场节点被设置为不可分享（is_share=False），则将其内容打码。
+        """
+        # 第一步：查找由于 parent_id 关联产生的接触面
+        # 提取当前 owner_id 下的所有 node_id，或者指向当前 owner_id 的异场节点
+        sql = """
+            SELECT DISTINCT n.*, w.parent_id as user_parent_id, w.survival_weight as user_weight
+            FROM ains_active_nodes n
+            LEFT JOIN ains_user_weights w ON n.serial_id = w.serial_id AND w.actor_id = %s
+            WHERE n.owner_id != %s
+              AND (
+                  -- 异场节点的前因包含本场节点
+                  EXISTS (
+                      SELECT 1 FROM ains_active_nodes b 
+                      WHERE b.owner_id = %s 
+                        AND ('|' || COALESCE(w.parent_id, n.parent_id) || '|') LIKE '%%|' || b.node_id || '|%%'
+                  )
+                  OR
+                  -- 本场节点的前因包含该异场节点
+                  EXISTS (
+                      SELECT 1 FROM ains_active_nodes b 
+                      LEFT JOIN ains_user_weights bw ON b.serial_id = bw.serial_id AND bw.actor_id = %s
+                      WHERE b.owner_id = %s 
+                        AND ('|' || COALESCE(bw.parent_id, b.parent_id) || '|') LIKE '%%|' || n.node_id || '|%%'
+                  )
+              )
+        """
+        
+        with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(sql, (actor_id, owner_id, owner_id, actor_id, owner_id))
+            nodes = cur.fetchall()
+            
+            for node in nodes:
+                # 覆盖用户私有连线和权重
+                if node.get('user_parent_id') is not None:
+                    node['parent_id'] = node['user_parent_id']
+                if node.get('user_weight') is not None:
+                    node['survival_weight'] = node['user_weight']
+                    
+                # 处理打码锁桩
+                if node.get('owner_id') != owner_id and not node.get('is_share', True):
+                    node['event_tuple'] = "【私密桩点】内容不可见"
+                    node['full_image_url'] = None
+                    node['is_locked'] = True
+                    
+                if 'parent_id' in node:
+                    node['previous_ids'] = self._string_to_previous(node.get('parent_id'))
+                    node['previous_node'] = node.pop('parent_id')
                     
             return nodes
 

@@ -601,6 +601,20 @@ async def get_causal_history(actor_id: str = None, owner_id: str = None):
         # 获取全图语义连线 (相似度阈值设为 0.6，可根据需要调整)
         semantic_links = db.get_all_semantic_links(owner_id=owner_id, threshold=0.6)
         
+        # 追加合并跨场接触面节点
+        cross_nodes = []
+        if actor_id:
+            cross_nodes = db.get_cross_field_contact_surface(owner_id=owner_id, actor_id=actor_id)
+            
+            # 去重和格式化
+            existing_ids = {n['node_id'] for n in active_nodes}
+            for n in cross_nodes:
+                if n['node_id'] not in existing_ids:
+                    n['last_accessed'] = str(n['last_accessed'])
+                    n['created_at'] = str(n['created_at'])
+                    n['survival_weight'] = float(n['survival_weight'])
+                    active_nodes.append(n)
+        
         # 检查是否存在大股东节点（权重 >= 0.59），如果有则计算事件视界
         boss_node_id = None
         event_horizon_ids = None
@@ -936,6 +950,16 @@ async def handle_node_click(request: Request):
         horizon_show_links = env_config.get("HORIZON_DETAIL", "0") == "1"
         
         event_horizon_nodes = db.get_event_horizon(node_id, max_eyes, focal_owner_id, show_links=horizon_show_links)
+        
+        # 增加异场接触面
+        if actor_id:
+            cross_nodes = db.get_cross_field_contact_surface(owner_id=focal_owner_id, actor_id=actor_id)
+            existing_horizon_ids = {n['node_id'] for n in event_horizon_nodes}
+            for cn in cross_nodes:
+                if cn['node_id'] not in existing_horizon_ids:
+                    cn['distance'] = 0.0 # 将接触面视为紧贴视界
+                    event_horizon_nodes.append(cn)
+                    
         event_horizon_ids = [n['node_id'] for n in event_horizon_nodes]
         print(f"[点击事件] 视界扫描完成，半径: {max_eyes}，视界内节点数: {len(event_horizon_ids)}")
         

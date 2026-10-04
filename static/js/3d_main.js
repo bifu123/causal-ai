@@ -2825,41 +2825,62 @@ window.addEventListener('load', () => {
                 }
             }
 
-            // 映射图片路径
-            let imagePath = './static/images/zhen.png'; // 默认
-            if (isIsolated) {
-                imagePath = './static/images/glaxy.png';
-            } else if (duty === '贞') {
-                imagePath = './static/images/zhen.png';
-            } else if (duty === '又贞') {
-                imagePath = './static/images/youzhen.png';
-            } else if (duty === '对贞') {
-                imagePath = './static/images/duizhen.png';
+            // 判断是否为异场私密锁桩节点
+            if (node.is_locked) {
+                // 如果是私密节点，使用一把锁的图标或者特定的透明材质
+                let lockTexture = window.nodeTextureCache['lock'];
+                if (!lockTexture) {
+                    lockTexture = new THREE.TextureLoader().load('./static/images/glaxy.png'); // 临时用星系图标代替锁桩，您可以放真实的锁图片
+                    window.nodeTextureCache['lock'] = lockTexture;
+                }
+                const material = new THREE.SpriteMaterial({
+                    map: lockTexture,
+                    transparent: true,
+                    opacity: 0.3,
+                    color: 0x888888, // 灰色调
+                    depthWrite: false
+                });
+                const spriteNode = new THREE.Sprite(material);
+                const spriteScale = actualPhysicalRadius * 2.0; 
+                spriteNode.scale.set(spriteScale, spriteScale, 1);
+                group.add(spriteNode);
+            } else {
+                // 原有的映射图片路径逻辑
+                let imagePath = './static/images/zhen.png'; // 默认
+                if (isIsolated) {
+                    imagePath = './static/images/glaxy.png';
+                } else if (duty === '贞') {
+                    imagePath = './static/images/zhen.png';
+                } else if (duty === '又贞') {
+                    imagePath = './static/images/youzhen.png';
+                } else if (duty === '对贞') {
+                    imagePath = './static/images/duizhen.png';
+                }
+
+                // 加载纹理
+                let nodeTexture = window.nodeTextureCache[imagePath];
+                if (!nodeTexture) {
+                    nodeTexture = new THREE.TextureLoader().load(imagePath);
+                    window.nodeTextureCache[imagePath] = nodeTexture;
+                }
+
+                // 创建 Sprite
+                const material = new THREE.SpriteMaterial({
+                    map: nodeTexture,
+                    transparent: true,
+                    opacity: duty === '又贞' ? baseOpacity * 0.85 : baseOpacity,
+                    depthWrite: false
+                });
+
+                const spriteNode = new THREE.Sprite(material);
+                
+                // 调整 Sprite 缩放比例，使其与原球体大小保持一致
+                // 球体直径是 actualPhysicalRadius * 2
+                const spriteScale = actualPhysicalRadius * 2.5; 
+                spriteNode.scale.set(spriteScale, spriteScale, 1);
+                
+                group.add(spriteNode);
             }
-
-            // 加载纹理
-            let nodeTexture = window.nodeTextureCache[imagePath];
-            if (!nodeTexture) {
-                nodeTexture = new THREE.TextureLoader().load(imagePath);
-                window.nodeTextureCache[imagePath] = nodeTexture;
-            }
-
-            // 创建 Sprite
-            const material = new THREE.SpriteMaterial({
-                map: nodeTexture,
-                transparent: true,
-                opacity: duty === '又贞' ? baseOpacity * 0.85 : baseOpacity,
-                depthWrite: false
-            });
-
-            const spriteNode = new THREE.Sprite(material);
-            
-            // 调整 Sprite 缩放比例，使其与原球体大小保持一致
-            // 球体直径是 actualPhysicalRadius * 2
-            const spriteScale = actualPhysicalRadius * 2.5; 
-            spriteNode.scale.set(spriteScale, spriteScale, 1);
-            
-            group.add(spriteNode);
 
             // 【标签对齐】：精准计算文字悬浮位置
             // 初始化时如果是在事件视界中且为大股东节点，则不截断显示
@@ -2897,6 +2918,22 @@ window.addEventListener('load', () => {
         })
         .onNodeClick(node => {
             if (!node) return;
+
+            // 异场节点跳转漫游（带着当前观测者身份进入异场，焦点不变）
+            const urlParamsForJump = new URLSearchParams(window.location.search);
+            const currentOwnerId = urlParamsForJump.get('owner_id') || 'default';
+            if (node.owner_id && node.owner_id !== currentOwnerId) {
+                console.log(`[星空跳跃] 即将前往异场 ${node.owner_id}，目标焦点 ${node.id}`);
+                const url = new URL(window.location.href);
+                url.searchParams.set('owner_id', node.owner_id);
+                // 使用 serial_id 定位节点
+                url.searchParams.set('serial_id', node.serial_id || node.id);
+                if (window.currentActorId) {
+                    url.searchParams.set('actor_id', window.currentActorId);
+                }
+                window.location.href = url.toString();
+                return;
+            }
 
             // 移动端长按/双击兼容：如果两次点击间隔小于 500ms，视为双击，触发右键逻辑
             const now = Date.now();

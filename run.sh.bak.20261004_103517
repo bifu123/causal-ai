@@ -7,9 +7,9 @@ PYTHON_SCRIPT="main.py"
 LOG_FILE="$SERVER_DIR/server.log"
 
 get_pid() {
-    # 改进：通过检查监听 8094 端口的进程来获取 PID (最准确)
+    # 改进：通过检查监听 5002 端口的进程来获取 PID (最准确)
     # 如果没装 lsof，则回退到 ps 过滤
-    pid=$(lsof -t -i:8094 2>/dev/null)
+    pid=$(lsof -t -i:5002 2>/dev/null)
     if [ -z "$pid" ]; then
         pid=$(ps -ef | grep "$PYTHON_SCRIPT" | grep -v grep | awk '{print $2}' | head -n 1)
     fi
@@ -39,7 +39,7 @@ start() {
                 fi
                 echo -n "."
             done
-            echo -e "\n❌ 启动检测超时，请执行 'lsof -i:8094' 手动确认。"
+            echo -e "\n❌ 启动检测超时，请执行 'lsof -i:5002' 手动确认。"
         else
             echo "错误: 未找到虚拟环境 $VENV_PATH"
         fi
