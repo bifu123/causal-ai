@@ -1,0 +1,1100 @@
+me: 当前端网页打开，是通过/api/v1/causal/history获取owner_id的节点及actor_id的权重来渲染星空的，对吧？
+
+kimi:  这是一个非常精准的性能诊断。**瓶颈不在数据库查询（ramdisk 70x 优势被 HTTP 往返延迟吃掉了），而在网络传输 + 前端全量渲染**。
+
+以下是一套完整的 **localStorage 缓存 + 增量更新** 方案：
+
+---
+
+## 方案架构
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        前端页面                              │
+│  ┌─────────────┐    ┌─────────────┐    ┌─────────────────┐ │
+│  │ localStorage│◄───│ 增量更新器   │◄───│  Socket.IO      │ │
+│  │  全量缓存   │     │ (HTTP/Socket)│     │  实时推送        │ │
+│  └──────┬──────┘    └─────────────┘    └─────────────────┘ │
+│         │                                                   │
+│         ▼                                                   │
+│  ┌─────────────┐    ┌─────────────┐                        │
+│  │ 优先本地渲染 │───►│ 差异合并    │                        │
+│  │ (<100ms)    │     │ (patch)     │                        │
+│  └─────────────┘    └─────────────┘                        │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+                    ┌─────────────────┐
+                    │ /api/v1/causal/ │
+                    │    history      │
+                    │  (带版本/时间戳) │
+                    └─────────────────┘
+```
+
+---
+
+## 1. 缓存数据结构设计
+
+```javascript
+// localStorage 键名
+const CACHE_KEY = 'causal_history_v1';
+
+// 存储结构
+{
+  "version": 1,                    // 缓存协议版本
+  "owner_id": "worker",            // 因果场标识
+  "actor_id": "user2",             // 观测者标识
+  "cached_at": "2026-08-21T05:27:00Z",  // 缓存时间
+  "data_hash": "a3f2b1...",      // 数据指纹（用于快速比对）
+  "nodes": [                      // 节点列表（与 history 接口 data 同构）
+    {
+      "serial_id": 1,
+      "node_id": "...",
+      "event_tuple": "...",
+      "survival_weight": 0.6,
+      "previous_ids": [],
+      "next_ids": [],
+      "block_tag": "因",
+      "action_tag": "贞",
+      "last_accessed": "...",
+      "created_at": "..."
+    }
+  ],
+  "semantic_links": [...],       // 语义连线缓存
+  "boss_node_id": "xxx",         // 大股东
+  "event_horizon": [...],        // 视界缓存
+  "max_eyes": 40                 // 视界半径
+}
+```
+
+---
+
+## 2. 后端接口改造（最小改动）
+
+在 `/api/v1/causal/history` 增加 **增量查询** 支持：
+
+```python
+@app.get("/api/v1/causal/history")
+async def get_causal_history(
+    actor_id: str = None, 
+    owner_id: str = None,
+    since: str = None,           # 新增：客户端缓存时间戳
+    data_hash: str = None        # 新增：客户端数据指纹
+):
+    """
+    职责：返回活跃事件数据。
+    
+    新增增量模式：
+    - 如果 since 提供，只返回该时间后变更/新增/删除的节点
+    - 如果 data_hash 匹配，直接返回 {"status": "unchanged"}，省流量
+    """
+```
+
+**增量响应格式**：
+
+```json
+// 情况1：数据未变化（hash 匹配）
+{
+  "status": "unchanged",
+  "cached_at": "2026-08-21T05:27:00Z"
+}
+
+// 情况2：增量更新
+{
+  "status": "delta",
+  "cached_at": "2026-08-21T05:27:00Z",
+  "updates": [
+    {"serial_id": 5, "node_id": "xxx", "survival_weight": 0.45, ...},
+    ...
+  ],
+  "deletes": [3, 7],           // 被删除的 serial_id
+  "boss_node_id": "new_boss",   // 大股东可能变化
+  "event_horizon": [...],       // 视界可能变化
+  "semantic_links": [...]       // 语义连线可能变化
+}
+
+// 情况3：首次或缓存失效，全量返回（原有格式）
+{
+  "status": "success",
+  "data": [...],
+  "semantic_links": [...],
+  ...
+}
+```
+
+---
+
+## 3. 前端加载流程
+
+```javascript
+// ===== 页面初始化 =====
+async function initCausalStarfield() {
+  const cache = loadFromLocalStorage();
+  
+  // 阶段1：优先本地渲染（< 100ms，用户立即看到星空）
+  if (cache && cache.owner_id === currentOwnerId && cache.actor_id === currentActorId) {
+    renderStarfield(cache.nodes, cache.semantic_links);
+    showLoadingIndicator('同步中...');  // 轻量提示
+  } else {
+    showLoadingIndicator('首次加载中...');
+  }
+  
+  // 阶段2：后台增量同步
+  try {
+    const response = await fetch(
+      `/api/v1/causal/history?` + 
+      `owner_id=${currentOwnerId}&` +
+      `actor_id=${currentActorId}&` +
+      `since=${cache?.cached_at || ''}&` +
+      `data_hash=${cache?.data_hash || ''}`
+    );
+    const result = await response.json();
+    
+    if (result.status === 'unchanged') {
+      // 数据没变化，什么都不用做
+      hideLoadingIndicator();
+    } 
+    else if (result.status === 'delta') {
+      // 增量合并
+      const merged = mergeDelta(cache, result);
+      saveToLocalStorage(merged);
+      applyPatches(result);  // 只更新变化的节点，不重新渲染全图
+      hideLoadingIndicator();
+    }
+    else {
+      // 全量更新（首次或缓存失效）
+      saveToLocalStorage(normalizeResponse(result));
+      renderStarfield(result.data, result.semantic_links);
+      hideLoadingIndicator();
+    }
+  } catch (e) {
+    // 网络失败：降级到本地缓存
+    if (cache) {
+      console.warn('网络异常，使用本地缓存');
+      hideLoadingIndicator();
+    } else {
+      showError('加载失败，请刷新重试');
+    }
+  }
+}
+```
+
+---
+
+## 4. 增量合并算法
+
+```javascript
+function mergeDelta(cache, delta) {
+  const nodeMap = new Map(cache.nodes.map(n => [n.serial_id, n]));
+  
+  // 应用更新
+  for (const update of delta.updates) {
+    nodeMap.set(update.serial_id, {
+      ...(nodeMap.get(update.serial_id) || {}),
+      ...update,
+      _updated_at: delta.cached_at
+    });
+  }
+  
+  // 应用删除
+  for (const serialId of delta.deletes) {
+    nodeMap.delete(serialId);
+  }
+  
+  return {
+    ...cache,
+    cached_at: delta.cached_at,
+    data_hash: delta.new_hash || computeHash(nodeMap),
+    nodes: Array.from(nodeMap.values()),
+    boss_node_id: delta.boss_node_id || cache.boss_node_id,
+    event_horizon: delta.event_horizon || cache.event_horizon,
+    semantic_links: delta.semantic_links || cache.semantic_links
+  };
+}
+```
+
+---
+
+## 5. 与 Socket.IO 的协同
+
+Socket.IO 已经在推送 `node_updated`、`node_created`、`node_deleted`。这些事件应该**同时更新 localStorage**：
+
+```javascript
+// Socket.IO 事件监听
+socket.on('node_updated', (node) => {
+  updateLocalNode(node);           // 更新本地缓存
+  updateStarfieldNode(node);       // 更新渲染（不重新渲染全图）
+});
+
+socket.on('node_created', (node) => {
+  addLocalNode(node);              // 追加到本地缓存
+  addStarfieldNode(node);          // 增量渲染
+});
+
+socket.on('node_deleted', ({node_id}) => {
+  removeLocalNode(node_id);        // 从本地缓存删除
+  removeStarfieldNode(node_id);    // 移除渲染
+});
+
+socket.on('horizon_updated', (data) => {
+  updateLocalHorizon(data);        // 更新视界缓存
+  highlightHorizon(data.event_horizon);
+});
+```
+
+**这样设计后，用户在前端操作（点击、创建、删除）时，localStorage 和渲染始终保持同步，无需等待下次 HTTP 请求。**
+
+---
+
+## 6. 缓存清理策略
+
+| 场景 | 处理 |
+|------|------|
+| **localStorage 满** | 按 `last_accessed` 淘汰最久未访问的 owner_id 缓存 |
+| **数据结构升级** | 版本号不匹配时自动清空，强制全量刷新 |
+| **owner_id 切换** | 保留旧缓存，新 owner_id 首次全量加载 |
+| **actor_id 切换** | 权重数据不同，但节点列表相同，可复用节点缓存，只刷新权重 |
+| **手动刷新** | 提供"强制刷新"按钮，清空缓存后全量拉取 |
+
+---
+
+## 7. 预期效果
+
+| 指标 | 优化前 | 优化后 |
+|------|--------|--------|
+| **首次打开** | HTTP RTT + 查询 + 渲染 | 不变（仍需全量） |
+| **二次打开** | HTTP RTT + 查询 + 全量渲染 | **localStorage 读取 (< 10ms) + 增量 HTTP** |
+| **节点 1000+ 时** | 传输 ~500KB，渲染卡顿 | **增量可能 < 10KB，只 patch 变化节点** |
+| **弱网/离线** | 白屏 | **本地缓存兜底，可查看和浏览** |
+
+---
+
+## 8. 实现优先级建议
+
+**Phase 1（立即可做，无后端改动）：**
+1. 前端 `localStorage` 缓存 `history` 全量响应
+2. 页面加载时优先读缓存渲染，后台发请求比对
+3. Socket.IO 事件同步更新 localStorage
+
+**Phase 2（需要后端配合）：**
+1. 后端 `history` 接口支持 `since` 和 `data_hash` 参数
+2. 后端维护 `updated_at` 索引，支持增量查询
+3. 返回 `delta` 格式减少传输
+
+**Phase 3（进一步优化）：**
+1. `service worker` 离线缓存
+2. `IndexedDB` 替代 localStorage（突破 5MB 限制）
+3. 压缩传输（gzip/brotli）
+
+---
+
+## 需要我帮你实现哪部分？
+
+1. **前端 localStorage 缓存层**（Phase 1，纯前端，无后端改动）
+2. **后端增量接口**（Phase 2，需要改 `main.py` 的 `history` 接口）
+3. **完整的方案代码**（前后端一起）
+
+**推荐先做 Phase 1**，因为：
+- 零后端改动，风险最低
+- 效果立竿见影（二次打开秒开）
+- 为 Phase 2 的增量接口打好基础
+
+
+请审议KIMI方案
+
+
+
+
+GEMINI: 你的理解完全正确。在当前的业务逻辑中，前端网页初始化确实是通过 `/api/v1/causal/history` 接口来实现的，该接口负责拉取特定 `owner_id` 的活跃事件数据，同时根据传入的 `actor_id` 加载该观测者特有的个性化权重（`survival_weight`），从而完成因果星空的渲染。
+
+关于 KIMI 提供的这份 `localStorage` + 增量更新方案，我进行了详细审议。总体而言，这套架构在缩短 TTFB（首字节时间）和减少网络渲染阻塞方面非常专业。但是，结合我们系统当前的底层核心业务，这套方案存在一个**必须修正的架构冲突**，需要进行针对性改良。
+
+以下是具体的审议意见与改良方案：
+
+---
+
+### 1. 方案的致命冲突：因果代谢引擎（MetabolismEngine）
+
+KIMI 的增量方案建立在一个前提上：**如果没有增删改（CRUD），数据 Hash 就不会变，直接返回 `unchanged**`。但在我们的系统中，这并不成立。
+
+* **持续的权重衰减**：系统在后端运行着 `MetabolismEngine`，其 `decay_rate` 设定为 0.03，并在后台通过 `tick_interval` 持续运转。
+
+
+* **全量失效问题**：这意味着即使没有任何用户操作，所有节点的 `survival_weight` 也会随着时间推移而不断变化。如果单纯依靠时间戳 `since` 或 `data_hash` 进行比对，后端会发现**所有节点的权重都变了**，从而导致所谓的“增量更新”实际上每次都会下发 100% 的节点数据，直接击穿这套缓存设计的初衷。
+
+### 2. 动静分离的改良架构
+
+为了保留 KIMI 方案“秒开”的优势，同时适配我们的代谢业务，必须对数据进行**动静分离**缓存：
+
+* **静态拓扑数据（适合本地长效缓存）**：
+* 包含：`serial_id`、`node_id`、`event_tuple`、`full_image_url`、`action_tag`、`block_tag`、`previous_ids`、`next_ids`。
+* 这些数据体积大（尤其是 `event_tuple` 和图片 URL），但极少改变，完全可以依赖 `localStorage` 或 `IndexedDB`。
+
+
+* **动态状态数据（必须每次轻量拉取）**：
+* 包含：`survival_weight`、`boss_node_id`、`event_horizon`。
+* 这些数据体积极小，但变化极其频繁（受代谢引擎和他人点击影响）。
+
+
+
+**改良后的接口职责设计：**
+
+1. **缓存校验与拓扑补齐**：前端发送本地缓存的 `节点 ID 列表` 或 `最高版本号`。后端比对后，**只下发缺失或被修改的静态节点拓扑数据**。
+2. **权重轻量同步**：后端每次都下发一个极轻量的字典：`{ serial_id: current_weight }`，前端拿到后直接将权重“映射”到本地缓存的节点树上，触发渲染。
+
+### 3. 容量限制的隐患
+
+KIMI 的方案在 Phase 1 推荐了 `localStorage`。对于目前的文本节点可能够用，但我们需要注意：
+
+* `localStorage` 的硬限制通常是 5MB。
+* 我们的节点包含 `event_tuple`（部分从地宫恢复的长文本）以及 `full_image_url`。如果节点数量达到 1000+，极易触发 `QuotaExceededError`。
+
+
+* **建议**：在落地 Phase 1 时，直接跨过 `localStorage`，采用基于 Promise 封装的 `IndexedDB`（如 `localforage` 库），彻底解除存储上限顾虑。
+
+### 4. 协同机制的优秀之处
+
+KIMI 方案中的第 5 点（与 Socket.IO 的协同）设计得非常精准。
+
+* 当前端收到 `node_updated`、`node_created` 等 Socket 广播时，除了更新内存和 Three.js 渲染实例，**同步写入本地缓存**是一个绝佳的闭环设计。
+* 当前端的 Socket.IO 连接时，后端已经会遍历发送活跃节点的 `node_created` 事件。如果我们在前端拦截这些 Socket 事件并将其持久化，甚至可以进一步削减 HTTP 接口的压力。
+
+
+
+---
+
+### 实施建议
+
+KIMI 的 Phase 1 策略（优先做纯前端改造）是非常明智的。基于以上审议，建议的第一阶段落地路线如下：
+
+1. **前端引入 IndexedDB (localforage)**，代理现有的网络请求。
+2. **首次加载拦截**：页面打开时，先从 IndexedDB 读出上次的节点数组，立刻调用 `renderStarfield` 渲染旧星空，此时给用户呈现的是“瞬间加载”。
+3. **静默刷新**：后台正常请求 `/api/v1/causal/history`，拿到最新数据后。
+4. **无感合并**：对比最新数据与本地数据，重点提取 `survival_weight`。调用你现有的 `updateEventHorizonVisibility` 等方法去刷新节点亮度和透明度，然后将新数据完整覆写进 IndexedDB。
+
+这两步改造紧密相连，形成了一个完整的数据流闭环。为了确保 Agent 体系的**职责**清晰，我们在前端将缓存与渲染剥离，在后端将“拓扑业务”与“代谢业务”剥离。
+
+以下是具体的落地代码与架构梳理：
+
+### 第一步：调整前端的初始化逻辑 (IndexedDB + 动静合并)
+
+前端的主要**职责**是：拦截初始化空白期、提供瞬时视觉反馈、静默处理数据融合。建议引入 `localforage` 库，它能使用简单的异步 API 调用底层的 IndexedDB，完美避开存储容量限制。
+
+**前端核心实现代码 (JavaScript / ES6+)：**
+
+```javascript
+import localforage from 'localforage';
+
+// 配置 IndexedDB
+localforage.config({
+    name: 'CausalStarfield',
+    storeName: 'nodes_cache'
+});
+
+async function initCausalGraph(owner_id, actor_id) {
+    const cacheKey = `causal_nodes_${owner_id}_${actor_id}`;
+    let currentNodesMap = new Map();
+
+    try {
+        // 1. 优先读取本地缓存 (IndexedDB)
+        const cachedNodes = await localforage.getItem(cacheKey);
+        
+        if (cachedNodes && cachedNodes.length > 0) {
+            console.log("⭐ [Cache Hit] 命中本地拓扑缓存，立即执行渲染业务...");
+            // 将数组转为 Map 方便后续更新
+            cachedNodes.forEach(n => currentNodesMap.set(n.serial_id, n));
+            // 调用 Three.js 渲染引擎，瞬间展现星空
+            renderStarfield(cachedNodes); 
+        }
+
+        // 2. 提取本地最大 serial_id 用于请求增量拓扑
+        const maxSerialId = currentNodesMap.size > 0 
+            ? Math.max(...Array.from(currentNodesMap.keys())) 
+            : 0;
+
+        console.log("🔄 [Sync] 开始静默拉取动静分离接口...");
+        
+        // 3. 请求后端的动静分离接口
+        const response = await fetch(`/api/v1/causal/history?owner_id=${owner_id}&actor_id=${actor_id}&since_serial=${maxSerialId}`);
+        const { static_topology_updates, dynamic_weights } = await response.json();
+
+        // 4. 处理静态拓扑的增量合并业务
+        if (static_topology_updates && static_topology_updates.length > 0) {
+            static_topology_updates.forEach(newNode => {
+                currentNodesMap.set(newNode.serial_id, newNode);
+                // 增量添加到 Three.js 场景中
+                addNodeToScene(newNode); 
+            });
+        }
+
+        // 5. 处理动态代谢权重的全量映射业务 (核心融合点)
+        Object.entries(dynamic_weights).forEach(([serialStr, currentWeight]) => {
+            const serial_id = parseInt(serialStr, 10);
+            if (currentNodesMap.has(serial_id)) {
+                // 更新内存中的权重
+                let node = currentNodesMap.get(serial_id);
+                node.survival_weight = currentWeight;
+                
+                // 直接驱动渲染层更新亮度/透明度/事件视界
+                updateEventHorizonVisibility(serial_id, currentWeight);
+            }
+        });
+
+        // 6. 将合并后的最新全量快照持久化，供下次秒开使用
+        const finalNodesArray = Array.from(currentNodesMap.values());
+        await localforage.setItem(cacheKey, finalNodesArray);
+        console.log("✅ [Sync Done] 动静数据融合完毕，本地缓存已刷新。");
+
+    } catch (error) {
+        console.error("初始化星空业务异常:", error);
+    }
+}
+
+```
+
+---
+
+### 第二步：对后端的 `history` 接口做动静分离改造
+
+后端的**业务**逻辑需要发生转变：不再无脑下发 JSON 巨物，而是切分为两个数据流。
+
+* **静态拓扑**：只下发 `serial_id` 大于前端 `since_serial` 的新节点（包括其文本、图片 URL 等大体积字段）。
+* **动态代谢**：无论节点新旧，将所有活跃节点受 `MetabolismEngine` 衰减影响的最新 `survival_weight`，打包成极简的字典全量下发。
+
+**后端核心实现代码 (Python / FastAPI 示例)：**
+
+```python
+from fastapi import APIRouter, Query
+from typing import Dict, List, Any
+
+router = APIRouter()
+
+@router.get("/api/v1/causal/history")
+async def get_causal_history(
+    owner_id: str, 
+    actor_id: str, 
+    since_serial: int = Query(0, description="前端缓存中最大的节点 serial_id")
+) -> Dict[str, Any]:
+    
+    # 执行业务查询：获取该观测者视角下所有的活跃事件节点
+    # 这些节点自带经过代谢引擎 (MetabolismEngine) 计算后的最新生存权重
+    active_nodes = await db.get_active_nodes(owner_id=owner_id, actor_id=actor_id)
+    
+    static_topology_updates = []
+    dynamic_weights = {}
+    
+    for node in active_nodes:
+        # 1. 动态代谢业务：全量下发极轻量的 id -> weight 映射
+        # 这里只传数字，极其节省带宽
+        dynamic_weights[str(node.serial_id)] = node.survival_weight
+        
+        # 2. 静态拓扑业务：仅下发前端缺失的增量数据
+        if node.serial_id > since_serial:
+            static_topology_updates.append({
+                "serial_id": node.serial_id,
+                "node_id": node.node_id,
+                "event_tuple": node.event_tuple,          # 大文本字段
+                "full_image_url": node.full_image_url,    # 长链接字段
+                "action_tag": node.action_tag,
+                "block_tag": node.block_tag,
+                "previous_ids": node.previous_ids,
+                "next_ids": node.next_ids
+            })
+
+    return {
+        # 新增的拓扑节点数组 (可能为空)
+        "static_topology_updates": static_topology_updates,
+        # 全量活跃节点的权重映射字典 (体积小，每次必传)
+        "dynamic_weights": dynamic_weights
+    }
+
+```
+
+### 落地改造的优势验证
+
+通过这两步改造，整个初始化流程将具备极高的效率：
+
+1. **首屏零阻塞**：用户打开页面，几毫秒内直接从 IndexedDB 读取数百个节点的庞大拓扑数据，Three.js 立刻开始渲染，没有任何网络等待。
+2. **规避代谢引擎风暴**：后台的 `MetabolismEngine` 持续运转导致权重时刻变化，但这部分变化被压缩成了 `{ "1": 0.85, "2": 0.42 }` 这样极小的 JSON 字典，网络传输耗时极低。
+3. **无缝视觉过渡**：前端拿到极小的权重字典后，只需调用现有的 `updateEventHorizonVisibility` 等着色器或材质更新逻辑，星空的亮度会像“呼吸”一样自然过渡到最新状态。
+
+
+KIMI补充： GEMINI 的审议非常精准，核心洞察——**MetabolismEngine 导致的全量失效**——直接击中了原方案的命门。我完全认同动静分离的改良方向。
+
+但在落地之前，GEMINI 的方案还有几处需要补强，否则会在实际运行中遇到边界问题。以下是我的审阅意见和补全后的完整方案：
+
+---
+
+## 对 GEMINI 方案的审阅
+
+### ✅ 完全认同的部分
+
+| 要点 | 评价 |
+|------|------|
+| **MetabolismEngine 冲突** | 致命问题定位准确。`decay_rate=0.03` 意味着每秒都在变，任何基于"数据没变"的缓存策略都会失效。 |
+| **动静分离** | 正确架构。静态拓扑（大体积、低频变）和动态权重（小体积、高频变）必须解耦。 |
+| **IndexedDB 替代 localStorage** | 必要。`event_tuple` 长文本 + 图片 URL，5MB 很快会被击穿。 |
+| **Socket.IO 持久化闭环** | 优秀设计。Socket 事件直接写 IndexedDB，可以进一步削减 HTTP 压力。 |
+
+### ⚠️ 需要修正/补充的部分
+
+#### 1. `since_serial` 的缺陷
+
+GEMINI 用 `maxSerialId` 来判断增量拓扑，这会导致**老节点编辑和删除漏同步**：
+
+- **编辑场景**：用户通过 `/api/v1/causal/update` 修改了 `node_id=100` 的 `event_tuple`，但 `serial_id` 不变。前端 `since_serial` 不会请求这个节点，导致缓存中的文本是旧的。
+- **删除场景**：`serial_id=50` 的节点被删除，但前端缓存里还有。由于 `serial_id <= since_serial`，后端不会告诉前端"这个节点没了"。
+
+**修正方案**：用 **`updated_at` 时间戳** 替代 `since_serial`。
+
+```python
+# 后端：每个节点维护 updated_at（已有 last_accessed 字段可复用）
+# 前端：缓存时记录 last_sync_time
+```
+
+#### 2. 缺失的语义连线缓存
+
+`semantic_links`（全图语义连线）是 history 接口的重要返回数据，用于渲染节点间的引力线。GEMINI 的方案没有涉及：
+
+- `semantic_links` 基于向量相似度计算，变化频率中等（只在节点增删改或向量重算时变）
+- 体积较大（N 个节点可能产生 N²/2 条连线，虽然阈值过滤后减少很多）
+
+**建议**：语义连线跟随静态拓扑一起缓存，但用独立键存储，避免每次权重刷新都重写。
+
+#### 3. 删除节点的显式同步
+
+GEMINI 的 `dynamic_weights` 字典只包含存活节点。如果节点被删除，前端缓存中仍然会保留（因为没收到删除指令）。
+
+**修正**：后端返回中增加 `deleted_serials` 数组。
+
+#### 4. 向后兼容
+
+`/api/v1/causal/history` 当前被前端直接调用，改造必须兼容旧参数（无 `since` 时返回全量）。
+
+---
+
+## 补全后的完整方案
+
+### 数据分层定义
+
+| 层级 | 数据内容 | 变化频率 | 存储位置 | 同步策略 |
+|------|---------|---------|---------|---------|
+| **L1 静态拓扑** | `serial_id`, `node_id`, `event_tuple`, `full_image_url`, `action_tag`, `block_tag`, `previous_ids`, `next_ids`, `created_at` | 极低（CRUD 时变） | IndexedDB | 增量（`updated_at > since`） |
+| **L2 语义连线** | `source_id`, `target_id`, `similarity` | 中（节点增删改时变） | IndexedDB | 增量或全量（体积可控时） |
+| **L3 动态状态** | `survival_weight` | 极高（代谢引擎每秒变） | 内存 | 每次全量轻量字典 |
+| **L4 观测状态** | `boss_node_id`, `event_horizon`, `max_eyes` | 高（点击/代谢都会变） | 内存 | 每次全量 |
+
+### 后端接口改造（最终版）
+
+```python
+@app.get("/api/v1/causal/history")
+async def get_causal_history(
+    actor_id: str = None, 
+    owner_id: str = None,
+    since: str = None,        # ISO 时间戳，前端缓存最后同步时间
+    with_links: bool = True   # 是否返回语义连线（前端可选择跳过）
+):
+    """
+    职责：返回活跃事件数据，支持动静分离模式。
+    
+    参数:
+    - since: 前端本地缓存的最后更新时间。提供则启用增量模式。
+    - with_links: 是否返回语义连线。首次加载 true，后续可 false 省流量。
+    
+    返回:
+    - 全量模式（无 since）: 与现有格式兼容
+    - 增量模式（有 since）: 动静分离格式
+    """
+    try:
+        # 获取活跃节点（已应用用户个性化权重）
+        active_nodes = db.get_all_active(owner_id)
+        
+        if actor_id:
+            for node in active_nodes:
+                serial_id = node.get('serial_id')
+                if serial_id:
+                    user_weight = db.get_user_weight(actor_id, serial_id)
+                    if user_weight is not None:
+                        node['survival_weight'] = user_weight
+                    else:
+                        default_weight = float(node.get('survival_weight', 1.0))
+                        db.set_user_weight(actor_id, serial_id, default_weight)
+                        node['survival_weight'] = default_weight
+        
+        # 序列化时间字段
+        for node in active_nodes:
+            node['last_accessed'] = str(node['last_accessed'])
+            node['created_at'] = str(node['created_at'])
+            node['survival_weight'] = float(node['survival_weight'])
+        
+        # ===== 增量模式 =====
+        if since:
+            since_dt = datetime.fromisoformat(since.replace('Z', '+00:00'))
+            
+            # 1. 静态拓扑增量：updated_at > since 的节点
+            topology_updates = []
+            current_serials = set()
+            
+            for node in active_nodes:
+                current_serials.add(node['serial_id'])
+                node_updated = node.get('updated_at') or node.get('last_accessed')
+                if isinstance(node_updated, str):
+                    node_updated = datetime.fromisoformat(node_updated.replace('Z', '+00:00'))
+                
+                # 新节点或修改过的节点
+                if node_updated > since_dt:
+                    topology_updates.append({
+                        "serial_id": node['serial_id'],
+                        "node_id": node['node_id'],
+                        "event_tuple": node.get('event_tuple'),
+                        "full_image_url": node.get('full_image_url'),
+                        "action_tag": node.get('action_tag'),
+                        "block_tag": node.get('block_tag'),
+                        "previous_ids": node.get('previous_ids', []),
+                        "next_ids": node.get('next_ids', []),
+                        "created_at": node.get('created_at'),
+                        "updated_at": str(node_updated)
+                    })
+            
+            # 2. 动态权重：所有存活节点的轻量字典
+            dynamic_weights = {
+                str(node['serial_id']): node['survival_weight'] 
+                for node in active_nodes
+            }
+            
+            # 3. 删除检测：前端缓存中有但后端已不存在的节点
+            # 注意：这里需要前端在请求时传入 cached_serials 列表
+            # 为简化，先由前端自行比对（后端不保存前端缓存状态）
+            
+            # 4. 观测状态
+            boss_node_id = None
+            if actor_id:
+                for node in active_nodes:
+                    if float(node.get('survival_weight', 0)) >= 0.59:
+                        boss_node_id = node.get('node_id')
+                        break
+            
+            # 5. 语义连线（可选）
+            semantic_links = []
+            if with_links:
+                semantic_links = db.get_all_semantic_links(owner_id=owner_id, threshold=0.6)
+            
+            return {
+                "status": "delta",
+                "server_time": str(datetime.now()),
+                "static_topology_updates": topology_updates,
+                "dynamic_weights": dynamic_weights,
+                "semantic_links": semantic_links if with_links else None,
+                "boss_node_id": boss_node_id,
+                "event_horizon": None,  # 由前端根据 boss + max_eyes 自行计算，或后端计算
+                "current_max_eyes": USER_MAX_EYES_CACHE.get(f"{actor_id}_{owner_id}") if actor_id else None
+            }
+        
+        # ===== 全量模式（兼容现有前端）=====
+        else:
+            semantic_links = db.get_all_semantic_links(owner_id=owner_id, threshold=0.6)
+            
+            boss_node_id = None
+            event_horizon_ids = None
+            if actor_id:
+                for node in active_nodes:
+                    if float(node.get('survival_weight', 0)) >= 0.59:
+                        boss_node_id = node.get('node_id')
+                        break
+                
+                if boss_node_id:
+                    # ... 现有视界计算逻辑 ...
+                    pass
+            
+            return {
+                "status": "success",
+                "data": active_nodes,
+                "semantic_links": semantic_links,
+                "actor_id": actor_id,
+                "owner_id": owner_id,
+                "boss_node_id": boss_node_id,
+                "event_horizon": event_horizon_ids,
+                "current_max_eyes": USER_MAX_EYES_CACHE.get(f"{actor_id}_{owner_id}") if actor_id else None
+            }
+            
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+```
+
+**关键修正点：**
+- 用 `since`（ISO 时间戳）替代 `since_serial`，解决编辑和删除的漏同步问题
+- 每个节点需要 `updated_at` 字段（如果没有，可以复用 `last_accessed`）
+- 语义连线 `with_links` 可选，减少后续请求体积
+- 删除检测：由于后端不保存前端缓存状态，**删除节点的检测需要前端自行比对**（后端返回所有存活 serial_id，前端对比本地缓存找出缺失）
+
+### 前端实现（补全版）
+
+```javascript
+import localforage from 'localforage';
+
+// IndexedDB 配置
+const topologyDB = localforage.createInstance({
+    name: 'CausalStarfield',
+    storeName: 'topology',
+    description: '静态拓扑缓存'
+});
+
+const stateDB = localforage.createInstance({
+    name: 'CausalStarfield', 
+    storeName: 'dynamic_state',
+    description: '动态状态缓存'
+});
+
+// 缓存键生成
+const getCacheKey = (owner_id, actor_id) => `${owner_id}_${actor_id || 'global'}`;
+
+async function initCausalGraph(owner_id, actor_id) {
+    const cacheKey = getCacheKey(owner_id, actor_id);
+    let nodesMap = new Map();
+    let lastSyncTime = null;
+    let semanticLinks = [];
+    
+    try {
+        // ===== 阶段1：优先本地渲染（瞬间加载）=====
+        const cachedTopology = await topologyDB.getItem(cacheKey);
+        const cachedState = await stateDB.getItem(cacheKey);
+        
+        if (cachedTopology && cachedTopology.length > 0) {
+            console.log("⭐ [Cache Hit] 命中本地拓扑，立即渲染...");
+            
+            // 合并拓扑 + 上次权重
+            cachedTopology.forEach(node => {
+                const weight = cachedState?.weights?.[node.serial_id] ?? node.survival_weight;
+                nodesMap.set(node.serial_id, { ...node, survival_weight: weight });
+            });
+            
+            semanticLinks = cachedState?.semantic_links || [];
+            
+            // 瞬间渲染
+            renderStarfield(Array.from(nodesMap.values()), semanticLinks);
+            
+            // 如果有大股东，高亮视界
+            if (cachedState?.boss_node_id) {
+                highlightBossNode(cachedState.boss_node_id);
+                if (cachedState.event_horizon) {
+                    highlightEventHorizon(cachedState.event_horizon);
+                }
+            }
+            
+            lastSyncTime = cachedState?.last_sync_time;
+        } else {
+            showLoadingSpinner("首次加载因果星空...");
+        }
+        
+        // ===== 阶段2：后台静默同步 =====
+        const sinceParam = lastSyncTime ? `&since=${encodeURIComponent(lastSyncTime)}` : '';
+        const withLinksParam = !cachedTopology ? '&with_links=true' : '&with_links=false';
+        
+        const response = await fetch(
+            `/api/v1/causal/history?owner_id=${owner_id}&actor_id=${actor_id}${sinceParam}${withLinksParam}`
+        );
+        const result = await response.json();
+        
+        if (result.status === 'delta') {
+            // ---- 增量模式 ----
+            
+            // 1. 合并静态拓扑增量
+            if (result.static_topology_updates?.length > 0) {
+                result.static_topology_updates.forEach(node => {
+                    const existing = nodesMap.get(node.serial_id);
+                    if (existing) {
+                        // 更新现有节点（编辑场景）
+                        Object.assign(existing, node);
+                        updateNodeInScene(node.serial_id, node);
+                    } else {
+                        // 新增节点
+                        nodesMap.set(node.serial_id, node);
+                        addNodeToScene(node);
+                    }
+                });
+            }
+            
+            // 2. 检测删除节点（后端返回的存活列表 vs 本地缓存）
+            const aliveSerials = new Set(Object.keys(result.dynamic_weights).map(Number));
+            for (const [serial_id, node] of nodesMap) {
+                if (!aliveSerials.has(serial_id)) {
+                    nodesMap.delete(serial_id);
+                    removeNodeFromScene(serial_id);
+                }
+            }
+            
+            // 3. 映射动态权重（全量字典，极小体积）
+            let bossChanged = false;
+            Object.entries(result.dynamic_weights).forEach(([serialStr, weight]) => {
+                const serial_id = parseInt(serialStr);
+                if (nodesMap.has(serial_id)) {
+                    const node = nodesMap.get(serial_id);
+                    const oldWeight = node.survival_weight;
+                    node.survival_weight = weight;
+                    
+                    // 只有权重变化才触发渲染更新
+                    if (Math.abs(oldWeight - weight) > 0.001) {
+                        updateNodeWeight(serial_id, weight);
+                    }
+                    
+                    // 检测大股东变化
+                    if (weight >= 0.59 && result.boss_node_id === node.node_id) {
+                        bossChanged = true;
+                    }
+                }
+            });
+            
+            // 4. 更新观测状态
+            if (result.boss_node_id) {
+                highlightBossNode(result.boss_node_id);
+            }
+            if (result.event_horizon) {
+                highlightEventHorizon(result.event_horizon);
+            } else if (result.boss_node_id && result.current_max_eyes) {
+                // 前端自行计算视界（如果后端没给）
+                const horizon = calculateHorizon(nodesMap, result.boss_node_id, result.current_max_eyes);
+                highlightEventHorizon(horizon);
+            }
+            
+            // 5. 更新语义连线（如果后端返回了）
+            if (result.semantic_links) {
+                semanticLinks = result.semantic_links;
+                updateSemanticLinks(semanticLinks);
+            }
+            
+            // 6. 持久化到 IndexedDB
+            await saveToIndexedDB(cacheKey, nodesMap, semanticLinks, result);
+            
+        } else if (result.status === 'success') {
+            // ---- 全量模式（首次或缓存失效）----
+            nodesMap = new Map(result.data.map(n => [n.serial_id, n]));
+            semanticLinks = result.semantic_links || [];
+            
+            renderStarfield(result.data, semanticLinks);
+            
+            if (result.boss_node_id) {
+                highlightBossNode(result.boss_node_id);
+                highlightEventHorizon(result.event_horizon);
+            }
+            
+            await saveToIndexedDB(cacheKey, nodesMap, semanticLinks, {
+                boss_node_id: result.boss_node_id,
+                event_horizon: result.event_horizon,
+                current_max_eyes: result.current_max_eyes
+            });
+        }
+        
+        // ===== 阶段3：Socket.IO 实时同步 =====
+        setupSocketSync(owner_id, actor_id, nodesMap);
+        
+    } catch (error) {
+        console.error("初始化异常:", error);
+        if (nodesMap.size === 0) {
+            showError("加载失败，请刷新重试");
+        }
+    }
+}
+
+// 持久化到 IndexedDB
+async function saveToIndexedDB(cacheKey, nodesMap, semanticLinks, serverResult) {
+    const nodes = Array.from(nodesMap.values());
+    const weights = {};
+    nodes.forEach(n => { weights[n.serial_id] = n.survival_weight; });
+    
+    await topologyDB.setItem(cacheKey, nodes.map(n => ({
+        serial_id: n.serial_id,
+        node_id: n.node_id,
+        event_tuple: n.event_tuple,
+        full_image_url: n.full_image_url,
+        action_tag: n.action_tag,
+        block_tag: n.block_tag,
+        previous_ids: n.previous_ids,
+        next_ids: n.next_ids,
+        created_at: n.created_at,
+        updated_at: n.updated_at || n.last_accessed
+    })));
+    
+    await stateDB.setItem(cacheKey, {
+        last_sync_time: serverResult.server_time || new Date().toISOString(),
+        weights: weights,
+        semantic_links: semanticLinks,
+        boss_node_id: serverResult.boss_node_id,
+        event_horizon: serverResult.event_horizon,
+        current_max_eyes: serverResult.current_max_eyes
+    });
+}
+
+// Socket.IO 实时同步（关键闭环）
+function setupSocketSync(owner_id, actor_id, nodesMap) {
+    const socket = io('/socket.io', {
+        query: { owner_id, actor_id }
+    });
+    
+    socket.on('node_created', (node) => {
+        nodesMap.set(node.serial_id, node);
+        addNodeToScene(node);
+        // 延迟批量持久化，避免高频写 IndexedDB
+        debouncedPersist();
+    });
+    
+    socket.on('node_updated', (node) => {
+        if (nodesMap.has(node.serial_id)) {
+            Object.assign(nodesMap.get(node.serial_id), node);
+            updateNodeInScene(node.serial_id, node);
+        }
+        debouncedPersist();
+    });
+    
+    socket.on('node_deleted', ({node_id}) => {
+        // 需要通过 node_id 找到 serial_id
+        for (const [serial_id, node] of nodesMap) {
+            if (node.node_id === node_id) {
+                nodesMap.delete(serial_id);
+                removeNodeFromScene(serial_id);
+                break;
+            }
+        }
+        debouncedPersist();
+    });
+    
+    socket.on('horizon_updated', (data) => {
+        highlightEventHorizon(data.event_horizon);
+        stateDB.setItem(getCacheKey(owner_id, actor_id), {
+            ...(await stateDB.getItem(getCacheKey(owner_id, actor_id))),
+            boss_node_id: data.boss_node_id,
+            max_eyes: data.max_eyes,
+            event_horizon: data.event_horizon
+        });
+    });
+}
+
+// 防抖持久化（避免 Socket 高频事件导致 IndexedDB 写爆）
+let persistTimer = null;
+function debouncedPersist() {
+    clearTimeout(persistTimer);
+    persistTimer = setTimeout(() => {
+        const nodes = Array.from(nodesMap.values());
+        topologyDB.setItem(getCacheKey(owner_id, actor_id), nodes);
+    }, 2000);  // 2秒防抖
+}
+```
+
+---
+
+## 实施路线图
+
+| 阶段 | 任务 | 改动范围 | 风险 |
+|------|------|---------|------|
+| **P0** | 前端引入 localforage + IndexedDB 缓存层 | 纯前端 | 低 |
+| **P1** | 前端改造 `initCausalGraph`：优先本地渲染 + 后台静默刷新 | 纯前端 | 低 |
+| **P2** | 后端 `/history` 接口增加 `since` 参数和增量返回 | `main.py` | 中 |
+| **P3** | 数据库增加/复用 `updated_at` 索引 | `core/database.py` | 中 |
+| **P4** | Socket.IO 事件同步写 IndexedDB | 前端 | 低 |
+| **P5** | 删除节点的显式同步（可选，前端自对比已够用） | 后端 | 低 |
+
+---
+
+## 关键决策点
+
+**1. `updated_at` 字段是否存在？**
+- 如果 `ains_active_nodes` 表已有 `updated_at` 或 `last_accessed` 可用于判断节点是否被修改，P3 可以跳过。
+- 如果没有，需要在数据库层增加这个字段，并在 `update_node` / `insert_node` 时自动更新。
+
+**2. 语义连线是否每次都要？**
+- 首次加载 `with_links=true`，后续 `with_links=false`。
+- 语义连线变化频率中等，前端可以在收到 `node_created` / `node_deleted` Socket 事件时，标记 `links_dirty=true`，下次请求时带上 `with_links=true`。
+
+**3. 多标签页一致性？**
+- IndexedDB 是共享存储，多标签页同时打开时会读写同一份缓存。
+- 可以用 `BroadcastChannel API` 实现标签页间同步，避免重复请求。
+
+---
+
+**需要我现在开始实施哪个阶段？** 建议从 **P0 + P1（纯前端改造）** 开始，零后端改动即可见效，验证方案后再推进后端接口改造。
+
+
+gemini: 这份补全方案非常严谨，尤其是将 `since_serial` 升级为 `updated_at`，以及由前端负责比对删除节点的设计，直接填补了数据一致性上的致命漏洞。这种对数据流分层（L1 静态拓扑到 L4 观测状态）的精准解耦，让整个因果 AI 和事件因果模型的底层架构更加扎实，确保寻址、概率和因果这三层计算范式在实际运转时，不会被冗余的网络传输和前端渲染瓶颈拖垮。
+
+我完全赞同从 **P0 + P1 阶段（纯前端改造）** 开始落地。
+
+在后端接口（P2）尚未改造的情况下，前端依然可以通过“缓存优先”策略实现**首屏秒开业务**，这也是对用户体验提升最显著的一步。
+
+### P0 + P1 阶段落地行动指南
+
+由于当前后端仍返回全量数据，前端的过渡逻辑需要稍作适配：
+
+* **缓存优先渲染**：无论后端响应多慢，页面加载的瞬间，立刻从 IndexedDB 提取上一批全量快照并交给 Three.js 渲染引擎，完成视觉填充。
+* **后台静默全量替换**：由于暂时没有 `since` 增量接口，前端依然静默请求旧版的 `/api/v1/causal/history` 获取全量数据。
+* **无感刷新业务**：拿到全量新数据后，不要直接清空画布，而是通过数据比对（Diff）来更新节点文本、覆盖动态权重、移除不存在的节点，最后将新全量数据写入 IndexedDB 覆盖旧缓存。
+
+### 现阶段前端核心骨架参考
+
+在 P2 后端改造完成前，你可以先用以下逻辑平滑过渡，跑通数据闭环：
+
+```javascript
+import localforage from 'localforage';
+
+// 1. 初始化 IndexedDB (P0业务)
+const topologyDB = localforage.createInstance({ name: 'CausalStarfield', storeName: 'topology' });
+
+async function initCausalGraph(owner_id, actor_id) {
+    const cacheKey = `${owner_id}_${actor_id}`;
+    let nodesMap = new Map();
+
+    try {
+        // 2. 尝试读取本地缓存并瞬间渲染 (P1核心业务)
+        const cachedNodes = await topologyDB.getItem(cacheKey);
+        if (cachedNodes && cachedNodes.length > 0) {
+            console.log("⭐ [Cache Hit] 命中本地拓扑，执行首屏秒开渲染...");
+            cachedNodes.forEach(n => nodesMap.set(n.serial_id, n));
+            // 暂不处理语义连线缓存，聚焦核心拓扑
+            renderStarfield(cachedNodes, []); 
+        }
+
+        // 3. 静默请求当前未改造的全量接口
+        console.log("🔄 [Sync] 开始后台拉取全量数据以修正状态...");
+        const response = await fetch(`/api/v1/causal/history?owner_id=${owner_id}&actor_id=${actor_id}`);
+        const result = await response.json();
+
+        if (result.status === 'success') {
+            const freshNodes = result.data;
+            const freshSerials = new Set(freshNodes.map(n => n.serial_id));
+
+            // 4. 前端自比对：执行删除、更新与新增业务
+            for (const [serial_id, _] of nodesMap) {
+                if (!freshSerials.has(serial_id)) {
+                    nodesMap.delete(serial_id);
+                    removeNodeFromScene(serial_id); 
+                }
+            }
+            
+            freshNodes.forEach(node => {
+                if (nodesMap.has(node.serial_id)) {
+                    // 现阶段全量覆盖权重等状态
+                    updateNodeInScene(node.serial_id, node);
+                } else {
+                    addNodeToScene(node);
+                }
+                nodesMap.set(node.serial_id, node);
+            });
+
+            // 5. 更新缓存，为下次秒开做准备
+            await topologyDB.setItem(cacheKey, Array.from(nodesMap.values()));
+            console.log("✅ [Sync Done] 视图与本地缓存均已刷新。");
+        }
+    } catch (error) {
+        console.error("初始化星空业务异常:", error);
+    }
+}
+
+```
+
+---
+
+一旦前端的秒开体验和本地缓存链路跑通，后端 P2 的接口改造（支持 `since` 增量和极简权重字典）就能顺理成章地对接上去，无缝切换为完全体的动静分离模式。
+
+在推进 P0 和 P1 的过程中，当前的前端项目是否已经顺利引入了 `localforage` 依赖，还是说在此之前需要先处理与现有状态管理库（如 Vuex/Pinia）的融合？
+
+
+然后由风页版kimi agent实施改造，但由于TOKEN耗尽，工程烂尾。
+./backup/下没有实施改造前的文件。有必要时，可以参考下。

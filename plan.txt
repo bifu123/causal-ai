@@ -1,0 +1,9 @@
+1. **修改 main.py**
+   - 将 `@app.post("/api/v1/causal/search/keyword")` 改为 `@app.api_route("/api/v1/causal/search/keyword", methods=["GET", "POST"])`，以支持同时处理 GET 和 POST 请求。
+   - 修改函数签名，将原来的 `search_data: dict` 替换为 `request: Request`。
+   - 在函数体内判断请求方法：如果是 POST 请求，则通过 `await request.json()` 解析请求体；如果是 GET 请求，则通过 `request.query_params` 获取查询参数。
+   - 对获取到的 `limit` 参数进行类型转换，以兼容 GET 传递过来的字符串格式。
+
+2. **修改 tools.py**
+   - 修改 `search_causal_by_keyword` 方法的签名，增加 `method="POST"` 参数，允许调用者选择请求类型。
+   - 在请求阶段判断请求方法：如果是 GET 请求，则使用 `requests.get(url, params=payload)` 发送查询参数；如果为 POST，则保留原有的 `requests.post(url, json=payload)` 逻辑。

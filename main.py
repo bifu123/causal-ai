@@ -120,6 +120,7 @@ class CausalNodeRequest(BaseModel):
     action_tag: str = "贞"
     event_tuple: str
     full_image_url: Optional[str] = None
+    is_share: Optional[bool] = False
     owner_id: Optional[str] = "default"
     return_serial_id: Optional[bool] = None
 
@@ -429,6 +430,9 @@ async def update_node(update_data: dict):
             "event_tuple": event_tuple if event_tuple is not None else original_node.get('event_tuple'),
             "full_image_url": full_image_url if full_image_url is not None else original_node.get('full_image_url')
         }
+
+        if 'is_share' in update_data:
+            update_node_data['is_share'] = update_data['is_share']
         
         # 如果有动作标签，添加到更新数据中
         if 'action_tag' in update_data:
@@ -1393,6 +1397,7 @@ async def create_genesis_node(node: CausalNodeRequest):
         "event_tuple": node.event_tuple,
         "survival_weight": 1.0,
         "full_image_url": node.full_image_url,
+        "is_share": node.is_share,
         "owner_id": node.owner_id
     }
     

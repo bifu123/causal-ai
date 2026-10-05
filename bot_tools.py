@@ -1,6 +1,7 @@
 
 """
-langchain 工具
+自动生成的工具模块
+包含从LMCP服务器同步的工具
 """
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
@@ -12,7 +13,7 @@ from langchain_core.tools import tool
 #*************************
 
 ## 从关键字搜索事件列表
-def search_causal_by_keyword(keyword, config: RunnableConfig=None, owner_id=None, limit=100):
+def search_causal_by_keyword(keyword, config: RunnableConfig=None, owner_id=None, limit=50, method="POST"):
     """
     根据关键字搜索事件列表
     
@@ -20,7 +21,8 @@ def search_causal_by_keyword(keyword, config: RunnableConfig=None, owner_id=None
     - config (RunnableConfig): langchain 内置内象，不用管它
     - keyword (str): 搜索关键词，支持逻辑与（&）操作符
     - owner_id (str, optional): 事件拥有者ID，如果为None则搜索所有事件
-    - limit (int, optional): 返回结果数量限制，默认为100
+    - limit (int, optional): 返回结果数量限制，默认为50,
+    - method (str, optional): HTTP请求方法，"GET" 或 "POST"，默认为"POST"
     
     返回:
     - dict: API响应结果，包含：
@@ -49,6 +51,10 @@ def search_causal_by_keyword(keyword, config: RunnableConfig=None, owner_id=None
     
     # 搜索特定用户的事件
     results = search_causal_by_keyword("祭祀", owner_id="222302526", limit=50)
+    
+    # 也可以使用 GET 请求 (相当于请求 URL: http://192.168.66.39:8094/api/v1/causal/search/keyword?keyword=祭祀&owner_id=222302526&limit=10 )
+    results = search_causal_by_keyword("祭祀", owner_id="worker", limit=50, method="GET")
+    
     """
     
     import requests
@@ -65,7 +71,10 @@ def search_causal_by_keyword(keyword, config: RunnableConfig=None, owner_id=None
         payload["limit"] = limit
     
     # 4. Execute request
-    response = requests.post(url, json=payload)
+    if method.upper() == "GET":
+        response = requests.get(url, params=payload)
+    else:
+        response = requests.post(url, json=payload)
     
     result = response.json()
     
@@ -230,7 +239,7 @@ def search_causal_by_serial(serial_id, config: RunnableConfig=None, actor_id=Non
     return result
 
 ## 记录因果数据
-def trigger_causal_node(node_id, action_tag, block_tag, event_tuple, config: RunnableConfig, previous_node=None, full_image_url=None, owner_id=None, return_serial_id=True):
+def trigger_causal_node(node_id, action_tag, block_tag, event_tuple, config: RunnableConfig, previous_node=None, full_image_url=None, owner_id=None, is_share=False, return_serial_id=True):
     """
     进行因果事件记录。
  
@@ -242,6 +251,7 @@ def trigger_causal_node(node_id, action_tag, block_tag, event_tuple, config: Run
     - previous_node (str/list, optional): 前事件node_id（因果链中的前置事件），可以是单个字符串或列表（多前事件），默认为None（首贞）
     - full_image_url (str, optional): 全息图片URL，默认为None
     - owner_id (str, optional): 事件拥有者ID，**若非用户指定，请保持默认值为None**
+    - is_share (bool, optional): 是否对外场开放分享，默认为 False
     - return_serial_id (bool, optional): 是否返回物理序列ID，默认为True
     
     返回:
@@ -295,6 +305,7 @@ def trigger_causal_node(node_id, action_tag, block_tag, event_tuple, config: Run
         "action_tag": action_tag,
         "event_tuple": event_tuple,
         "owner_id": owner_id,
+        "is_share": is_share,
         "return_serial_id": return_serial_id
     }
     
@@ -308,7 +319,7 @@ def trigger_causal_node(node_id, action_tag, block_tag, event_tuple, config: Run
 
 ## 修改因果数据事件节点
 def update_causal_node(old_node_id, new_node_id, config: RunnableConfig, event_tuple=None, full_image_url=None, 
-                       previous_ids=None, action_tag=None, block_tag=None, owner_id=None):
+                       previous_ids=None, action_tag=None, block_tag=None, owner_id=None, is_share=None):
     """
     编辑因果事件
     
@@ -321,6 +332,7 @@ def update_causal_node(old_node_id, new_node_id, config: RunnableConfig, event_t
     - action_tag (str, optional): 新的动作标签
     - block_tag (str, optional): 新的因缘标签
     - owner_id (str, optional): 事件拥有者ID，默认为None
+    - is_share (bool, optional): 是否将该节点对全场外公开，默认为 None (即不修改原状态)
     
     返回:
     - dict: API响应结果
@@ -377,6 +389,9 @@ def update_causal_node(old_node_id, new_node_id, config: RunnableConfig, event_t
     
     if block_tag is not None:
         payload["block_tag"] = block_tag
+    
+    if is_share is not None:
+        payload["is_share"] = is_share
     
     response = requests.post(url, json=payload)
     result = response.json()
@@ -523,3 +538,4 @@ def get_current_event_horizon(config: RunnableConfig, actor_id=None, owner_id=No
     except requests.exceptions.RequestException as e:
         print(f"请求失败，请检查后端服务是否运行: {e}")
         return {"status": "error", "message": str(e)}
+

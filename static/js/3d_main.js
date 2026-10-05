@@ -1731,8 +1731,15 @@ function openDrawer(nodeId) {
     const previewImg = document.getElementById('d-preview-img');
     const imagePreview = document.getElementById('d-image-preview');
     
+    const isShareField = document.getElementById('d-is-share');
+
     if (imageUrlField) {
         imageUrlField.value = node.full_image_url || '';
+    }
+
+    if (isShareField) {
+        // 如果数据源不存在is_share，那么默认为false（不分享）
+        isShareField.checked = node.is_share !== undefined ? node.is_share : false;
     }
     
     if (previewImg && imagePreview) {
@@ -1995,6 +2002,9 @@ async function handleSaveNode() {
         length: parentIds.length
     });
     
+    const isShareField = document.getElementById('d-is-share');
+    const isShare = isShareField ? isShareField.checked : false;
+
     // 构建更新数据，与main.py中的update接口匹配
     // 注意：不发送survival_weight字段，因为后端不接受这个字段
     const data = {
@@ -2004,6 +2014,7 @@ async function handleSaveNode() {
         action_tag: actionTag,
         block_tag: blockTag,
         full_image_url: fullImageUrl,
+        is_share: isShare,
         actor_id: window.currentActorId,
         owner_id: window.currentOwnerId || 'default'
     };
@@ -2285,6 +2296,8 @@ async function submitCreateNode() {
     
     const nodeId = document.getElementById('modal-node-id').value.trim();
     const eventTuple = document.getElementById('modal-event-tuple').value.trim();
+    const isShareField = document.getElementById('modal-is-share');
+    const isShare = isShareField ? isShareField.checked : false;
     const imageFile = document.getElementById('modal-image-file').files[0];
     
     // 表单验证
@@ -2333,6 +2346,7 @@ async function submitCreateNode() {
         node_id: nodeId, 
         event_tuple: eventTuple, 
         full_image_url: fullImageUrl,
+        is_share: isShare,
         actor_id: window.currentActorId,
         owner_id: window.currentOwnerId || 'default'
         // 不发送block_tag、action_tag和previous_id，让后端处理
@@ -2564,6 +2578,8 @@ async function submitDeriveNode(tag, parentId) {
     const nodeId = document.getElementById('derive-node-id').value.trim();
     const blockTag = document.getElementById('derive-block-tag').value;
     const eventTuple = document.getElementById('derive-event-tuple').value.trim();
+    const isShareField = document.getElementById('derive-is-share');
+    const isShare = isShareField ? isShareField.checked : false;
     const imageFile = document.getElementById('derive-image-file').files[0];
     
     if (!nodeId) {
@@ -2619,6 +2635,7 @@ async function submitDeriveNode(tag, parentId) {
         event_tuple: eventTuple,
         action_tag: tag,
         full_image_url: fullImageUrl,
+        is_share: isShare,
         actor_id: window.currentActorId,
         owner_id: window.currentOwnerId || 'default'
     };
@@ -3829,7 +3846,8 @@ window.addEventListener('load', () => {
 
             if (data.status === 'success') {
                 // 如果 nodeId 为空（例如通过 URL 触发），尝试从返回数据中获取
-                const displayNodeId = nodeId || (data.node && data.node.node_id) || serialId;
+                // If serialId comes from URL, it's a string, which can cause type mismatch when finding node. Stringifying both for robust matching.
+                const displayNodeId = nodeId || (data.node && data.node.node_id) || String(serialId);
                 showSelectionHint(`已瞄定事件 "${displayNodeId}"，权重提升到60%`);
                 
                 // 同步更新语义连线，让物理引擎重新计算距离
@@ -3857,7 +3875,7 @@ window.addEventListener('load', () => {
                 }
                 
                 // 在3D图中高亮显示该节点
-                highlightSearchResultNode(nodeId);
+                highlightSearchResultNode(displayNodeId);
                 
                 // 关闭搜索结果面板
                 const searchFormContainer = document.getElementById('search-form-container');
@@ -3890,7 +3908,8 @@ window.addEventListener('load', () => {
         if (!Graph) return;
         
         const { nodes } = Graph.graphData();
-        const targetNode = nodes.find(n => n.id === nodeId);
+        const strNodeId = String(nodeId);
+        const targetNode = nodes.find(n => String(n.id) === strNodeId || String(n.serial_id) === strNodeId || String(n.node_id) === strNodeId);
         
         if (targetNode) {
             // 设置节点为选中状态
