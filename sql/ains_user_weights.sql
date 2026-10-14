@@ -1,10 +1,10 @@
 /*
  Navicat Premium Data Transfer
 
- Source Server         : 192.168.66.40
+ Source Server         : 192.168.66.39
  Source Server Type    : PostgreSQL
  Source Server Version : 160013 (160013)
- Source Host           : 192.168.66.40:5432
+ Source Host           : 192.168.66.39:5432
  Source Catalog        : causal_ai_db
  Source Schema         : public
 
@@ -12,7 +12,7 @@
  Target Server Version : 160013 (160013)
  File Encoding         : 65001
 
- Date: 21/08/2026 06:45:20
+ Date: 10/10/2026 12:25:10
 */
 
 
@@ -24,7 +24,8 @@ CREATE TABLE "public"."ains_user_weights" (
   "actor_id" varchar(255) COLLATE "pg_catalog"."default" NOT NULL,
   "serial_id" int4 NOT NULL,
   "survival_weight" numeric(18,17) NOT NULL DEFAULT 1.0,
-  "last_accessed" timestamp(6) DEFAULT CURRENT_TIMESTAMP
+  "last_accessed" timestamp(6) DEFAULT CURRENT_TIMESTAMP,
+  "parent_id" varchar(500) COLLATE "pg_catalog"."default"
 )
 ;
 

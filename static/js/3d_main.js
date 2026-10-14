@@ -2936,6 +2936,13 @@ window.addEventListener('load', () => {
         .onNodeClick(node => {
             if (!node) return;
 
+            // --- 防误触：在事件视界模式下，屏蔽视界外隐身/微弱可见节点的点击事件 ---
+            const hasHorizon = typeof horizonNodes !== 'undefined' && horizonNodes.size > 0;
+            if (hasHorizon && !horizonNodes.has(node.id)) {
+                console.log(`[防误触] 节点 ${node.id} 处于视界外深空状态，忽略点击`);
+                return;
+            }
+
             // 异场节点跳转漫游（带着当前观测者身份进入异场，焦点不变）
             const urlParamsForJump = new URLSearchParams(window.location.search);
             const currentOwnerId = urlParamsForJump.get('owner_id') || 'default';
