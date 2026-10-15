@@ -511,7 +511,11 @@ function updateEventHorizonVisibility() {
             // 如果节点正在进行透明度动画，跳过视界更新，防止覆盖动画效果
             if (node.__threeObj.__isAnimatingOpacity) return;
 
-            if (hasHorizon && !horizonNodes.has(node.id)) {
+            const isForeignNodeForVis = (node.owner_id && node.owner_id !== currentOwnerId);
+            const isSharedForeignNode = isForeignNodeForVis && !node.is_locked;
+
+            // 如果是视界外，并且不是公开分享的异场节点，则执行可见性惩罚
+            if (hasHorizon && !horizonNodes.has(node.id) && !isSharedForeignNode) {
                 // 视界外：根据权重与距离双重惩罚（权重成正比，距离成反比）
                 let dimmedOpacity = 0;
                 if (bossNode && node.x !== undefined && bossNode.x !== undefined) {
@@ -1341,7 +1345,11 @@ function updateNodeIncremental(data) {
                         
                         // 考虑事件视界状态
                         const hasHorizon = typeof horizonNodes !== 'undefined' && horizonNodes.size > 0;
-                        const isOutsideHorizon = hasHorizon && !horizonNodes.has(gNode.id);
+                        const currentOwnerIdForOpacity = new URLSearchParams(window.location.search).get('owner_id') || 'default';
+                        const isForeignNodeOpacity = (gNode.owner_id && gNode.owner_id !== currentOwnerIdForOpacity);
+                        const isSharedForeignNodeOpacity = isForeignNodeOpacity && !gNode.is_locked;
+                        
+                        const isOutsideHorizon = hasHorizon && !horizonNodes.has(gNode.id) && !isSharedForeignNodeOpacity;
                         let targetOpacity = baseOpacity;
                         if (isOutsideHorizon) {
                             let dimmedOpacity = 0;
@@ -2938,15 +2946,20 @@ window.addEventListener('load', () => {
 
             // --- 防误触：在事件视界模式下，屏蔽视界外隐身/微弱可见节点的点击事件 ---
             const hasHorizon = typeof horizonNodes !== 'undefined' && horizonNodes.size > 0;
-            if (hasHorizon && !horizonNodes.has(node.id)) {
+            const urlParamsForJump = new URLSearchParams(window.location.search);
+            const currentOwnerId = urlParamsForJump.get('owner_id') || 'default';
+            const isForeignNode = (node.owner_id && node.owner_id !== currentOwnerId);
+
+            const isSharedForeignNode = isForeignNode && !node.is_locked;
+
+            // 视界外防误触拦截：如果节点在视界外，且它不是分享状态的异场节点，则拦截点击
+            if (hasHorizon && !horizonNodes.has(node.id) && !isSharedForeignNode) {
                 console.log(`[防误触] 节点 ${node.id} 处于视界外深空状态，忽略点击`);
                 return;
             }
 
             // 异场节点跳转漫游（带着当前观测者身份进入异场，焦点不变）
-            const urlParamsForJump = new URLSearchParams(window.location.search);
-            const currentOwnerId = urlParamsForJump.get('owner_id') || 'default';
-            if (node.owner_id && node.owner_id !== currentOwnerId) {
+            if (isForeignNode) {
                 console.log(`[星空跳跃] 即将前往异场 ${node.owner_id}，目标焦点 ${node.id}`);
                 const url = new URL(window.location.href);
                 url.searchParams.set('owner_id', node.owner_id);
