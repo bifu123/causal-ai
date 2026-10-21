@@ -90,7 +90,7 @@ async def test_static():
                 "exists": socketio_exists,
                 "readable": socketio_readable,
                 "url": "/static/js/socket.io.min.js"
-            },
+                    },
             "message": f"静态目录: {static_dir}, 共 {len(static_files)} 个文件"
         }
     except Exception as e:
@@ -99,6 +99,7 @@ async def test_static():
             "message": str(e),
             "static_dir": static_dir
         }
+    
 
 # 集成 Socket.IO
 # 配置Socket.IO，确保与客户端v4兼容
@@ -179,12 +180,14 @@ async def get_similar_nodes(node_id: str, limit: int = 5, threshold: float = 0.5
             'status': 'success',
             'data': formatted_nodes
         }
+    
     except Exception as e:
         print(f"[API错误] 获取相似节点失败: {e}")
         return {
             'status': 'error',
             'message': str(e)
         }
+    
 
 # --- 文件上传接口 ---
 @app.post("/api/v1/causal/upload")
@@ -218,8 +221,10 @@ async def upload_file(file: UploadFile = File(...)):
             "data": {
                 "url": file_url,
                 "filename": unique_filename
-            }
         }
+        }
+        
+    
     except Exception as e:
         print(f"[API 错误] 文件上传失败: {e}")
         return {"status": "error", "message": str(e)}
@@ -288,8 +293,9 @@ async def promote_chain_weights(promote_data: dict):
                 "node_ids": [node['node_id'] for node in updated_nodes],
                 "actor_id": actor_id,
                 "owner_id": owner_id
-            }
         }
+        }
+    
     except Exception as e:
         print(f"[API 错误] 全局权重提升失败: {e}")
         return {"status": "error", "message": str(e)}
@@ -344,8 +350,9 @@ async def restore_from_necropolis(restore_data: dict):
                 "event_tuple_restored": 'event_tuple' in restored_node and restored_node['event_tuple'] is not None,
                 "full_image_url_restored": 'full_image_url' in restored_node and restored_node['full_image_url'] is not None,
                 "restored_at": str(datetime.now())
-            }
         }
+        }
+    
     except Exception as e:
         print(f"[API 错误] 地宫恢复失败: {e}")
         return {"status": "error", "message": str(e)}
@@ -463,22 +470,8 @@ async def update_node(update_data: dict):
         print(f"[更新节点] 父ID处理: previous_ids={previous_ids}, previous_ids_list={previous_ids_list}")
         
         # 检查是否为首贞（父ID为空）
-        is_first_node = not previous_ids_list
-        print(f"[更新节点] 是否为首贞: {is_first_node}")
-        
-        # 如果有父节点，验证它们是否存在
-        if previous_ids_list:
-            missing_parents = []
-            for previous_id in previous_ids_list:
-                parent = db.get_node_by_id(previous_id)
-                if not parent:
-                    missing_parents.append(previous_id)
+
             
-            if missing_parents:
-                return {
-                    "status": "error", 
-                    "message": f"因果断裂：找不到父事件 '{', '.join(missing_parents)}'，请先录入这些事件。"
-                }
         
         # 设置前事件
         if is_first_node:
@@ -546,6 +539,7 @@ async def update_node(update_data: dict):
             "message": message,
             "owner_id": owner_id
         }
+    
     except Exception as e:
         print(f"[API 错误] 事件更新失败: {e}")
         return {"status": "error", "message": str(e)}
@@ -662,6 +656,7 @@ async def get_causal_history(actor_id: str = None, owner_id: str = None):
             "event_horizon": event_horizon_ids,
             "current_max_eyes": USER_MAX_EYES_CACHE.get(f"{actor_id}_{owner_id}") if actor_id else None
         }
+    
     except Exception as e:
         print(f"[API 错误] 获取历史数据失败: {e}")
         return {"status": "error", "message": str(e)}
@@ -720,13 +715,13 @@ async def search_by_keyword(request: Request):
                 "next_ids": result.get("后续事件ID列表", []) or [],
                 "search_mode": "keyword"  # 标识为关键字搜索，帮助 Agent 理解相似度基于 V5 字面匹配算法
             }
+        
             converted_results.append(converted)
         
         return {
             "status": "success",
             "data": converted_results,
             "count": len(converted_results),
-            "keyword": keyword,
             "owner_id": owner_id
         }
     except Exception as e:
@@ -784,6 +779,7 @@ async def search_by_vector(search_data: dict):
                 "vector_similarity": similarity,
                 "search_mode": "vector"  # 标识为向量搜索，帮助 Agent 理解相似度基于语义空间
             }
+        
             converted_results.append(converted)
             
         return {
@@ -791,9 +787,9 @@ async def search_by_vector(search_data: dict):
             "data": converted_results,
             "count": len(converted_results),
             "keyword": keyword,
-            "owner_id": owner_id,
             "threshold": threshold
         }
+    
     except Exception as e:
         print(f"[API 错误] 向量搜索失败: {e}")
         return {"status": "error", "message": str(e)}
@@ -838,12 +834,13 @@ async def search_by_serial(search_data: dict):
             "next_ids": result.get("后续事件ID列表", []) or [],
             "actor_id": actor_id if actor_id else None  # 添加actor_id字段
         }
+    
         
         return {
             "status": "success",
-            "data": converted_result,
             "actor_id": actor_id
         }
+    
     except Exception as e:
         print(f"[API 错误] 序列ID搜索失败: {e}")
         return {"status": "error", "message": str(e)}
@@ -909,6 +906,7 @@ async def handle_node_click(request: Request):
             "previous_ids": search_result.get("前事件ID列表", []) or [],
             "next_ids": search_result.get("后续事件ID列表", []) or []
         }
+    
         
         node_id = node.get('node_id')
         
@@ -993,6 +991,7 @@ async def handle_node_click(request: Request):
                 "event_horizon_details": event_horizon_nodes
             }
         
+        
         # 4. 从更新节点中找到当前节点
         current_node = None
         for updated_node in updated_nodes:
@@ -1065,6 +1064,7 @@ async def handle_node_click(request: Request):
                 "actor_id": actor_id,
                 "owner_id": owner_id
             }
+        
             await sm.emit('horizon_updated', horizon_data)
             print(f"[点击事件] 广播 horizon_updated: max_eyes={max_eyes}, 视界节点数={len(event_horizon_ids)}")
             
@@ -1080,6 +1080,7 @@ async def handle_node_click(request: Request):
             "event_horizon": event_horizon_ids,
             "event_horizon_details": event_horizon_nodes
         }
+    
     except Exception as e:
         print(f"[API 错误] 点击事件处理失败: {e}")
         return {"status": "error", "message": str(e)}
@@ -1176,6 +1177,7 @@ async def get_current_event_horizon(request: Request):
                 "status": "error", 
                 "message": f"该 actor_id ({actor_id}) 尚未对 owner_id ({owner_id}) 的因果星空实施观测，未找到大股东节点"
             }
+        
 
         # 4. 处理 max_eyes（优先请求参数，其次缓存，最后 .env 默认值）
         from dotenv import dotenv_values
@@ -1217,6 +1219,7 @@ async def get_current_event_horizon(request: Request):
             "previous_ids": search_result.get("前事件ID列表", []) or [],
             "next_ids": search_result.get("后续事件ID列表", []) or []
         }
+    
         node_id = node.get('node_id')
         focal_owner_id = node.get('owner_id', owner_id)
 
@@ -1294,6 +1297,7 @@ async def get_current_event_horizon(request: Request):
                 "actor_id": actor_id,
                 "owner_id": owner_id
             }
+        
             await sm.emit('horizon_updated', horizon_data)
 
         return {
@@ -1307,6 +1311,7 @@ async def get_current_event_horizon(request: Request):
             "event_horizon": event_horizon_ids,
             "event_horizon_details": event_horizon_nodes
         }
+    
 
     except Exception as e:
         print(f"[API 错误] 获取事件视界失败: {e}")
@@ -1346,6 +1351,7 @@ async def get_causal_skeleton(skeleton_data: dict):
             "actor_id": actor_id,
             "count": len(skeleton)
         }
+    
     except Exception as e:
         print(f"[API 错误] 因果链骨架查询失败: {e}")
         return {"status": "error", "message": str(e)}
@@ -1385,8 +1391,9 @@ async def create_genesis_node(node: CausalNodeRequest):
         if missing_parents:
             return {
                 "status": "error", 
-                "message": f"因果断裂：找不到父事件 '{', '.join(missing_parents)}'，请先录入前贞。"
+                "message": f"因果断裂：找不到父事件 {missing_parents}，请先录入前贞。"
             }
+        
     
     # 2. 确定是否为首贞（没有父节点）
     is_first_node = not previous_ids
@@ -1398,8 +1405,9 @@ async def create_genesis_node(node: CausalNodeRequest):
         "survival_weight": 1.0,
         "full_image_url": node.full_image_url,
         "is_share": node.is_share,
-        "owner_id": node.owner_id
-    }
+          "owner_id": node.owner_id
+      }
+
     
     # 设置父节点
     if is_first_node:
@@ -1455,6 +1463,7 @@ async def create_genesis_node(node: CausalNodeRequest):
                 "status": "error", 
                 "message": f"冲突：事件 ID '{node.node_id}' 已存在。历史不可覆盖，请为新动作指定唯一 ID。"
             }
+        
         print(f"[API 错误] {error_msg}")
         return {"status": "error", "message": error_msg}
 
@@ -1546,6 +1555,11 @@ async def get_tools():
     返回 tools.py 文件内容（保持原始格式，供Agent使用）
     """
     return read_file("tools.py")
+@app.get("/auth", response_class=HTMLResponse)
+async def get_auth(request: Request):
+    """账号中心页面"""
+    return templates.TemplateResponse(request=request, name="auth.html")
+
 
 @app.get("/", response_class=HTMLResponse)
 async def get_index(request: Request):
@@ -1558,6 +1572,160 @@ async def get_index(request: Request):
 async def startup_event():
     asyncio.create_task(metabolism.run())
     print("[系统] 因果代谢引擎已激活。")
+
+
+
+# --- 账号中心：注册 / 登录 / 修改密码 / 重置密码 ---
+
+@app.post("/api/v1/auth/register")
+async def auth_register(data: dict):
+    """注册新 actor，并签发首把钥匙 token。"""
+    actor_id = (data.get("actor_id") or "").strip()
+    password = data.get("password") or ""
+    if not actor_id or len(password) < 6:
+        return {"status": "error", "message": "actor_id 必填，密码至少 6 位"}
+    if db.get_user(actor_id):
+        return {"status": "error", "message": "该 actor 已注册"}
+    token = db._new_token(actor_id)
+    try:
+        db.create_user(actor_id, password, token)
+    except Exception as e:
+        return {"status": "error", "message": "注册失败: " + str(e)}
+    return {"status": "success", "message": "注册成功，首把钥匙已签发", "data": {"token": token}}
+
+
+@app.post("/api/v1/auth/login")
+async def auth_login(data: dict):
+    """登录：校验密码，返回名下全部钥匙 token 列表。"""
+    actor_id = (data.get("actor_id") or "").strip()
+    password = data.get("password") or ""
+    user = db.get_user(actor_id)
+    if not user:
+        return {"status": "error", "message": "用户不存在"}
+    if not db._verify_password(password, user.get("password")):
+        return {"status": "error", "message": "密码错误"}
+    tokens = db.get_user_tokens(actor_id)
+    return {
+        "status": "success",
+        "message": "登录成功",
+        "data": {"tokens": tokens, "token": tokens[0] if tokens else ""}
+    }
+
+
+@app.post("/api/v1/auth/password/change")
+async def auth_change_password(data: dict):
+    """修改密码：需校验旧密码。"""
+    actor_id = (data.get("actor_id") or "").strip()
+    old_password = data.get("old_password") or ""
+    new_password = data.get("new_password") or ""
+    user = db.get_user(actor_id)
+    if not user:
+        return {"status": "error", "message": "用户不存在"}
+    if not db._verify_password(old_password, user.get("password")):
+        return {"status": "error", "message": "旧密码错误"}
+    if len(new_password) < 6:
+        return {"status": "error", "message": "新密码至少 6 位"}
+    db.update_user_password(actor_id, new_password)
+    return {"status": "success", "message": "密码已修改"}
+
+
+@app.post("/api/v1/auth/password/reset")
+async def auth_reset_password(data: dict):
+    """忘记密码重置：用名下任意一把有效钥匙 token 验证身份后重置。"""
+    actor_id = (data.get("actor_id") or "").strip()
+    token = (data.get("token") or "").strip()
+    new_password = data.get("new_password") or ""
+    user = db.get_user(actor_id)
+    if not user:
+        return {"status": "error", "message": "用户不存在"}
+    if token not in db.get_user_tokens(actor_id):
+        return {"status": "error", "message": "钥匙无效"}
+    if len(new_password) < 6:
+        return {"status": "error", "message": "新密码至少 6 位"}
+    db.update_user_password(actor_id, new_password)
+    return {"status": "success", "message": "密码已重置，请用新密码登录"}
+
+
+# --- 账号中心：场管理 ---
+
+@app.get("/api/v1/owner/list")
+async def owner_list(actor_id: str):
+    """获取指定 actor 名下所有场（从 ains_owner_masters 读取）。"""
+    if not actor_id:
+        return {"status": "error", "message": "actor_id 必填"}
+    owners = db.list_owners(actor_id)
+    return {"status": "success", "data": [{"owner_id": o["owner_id"], "name": o["name"]} for o in owners]}
+
+
+@app.post("/api/v1/owner/create")
+async def owner_create(data: dict):
+    """创建场并成为主人。"""
+    owner_id = (data.get("owner_id") or "").strip()
+    name = (data.get("name") or "").strip()
+    actor_id = (data.get("actor_id") or "").strip()
+    if not owner_id or not name or not actor_id:
+        return {"status": "error", "message": "owner_id、name、actor_id 均必填"}
+    try:
+        db.create_owner(owner_id, name, actor_id)
+    except Exception as e:
+        return {"status": "error", "message": "创建失败（owner_id 可能已存在）: " + str(e)}
+    return {"status": "success", "message": "创建成功", "data": {"owner_id": owner_id, "name": name}}
+
+
+@app.post("/api/v1/owner/update")
+async def owner_update(data: dict):
+    """重命名场。"""
+    owner_id = (data.get("owner_id") or "").strip()
+    name = (data.get("name") or "").strip()
+    actor_id = (data.get("actor_id") or "").strip()
+    if not owner_id or not name or not actor_id:
+        return {"status": "error", "message": "owner_id、name、actor_id 均必填"}
+    db.rename_owner(owner_id, name, actor_id)
+    return {"status": "success", "message": "已改名"}
+
+
+@app.post("/api/v1/owner/delete")
+async def owner_delete(data: dict):
+    """删除场（不删除该场的节点数据）。"""
+    owner_id = (data.get("owner_id") or "").strip()
+    actor_id = (data.get("actor_id") or "").strip()
+    if not owner_id or not actor_id:
+        return {"status": "error", "message": "owner_id、actor_id 均必填"}
+    db.delete_owner(owner_id, actor_id)
+    return {"status": "success", "message": "已删除（节点数据未删除）"}
+
+
+# --- 账号中心：钥匙 Token 管理 ---
+
+@app.post("/api/v1/key/generate")
+async def key_generate(data: dict):
+    """签发一把新钥匙 token（仅此一次返回明文）。"""
+    actor_id = (data.get("actor_id") or "").strip()
+    if not actor_id or not db.get_user(actor_id):
+        return {"status": "error", "message": "请先登录"}
+    token = db._new_token(actor_id)
+    db.add_user_token(actor_id, token)
+    return {"status": "success", "message": "钥匙已签发", "data": {"token": token}}
+
+
+@app.get("/api/v1/key/list")
+async def key_list(actor_id: str):
+    """获取名下所有钥匙 token 列表。"""
+    if not actor_id:
+        return {"status": "error", "message": "actor_id 必填"}
+    return {"status": "success", "data": db.get_user_tokens(actor_id)}
+
+
+@app.post("/api/v1/key/revoke")
+async def key_revoke(data: dict):
+    """吊销一把钥匙 token。"""
+    actor_id = (data.get("actor_id") or "").strip()
+    token = (data.get("token") or "").strip()
+    if not actor_id or not token:
+        return {"status": "error", "message": "actor_id、token 均必填"}
+    db.remove_user_token(actor_id, token)
+    return {"status": "success", "message": "已吊销"}
+
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8094)

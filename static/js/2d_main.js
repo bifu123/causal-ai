@@ -1,3 +1,31 @@
+
+// --- [全局变量：鉴权与视界] ---
+let currentActorId = null;
+let currentOwnerId = null;
+const horizonNodes = new Set();
+let currentBossNodeId = null;
+
+document.addEventListener('DOMContentLoaded', () => {
+    currentActorId = localStorage.getItem('causal_actor_id');
+    const params = new URLSearchParams(window.location.search);
+    currentOwnerId = params.get('owner_id') || 'default';
+});
+
+function appendAuthParams(url) {
+    const token = localStorage.getItem('causal_token');
+    if (!token) return url;
+    const separator = url.includes('?') ? '&' : '?';
+    return `${url}${separator}token=${encodeURIComponent(token)}`;
+}
+
+function appendAuthBody(payload) {
+    const token = localStorage.getItem('causal_token');
+    if (token) payload.token = token;
+    if (currentActorId) payload.actor_id = currentActorId;
+    if (currentOwnerId && currentOwnerId !== 'default') payload.owner_id = currentOwnerId;
+    return payload;
+}
+
 // 配置Socket.IO连接，确保与服务器兼容
 const socket = io({
     path: '/socket.io',
@@ -145,7 +173,7 @@ const network = new vis.Network(container, {nodes, edges}, options);
 async function initCausalGraph() {
     console.log("[司南] 启动感应...");
     try {
-        const response = await fetch('/api/v1/causal/history');
+        const response = await fetch(appendAuthParams('/api/v1/causal/history'));
         const res = await response.json();
         console.log('API响应:', res);
         if (res.status === 'success') {
@@ -181,6 +209,10 @@ function escapeHtml(text) {
 // --- 渲染逻辑 ---
 function renderNode(node) {
     nodeCache[node.node_id] = node;
+    
+    // [事件视界隐藏逻辑]
+    const isHidden = (horizonNodes.size > 0 && !horizonNodes.has(node.node_id));
+
     
     // 根据动作标签设置不同的颜色
     let nodeColor = {
@@ -289,7 +321,8 @@ const nodeSize = 20 + (weight * weight * 40); // 20 + (0.0 * 0.0 * 40) = 20, 20 
     tooltipContainer.innerHTML = tooltipHtml;
     
     nodes.update({ 
-        id: node.node_id, 
+        id: node.node_id,
+        hidden: isHidden, 
         label: node.node_id, 
         title: tooltipContainer,
         color: adjustedColor,
@@ -377,7 +410,7 @@ function getWeightStatus(weight) {
 
 // --- 交互逻辑 ---
 async function postNode(payload) {
-    const res = await fetch('/api/v1/causal/genesis', {
+    const res = await fetch(appendAuthParams('/api/v1/causal/genesis'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -454,7 +487,7 @@ function openCreateModal() {
 // 加载父节点选项
 async function loadParentOptions() {
     try {
-        const response = await fetch('/api/v1/causal/history');
+        const response = await fetch(appendAuthParams('/api/v1/causal/history'));
         const res = await response.json();
         if (res.status === 'success') {
             const container = document.getElementById('parent-select-container');
@@ -537,7 +570,7 @@ async function submitCreateNode() {
             const formData = new FormData();
             formData.append('file', imageFile);
             
-            const uploadResponse = await fetch('/api/v1/causal/upload', {
+            const uploadResponse = await fetch(appendAuthParams('/api/v1/causal/upload'), {
                 method: 'POST',
                 body: formData
             });
@@ -683,7 +716,7 @@ async function submitDeriveNode(tag, parentId) {
             const formData = new FormData();
             formData.append('file', imageFile);
             
-            const uploadResponse = await fetch('/api/v1/causal/upload', {
+            const uploadResponse = await fetch(appendAuthParams('/api/v1/causal/upload'), {
                 method: 'POST',
                 body: formData
             });
@@ -766,7 +799,7 @@ async function uploadImageForNode() {
         const formData = new FormData();
         formData.append('file', imageFile);
         
-        const uploadResponse = await fetch('/api/v1/causal/upload', {
+        const uploadResponse = await fetch(appendAuthParams('/api/v1/causal/upload'), {
             method: 'POST',
             body: formData
         });
@@ -804,7 +837,7 @@ async function deleteCurrentNode() {
     }
     
     try {
-        const response = await fetch('/api/v1/causal/delete', {
+        const response = await fetch(appendAuthParams('/api/v1/causal/delete'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ node_id: currentSelectedNode })
@@ -890,10 +923,10 @@ async function saveNodeChanges() {
     console.log('发送更新数据:', updateData);
     
     try {
-        const response = await fetch('/api/v1/causal/update', {
+        const response = await fetch(appendAuthParams('/api/v1/causal/update'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(updateData)
+            body: JSON.stringify(appendAuthBody(updateData))
         });
         
         console.log('API响应状态:', response.status);
@@ -1203,7 +1236,7 @@ async function submitChildNode(parentIds) {
             const formData = new FormData();
             formData.append('file', imageFile);
             
-            const uploadResponse = await fetch('/api/v1/causal/upload', {
+            const uploadResponse = await fetch(appendAuthParams('/api/v1/causal/upload'), {
                 method: 'POST',
                 body: formData
             });
@@ -1561,10 +1594,10 @@ async function restoreFromNecropolis(nodeId) {
         console.log(`[前端地宫恢复] 开始尝试从地宫恢复节点 ${nodeId} 的内容`);
         console.log(`[前端地宫恢复] 当前nodeCache中节点数据:`, nodeCache[nodeId]);
         
-        const response = await fetch('/api/v1/causal/restore', {
+        const response = await fetch(appendAuthParams('/api/v1/causal/restore'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ node_id: nodeId })
+            body: JSON.stringify(appendAuthBody({ node_id: nodeId }))
         });
         
         console.log(`[前端地宫恢复] API响应状态: ${response.status}`);
@@ -1621,10 +1654,10 @@ async function promoteChainWeights(nodeId) {
     try {
         console.log(`尝试提升节点 ${nodeId} 到所有节点总权重的60%`);
         
-        const response = await fetch('/api/v1/causal/promote_chain', {
+        const response = await fetch(appendAuthParams('/api/v1/causal/promote_chain'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ node_id: nodeId })
+            body: JSON.stringify(appendAuthBody({ node_id: nodeId }))
         });
         
         const data = await response.json();
@@ -1817,8 +1850,8 @@ function openDrawerWithLatestData(nodeId) {
 }
 
 // --- 从URL参数获取用户ID和拥有者ID ---
-let currentActorId = ''; // 当前用户ID，空字符串表示全局视图
-let currentOwnerId = 'default'; // 当前拥有者ID，默认值为'default'
+// let currentActorId = '';
+// let currentOwnerId = 'default'; // 当前拥有者ID，默认值为'default'
 
 // 从URL参数获取actor_id
 function getActorIdFromURL() {
@@ -1860,7 +1893,7 @@ async function initCausalGraph() {
         const url = `/api/v1/causal/history${params.toString() ? '?' + params.toString() : ''}`;
         console.log(`[数据加载] 请求URL: ${url}`);
         
-        const response = await fetch(url);
+        const response = await fetch(appendAuthParams(url));
         const res = await response.json();
         console.log('API响应:', res);
         if (res.status === 'success') {
@@ -1897,10 +1930,10 @@ async function promoteChainWeights(nodeId) {
         
         console.log(`[权重提升] 请求数据:`, requestData);
         
-        const response = await fetch('/api/v1/causal/promote_chain', {
+        const response = await fetch(appendAuthParams('/api/v1/causal/promote_chain'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(requestData)
+            body: JSON.stringify(appendAuthBody(requestData))
         });
         
         const data = await response.json();
@@ -2338,10 +2371,10 @@ async function performSearch() {
             };
         }
         
-        const response = await fetch(apiUrl, {
+        const response = await fetch(appendAuthParams(apiUrl), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(requestData)
+            body: JSON.stringify(appendAuthBody(requestData))
         });
         
         const data = await response.json();
@@ -2458,10 +2491,10 @@ window.handleSearchResultClick = async function(serialId, nodeId) {
         
         console.log(`[搜索点击] 调用点击API:`, requestData);
         
-        const response = await fetch('/api/v1/causal/click', {
+        const response = await fetch(appendAuthParams('/api/v1/causal/click'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(requestData)
+            body: JSON.stringify(appendAuthBody(requestData))
         });
         
         const data = await response.json();

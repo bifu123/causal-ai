@@ -13,7 +13,7 @@ from langchain_core.tools import tool
 #*************************
 
 ## 从关键字搜索事件列表
-def search_causal_by_keyword(keyword, config: RunnableConfig=None, owner_id=None, limit=50, method="POST"):
+def search_causal_by_keyword(keyword, config: RunnableConfig=None, owner_id=None, limit=50, method="POST", token=None):
     """
     根据关键字搜索事件列表
     
@@ -23,6 +23,7 @@ def search_causal_by_keyword(keyword, config: RunnableConfig=None, owner_id=None
     - owner_id (str, optional): 事件拥有者ID，如果为None则搜索所有事件
     - limit (int, optional): 返回结果数量限制，默认为50,
     - method (str, optional): HTTP请求方法，"GET" 或 "POST"，默认为"POST"
+    - token (str, optional): 私密场域的钥匙 token（"防盗门"鉴权）。登录/注册/签发钥匙后获得，访问私密场（is_share=False 的场）时需携带。**若非用户指定，请保持默认值为None**
     
     返回:
     - dict: API响应结果，包含：
@@ -70,6 +71,10 @@ def search_causal_by_keyword(keyword, config: RunnableConfig=None, owner_id=None
     if limit is not None:
         payload["limit"] = limit
     
+    # 3.5 Add token（进入私密场的钥匙）
+    if token is not None:
+        payload["token"] = token
+
     # 4. Execute request
     if method.upper() == "GET":
         response = requests.get(url, params=payload)
@@ -86,7 +91,7 @@ def search_causal_by_keyword(keyword, config: RunnableConfig=None, owner_id=None
     return result
 
 ## 从关键字搜索事件列表
-def search_causal_by_embed(keyword, config: RunnableConfig=None, owner_id=None, limit=100):
+def search_causal_by_embed(keyword, config: RunnableConfig=None, owner_id=None, limit=100, token=None):
     """
     根据自然语言搜索事件列表
     
@@ -96,6 +101,7 @@ def search_causal_by_embed(keyword, config: RunnableConfig=None, owner_id=None, 
     - owner_id (str, optional): 事件拥有者ID，如果为None则搜索所有事件
     - limit (int, optional): 返回结果数量限制，默认为100
     - threshold (float, optional): 余弦相似度阈值 (0-1)，过滤低于此值的结果，默认为0.0（不过滤）
+    - token (str, optional): 私密场域的钥匙 token（"防盗门"鉴权）。登录/注册/签发钥匙后获得，访问私密场（is_share=False 的场）时需携带。**若非用户指定，请保持默认值为None**
     
     返回:
     - dict: API响应结果，包含：
@@ -143,6 +149,10 @@ def search_causal_by_embed(keyword, config: RunnableConfig=None, owner_id=None, 
     if limit is not None:
         payload["limit"] = limit
     
+    # 3.5 Add token（进入私密场的钥匙）
+    if token is not None:
+        payload["token"] = token
+
     # 4. Execute request
     response = requests.post(url, json=payload)
     result = response.json()
@@ -155,7 +165,7 @@ def search_causal_by_embed(keyword, config: RunnableConfig=None, owner_id=None, 
     return result
 
 ## 点击事件
-def search_causal_by_serial(serial_id, config: RunnableConfig=None, actor_id=None, owner_id=None, max_eyes=None):
+def search_causal_by_serial(serial_id, config: RunnableConfig=None, actor_id=None, owner_id=None, max_eyes=None, token=None):
     """
     处理事件节点点击、获取事件视界内容
     
@@ -165,6 +175,7 @@ def search_causal_by_serial(serial_id, config: RunnableConfig=None, actor_id=Non
     - actor_id (str, optional): 事件观察者ID，用于个性化权重更新，**若非用户指定，请保持默认值为None**
     - owner_id (str, optional): 事件拥有者ID，因果链的创建者，**若非用户指定，请保持默认值为None**
     - max_eyes (float, optional): 望远镜功率（事件视界半径），默认值为None
+    - token (str, optional): 私密场域的钥匙 token（"防盗门"鉴权）。登录/注册/签发钥匙后获得，访问私密场（is_share=False 的场）时需携带。**若非用户指定，请保持默认值为None**
     
     返回:
     - dict: API响应结果，包含更新后的事件数据
@@ -218,10 +229,13 @@ def search_causal_by_serial(serial_id, config: RunnableConfig=None, actor_id=Non
     
     if max_eyes is not None:
         payload["max_eyes"] = max_eyes
-    
+
+    if token is not None:
+        payload["token"] = token
+
     response = requests.post(url, json=payload)
     result = response.json()
-    
+
     result["owner_id"] = owner_id
     result["actor_id"] = actor_id
     
@@ -239,7 +253,7 @@ def search_causal_by_serial(serial_id, config: RunnableConfig=None, actor_id=Non
     return result
 
 ## 记录因果数据
-def trigger_causal_node(node_id, action_tag, block_tag, event_tuple, config: RunnableConfig, previous_node=None, full_image_url=None, owner_id=None, is_share=False, return_serial_id=True):
+def trigger_causal_node(node_id, action_tag, block_tag, event_tuple, config: RunnableConfig, previous_node=None, full_image_url=None, owner_id=None, is_share=False, return_serial_id=True, token=None):
     """
     进行因果事件记录。
  
@@ -253,6 +267,7 @@ def trigger_causal_node(node_id, action_tag, block_tag, event_tuple, config: Run
     - owner_id (str, optional): 事件拥有者ID，**若非用户指定，请保持默认值为None**
     - is_share (bool, optional): 是否对外场开放分享，默认为 False
     - return_serial_id (bool, optional): 是否返回物理序列ID，默认为True
+    - token (str, optional): 私密场域的钥匙 token（"防盗门"鉴权）。登录/注册/签发钥匙后获得，访问私密场（is_share=False 的场）时需携带。**若非用户指定，请保持默认值为None**
     
     返回:
     - dict: API响应结果
@@ -311,7 +326,10 @@ def trigger_causal_node(node_id, action_tag, block_tag, event_tuple, config: Run
     
     if full_image_url:
         payload["full_image_url"] = full_image_url
-    
+
+    if token is not None:
+        payload["token"] = token
+
     response = requests.post(url, json=payload)
     result = response.json()
     print(f"Status: {result}")
@@ -319,7 +337,7 @@ def trigger_causal_node(node_id, action_tag, block_tag, event_tuple, config: Run
 
 ## 修改因果数据事件节点
 def update_causal_node(old_node_id, new_node_id, config: RunnableConfig, event_tuple=None, full_image_url=None, 
-                       previous_ids=None, action_tag=None, block_tag=None, owner_id=None, is_share=None):
+                       previous_ids=None, action_tag=None, block_tag=None, owner_id=None, is_share=None, token=None):
     """
     编辑因果事件
     
@@ -333,6 +351,7 @@ def update_causal_node(old_node_id, new_node_id, config: RunnableConfig, event_t
     - block_tag (str, optional): 新的因缘标签
     - owner_id (str, optional): 事件拥有者ID，默认为None
     - is_share (bool, optional): 是否将该节点对全场外公开，默认为 None (即不修改原状态)
+    - token (str, optional): 私密场域的钥匙 token（"防盗门"鉴权）。登录/注册/签发钥匙后获得，访问私密场（is_share=False 的场）时需携带。**若非用户指定，请保持默认值为None**
     
     返回:
     - dict: API响应结果
@@ -392,21 +411,25 @@ def update_causal_node(old_node_id, new_node_id, config: RunnableConfig, event_t
     
     if is_share is not None:
         payload["is_share"] = is_share
-    
+
+    if token is not None:
+        payload["token"] = token
+
     response = requests.post(url, json=payload)
     result = response.json()
     print(f"更新状态: {result}")
     return result
 
 ## 删除因果数据事件节点
-def delete_causal_node(node_id, config: RunnableConfig, owner_id=None):
+def delete_causal_node(node_id, config: RunnableConfig, owner_id=None, token=None):
     """
     删除因果事件
     
     参数:
     - node_id (str): 要删除的事件ID
     - owner_id (str, optional): 事件拥有者ID，**若非用户指定，请保持默认值为None**
-    
+    - token (str, optional): 私密场域的钥匙 token（"防盗门"鉴权）。登录/注册/签发钥匙后获得，访问私密场（is_share=False 的场）时需携带。**若非用户指定，请保持默认值为None**
+
     返回:
     - dict: API响应结果
     
@@ -429,14 +452,17 @@ def delete_causal_node(node_id, config: RunnableConfig, owner_id=None):
         "node_id": node_id,
         "owner_id": owner_id
     }
-    
+
+    if token is not None:
+        payload["token"] = token
+
     response = requests.post(url, json=payload)
     result = response.json()
     print(f"删除状态: {result}")
     return result
 
 ## 因果链骨架查询
-def get_causal_skeleton(serial_id, config: RunnableConfig, actor_id=None, owner_id=None):
+def get_causal_skeleton(serial_id, config: RunnableConfig, actor_id=None, owner_id=None, token=None):
     """
     获取事件的因果链全息图骨架
     
@@ -444,7 +470,8 @@ def get_causal_skeleton(serial_id, config: RunnableConfig, actor_id=None, owner_
     - serial_id (int): 事件的物理序列ID（必需）
     - actor_id (str, optional): 用户ID，如果提供则返回用户个性化权重,默认值为None
     - owner_id (str, optional): 事件拥有者ID，默认值为None
-    
+    - token (str, optional): 私密场域的钥匙 token（"防盗门"鉴权）。登录/注册/签发钥匙后获得，访问私密场（is_share=False 的场）时需携带。**若非用户指定，请保持默认值为None**
+
     返回:
     - dict: API响应结果
     
@@ -462,11 +489,14 @@ def get_causal_skeleton(serial_id, config: RunnableConfig, actor_id=None, owner_
         "owner_id": owner_id
     }
 
+    if token is not None:
+        payload["token"] = token
+
     response = requests.post(url, json=payload)
     return response.json()
 
 ## 获取当前事件视界
-def get_current_event_horizon(config: RunnableConfig, actor_id=None, owner_id=None, max_eyes=None):
+def get_current_event_horizon(config: RunnableConfig, actor_id=None, owner_id=None, max_eyes=None, token=None):
     """
     获取当前观测者在指定因果场中的事件视界。
     系统自动找到当前大股东节点（最高 survival_weight 事件），并以该节点为中心，
@@ -479,6 +509,7 @@ def get_current_event_horizon(config: RunnableConfig, actor_id=None, owner_id=No
     - actor_id (str, optional): 用户ID，覆盖 config 中的值
     - owner_id (str, optional): 事件拥有者ID，覆盖 config 中的值
     - max_eyes (float, optional): 望远镜功率（事件视界半径）。如果为None，则使用系统默认值
+    - token (str, optional): 私密场域的钥匙 token（"防盗门"鉴权）。登录/注册/签发钥匙后获得，访问私密场（is_share=False 的场）时需携带。**若非用户指定，请保持默认值为None**
 
     返回:
     - dict: API响应结果，包含：
@@ -525,6 +556,9 @@ def get_current_event_horizon(config: RunnableConfig, actor_id=None, owner_id=No
 
     if max_eyes is not None:
         params["max_eyes"] = max_eyes
+
+    if token is not None:
+        params["token"] = token
 
     try:
         response = requests.get(url, params=params)

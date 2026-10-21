@@ -49,6 +49,7 @@
 | `owner_id` | String | 否 | 事件拥有者ID，默认 `"default"` |
 | `is_share` | Boolean | 否 | 是否对外场开放分享，默认 `false` |
 | `return_serial_id` | Boolean | 否 | 是否返回 `serial_id`，默认 `true` |
+| `token` | String | 否 | 私密场域的钥匙 token（"防盗门"鉴权）。访问私密场（is_share=false）时需携带，登录/注册/签发钥匙后获得，默认 `null` |
 
 **返回说明**:
 - `status`: `"success"` 或 `"error"`
@@ -94,6 +95,7 @@ curl -X POST "http://192.168.66.39:8094/api/v1/causal/genesis" \
 | `owner_id` | String | 否 | 事件拥有者ID，默认 `"default"` |
 | `is_share` | Boolean | 否 | 是否对外场开放分享，默认 `false` |
 | `return_serial_id` | Boolean | 否 | 是否返回 `serial_id`，默认 `true` |
+| `token` | String | 否 | 私密场域的钥匙 token（"防盗门"鉴权）。访问私密场（is_share=false）时需携带，登录/注册/签发钥匙后获得，默认 `null` |
 
 **返回说明**: 同首贞接口。
 
@@ -135,6 +137,7 @@ curl -X POST "http://192.168.66.39:8094/api/v1/causal/genesis" \
 | `owner_id` | String | 否 | 事件拥有者ID |
 | `is_share` | Boolean | 否 | 是否对外场开放分享，默认 `false` |
 | `return_serial_id` | Boolean | 否 | 是否返回 `serial_id`，默认 `true` |
+| `token` | String | 否 | 私密场域的钥匙 token（"防盗门"鉴权）。访问私密场（is_share=false）时需携带，登录/注册/签发钥匙后获得，默认 `null` |
 
 **返回说明**: 同首贞接口。
 
@@ -174,6 +177,7 @@ curl -X POST "http://192.168.66.39:8094/api/v1/causal/genesis" \
 | :--- | :--- | :--- | :--- |
 | `node_id` | String | 是 | 要删除的事件ID |
 | `owner_id` | String | 否 | 事件拥有者ID，默认 `"default"` |
+| `token` | String | 否 | 私密场域的钥匙 token（"防盗门"鉴权）。访问私密场（is_share=false）时需携带，登录/注册/签发钥匙后获得，默认 `null` |
 
 **返回说明**:
 - `status`: `"success"` 或 `"error"`
@@ -212,6 +216,7 @@ curl -X POST "http://192.168.66.39:8094/api/v1/causal/delete" \
 | `block_tag` | String | 否 | 新的因缘标签 |
 | `owner_id` | String | 否 | 事件拥有者ID |
 | `is_share` | Boolean | 否 | 更新节点是否对外场开放的状态，默认 `false` |
+| `token` | String | 否 | 私密场域的钥匙 token（"防盗门"鉴权）。访问私密场（is_share=false）时需携带，登录/注册/签发钥匙后获得，默认 `null` |
 
 **返回说明**:
 - `status`: `"success"` 或 `"error"`
@@ -268,6 +273,7 @@ curl -X POST "http://192.168.66.39:8094/api/v1/causal/update" \
 | :--- | :--- | :--- | :--- |
 | `actor_id` | String | 否 | 用户ID，提供则返回用户个性化权重 |
 | `owner_id` | String | 否 | 事件拥有者ID，默认 `"default"` |
+| `token` | String | 否 | 私密场域的钥匙 token（"防盗门"鉴权）。访问私密场（is_share=false）时需携带，登录/注册/签发钥匙后获得，默认 `null` |
 
 **返回说明**:
 - `status`: `"success"` 或 `"error"`
@@ -303,6 +309,7 @@ curl -X GET "http://192.168.66.39:8094/api/v1/causal/history?actor_id=user2&owne
 | `keyword` | String | 是 | 搜索关键词，支持 `&` 逻辑与 |
 | `owner_id` | String | 否 | 事件拥有者ID，默认 `"default"` |
 | `limit` | Integer | 否 | 返回结果数量限制，默认 `100` |
+| `token` | String | 否 | 私密场域的钥匙 token（"防盗门"鉴权）。访问私密场（is_share=false）时需携带，登录/注册/签发钥匙后获得，默认 `null` |
 
 **返回说明**:
 - `status`: `"success"` 或 `"error"`
@@ -343,6 +350,7 @@ curl -X POST "http://192.168.66.39:8094/api/v1/causal/search/keyword" \
 | `owner_id` | String | 否 | 事件拥有者ID |
 | `limit` | Integer | 否 | 返回结果数量限制，默认 `100` |
 | `threshold` | Float | 否 | 余弦相似度阈值（0-1），默认 `0.0`（不过滤）。建议设 `≥0.7` 过滤噪声 |
+| `token` | String | 否 | 私密场域的钥匙 token（"防盗门"鉴权）。访问私密场（is_share=false）时需携带，登录/注册/签发钥匙后获得，默认 `null` |
 
 **返回说明**:
 - `status`: `"success"` 或 `"error"`
@@ -378,6 +386,7 @@ curl -X POST "http://192.168.66.39:8094/api/v1/causal/search/vector" \
 | :--- | :--- | :--- | :--- |
 | `serial_id` | Integer | 是 | 事件的物理序列ID |
 | `actor_id` | String | 否 | 用户ID，提供则返回用户个性化权重 |
+| `token` | String | 否 | 私密场域的钥匙 token（"防盗门"鉴权）。访问私密场（is_share=false）时需携带，登录/注册/签发钥匙后获得，默认 `null` |
 
 **返回说明**:
 - `status`: `"success"` 或 `"error"`
@@ -425,6 +434,7 @@ curl -X POST "http://192.168.66.39:8094/api/v1/causal/search/serial" \
 | `actor_id` | String | 否 | 用户ID，用于个性化权重更新 |
 | `owner_id` | String | 否 | 事件拥有者ID，默认节点自身的 `owner_id` |
 | `max_eyes` | Float | 否 | 望远镜功率/事件视界半径。若提供则覆盖 `.env` 默认值并缓存 |
+| `token` | String | 否 | 私密场域的钥匙 token（"防盗门"鉴权）。访问私密场（is_share=false）时需携带，登录/注册/签发钥匙后获得，默认 `null` |
 
 **返回说明**:
 - `status`: `"success"` 或 `"error"`
@@ -467,6 +477,7 @@ curl -X POST "http://192.168.66.39:8094/api/v1/causal/click" \
 | `actor_id` | String | 否 | 用户ID，用于个性化权重。不同观测者的大股东可能不同 |
 | `owner_id` | String | 否 | 事件拥有者ID，默认 `"default"` |
 | `max_eyes` | Float | 否 | 望远镜功率。若提供则覆盖默认值并缓存 |
+| `token` | String | 否 | 私密场域的钥匙 token（"防盗门"鉴权）。访问私密场（is_share=false）时需携带，登录/注册/签发钥匙后获得，默认 `null` |
 
 **返回说明**: 与 `/api/v1/causal/click` 完全一致，包含：
 - `data`: 大股东节点全息内容
@@ -506,6 +517,7 @@ curl -X POST "http://192.168.66.39:8094/api/v1/causal/horizon" \
 | :--- | :--- | :--- | :--- |
 | `serial_id` | Integer | 是 | 事件的物理序列ID |
 | `actor_id` | String | 否 | 用户ID，提供则返回用户个性化权重 |
+| `token` | String | 否 | 私密场域的钥匙 token（"防盗门"鉴权）。访问私密场（is_share=false）时需携带，登录/注册/签发钥匙后获得，默认 `null` |
 
 **返回说明**:
 - `status`: `"success"` 或 `"error"`
@@ -540,6 +552,7 @@ curl -X POST "http://192.168.66.39:8094/api/v1/causal/skeleton" \
 | `node_id` | String | 是 | 要提升权重的事件ID |
 | `actor_id` | String | 否 | 用户ID，提供则只更新用户权重表 |
 | `owner_id` | String | 否 | 事件拥有者ID，默认 `"default"` |
+| `token` | String | 否 | 私密场域的钥匙 token（"防盗门"鉴权）。访问私密场（is_share=false）时需携带，登录/注册/签发钥匙后获得，默认 `null` |
 
 **返回说明**:
 - `status`: `"success"` 或 `"error"`
@@ -619,6 +632,314 @@ curl -X POST "http://192.168.66.39:8094/api/v1/causal/restore" \
 
 ---
 
+### 16. 注册新 actor
+
+**功能**: 注册一个新的 actor 身份，同时签发其首把钥匙 token（仅此一次返回明文）。
+
+**请求**:
+- **URL**: `/api/v1/auth/register`
+- **Method**: `POST`
+
+**参数说明**:
+
+| 字段 | 类型 | 必填 | 说明 |
+| :--- | :--- | :--- | :--- |
+| `actor_id` | String | 是 | actor 身份 ID（唯一） |
+| `password` | String | 是 | 设置密码，至少 6 位 |
+
+**返回说明**:
+- `status`: `"success"` 或 `"error"`
+- `message`: 操作结果描述
+- `data.token`: 首把钥匙 token（仅此一次返回，请妥善保存）
+
+**调用示例**:
+```bash
+curl -X POST "http://192.168.66.39:8094/api/v1/auth/register" \
+     -H "Content-Type: application/json" \
+     -d '{"actor_id": "zhangsan", "password": "123456"}'
+```
+
+---
+
+### 17. 登录
+
+**功能**: 校验 actor 密码，登录成功后返回名下全部钥匙 token 列表。
+
+**请求**:
+- **URL**: `/api/v1/auth/login`
+- **Method**: `POST`
+
+**参数说明**:
+
+| 字段 | 类型 | 必填 | 说明 |
+| :--- | :--- | :--- | :--- |
+| `actor_id` | String | 是 | actor 身份 ID |
+| `password` | String | 是 | 登录密码 |
+
+**返回说明**:
+- `status`: `"success"` 或 `"error"`
+- `data.tokens`: 名下全部钥匙 token 列表（数组）
+- `data.token`: 第一把钥匙（与 `tokens[0]` 相同）
+
+**调用示例**:
+```bash
+curl -X POST "http://192.168.66.39:8094/api/v1/auth/login" \
+     -H "Content-Type: application/json" \
+     -d '{"actor_id": "zhangsan", "password": "123456"}'
+```
+
+---
+
+### 18. 修改密码
+
+**功能**: 校验旧密码后修改为新的密码。
+
+**请求**:
+- **URL**: `/api/v1/auth/password/change`
+- **Method**: `POST`
+
+**参数说明**:
+
+| 字段 | 类型 | 必填 | 说明 |
+| :--- | :--- | :--- | :--- |
+| `actor_id` | String | 是 | actor 身份 ID |
+| `old_password` | String | 是 | 旧密码 |
+| `new_password` | String | 是 | 新密码，至少 6 位 |
+
+**返回说明**:
+- `status`: `"success"` 或 `"error"`
+- `message`: 操作结果描述
+
+**调用示例**:
+```bash
+curl -X POST "http://192.168.66.39:8094/api/v1/auth/password/change" \
+     -H "Content-Type: application/json" \
+     -d '{"actor_id": "zhangsan", "old_password": "123456", "new_password": "654321"}'
+```
+
+---
+
+### 19. 忘记密码重置
+
+**功能**: 用名下任意一把有效钥匙 token 验证身份后重置密码。
+
+**请求**:
+- **URL**: `/api/v1/auth/password/reset`
+- **Method**: `POST`
+
+**参数说明**:
+
+| 字段 | 类型 | 必填 | 说明 |
+| :--- | :--- | :--- | :--- |
+| `actor_id` | String | 是 | actor 身份 ID |
+| `token` | String | 是 | 名下任意一把有效钥匙 token |
+| `new_password` | String | 是 | 新密码，至少 6 位 |
+
+**返回说明**:
+- `status`: `"success"` 或 `"error"`
+- `message`: 操作结果描述
+
+**调用示例**:
+```bash
+curl -X POST "http://192.168.66.39:8094/api/v1/auth/password/reset" \
+     -H "Content-Type: application/json" \
+     -d '{"actor_id": "zhangsan", "token": "abc123|def456...", "new_password": "654321"}'
+```
+
+---
+
+### 20. 创建场（场域）
+
+**功能**: 创建一个场（owner_id），创建者成为该场的主人（owner）。
+
+**请求**:
+- **URL**: `/api/v1/owner/create`
+- **Method**: `POST`
+
+**参数说明**:
+
+| 字段 | 类型 | 必填 | 说明 |
+| :--- | :--- | :--- | :--- |
+| `owner_id` | String | 是 | 场 ID（owner_id，全局唯一） |
+| `name` | String | 是 | 场名称 |
+| `actor_id` | String | 是 | 创建者（actor 身份 ID） |
+
+**返回说明**:
+- `status`: `"success"` 或 `"error"`
+- `message`: 操作结果描述
+- `data`: 包含 `owner_id` 与 `name`
+
+**调用示例**:
+```bash
+curl -X POST "http://192.168.66.39:8094/api/v1/owner/create" \
+     -H "Content-Type: application/json" \
+     -d '{"owner_id": "cbf", "name": "因果观测站", "actor_id": "415135222"}'
+```
+
+---
+
+### 21. 我的场列表
+
+**功能**: 获取指定 actor 名下所有场（owner_id 与名称）。
+
+**请求**:
+- **URL**: `/api/v1/owner/list`
+- **Method**: `GET`
+
+**参数说明**:
+
+| 字段 | 类型 | 必填 | 说明 |
+| :--- | :--- | :--- | :--- |
+| `actor_id` | String | 是 | actor 身份 ID（query 参数） |
+
+**返回说明**:
+- `status`: `"success"` 或 `"error"`
+- `data`: 场列表，每条包含 `owner_id` 与 `name`
+
+**调用示例**:
+```bash
+curl -X GET "http://192.168.66.39:8094/api/v1/owner/list?actor_id=415135222"
+```
+
+---
+
+### 22. 场改名
+
+**功能**: 重命名指定 actor 名下的场。
+
+**请求**:
+- **URL**: `/api/v1/owner/update`
+- **Method**: `POST`
+
+**参数说明**:
+
+| 字段 | 类型 | 必填 | 说明 |
+| :--- | :--- | :--- | :--- |
+| `owner_id` | String | 是 | 场 ID |
+| `name` | String | 是 | 新的场名称 |
+| `actor_id` | String | 是 | actor 身份 ID（需为该场主人） |
+
+**返回说明**:
+- `status`: `"success"` 或 `"error"`
+- `message`: 操作结果描述
+
+**调用示例**:
+```bash
+curl -X POST "http://192.168.66.39:8094/api/v1/owner/update" \
+     -H "Content-Type: application/json" \
+     -d '{"owner_id": "cbf", "name": "新名字", "actor_id": "415135222"}'
+```
+
+---
+
+### 23. 删除场
+
+**功能**: 删除指定 actor 名下的场（不删除该场的节点数据）。
+
+**请求**:
+- **URL**: `/api/v1/owner/delete`
+- **Method**: `POST`
+
+**参数说明**:
+
+| 字段 | 类型 | 必填 | 说明 |
+| :--- | :--- | :--- | :--- |
+| `owner_id` | String | 是 | 场 ID |
+| `actor_id` | String | 是 | actor 身份 ID（需为该场主人） |
+
+**返回说明**:
+- `status`: `"success"` 或 `"error"`
+- `message`: 操作结果描述
+
+**调用示例**:
+```bash
+curl -X POST "http://192.168.66.39:8094/api/v1/owner/delete" \
+     -H "Content-Type: application/json" \
+     -d '{"owner_id": "cbf", "actor_id": "415135222"}'
+```
+
+---
+
+### 24. 签发新钥匙
+
+**功能**: 为 actor 签发一把新钥匙 token（仅此一次返回明文）。
+
+**请求**:
+- **URL**: `/api/v1/key/generate`
+- **Method**: `POST`
+
+**参数说明**:
+
+| 字段 | 类型 | 必填 | 说明 |
+| :--- | :--- | :--- | :--- |
+| `actor_id` | String | 是 | actor 身份 ID |
+
+**返回说明**:
+- `status`: `"success"` 或 `"error"`
+- `data.token`: 新签发的钥匙 token（仅此一次返回）
+
+**调用示例**:
+```bash
+curl -X POST "http://192.168.66.39:8094/api/v1/key/generate" \
+     -H "Content-Type: application/json" \
+     -d '{"actor_id": "415135222"}'
+```
+
+---
+
+### 25. 我的钥匙列表
+
+**功能**: 获取指定 actor 名下所有钥匙 token 列表。
+
+**请求**:
+- **URL**: `/api/v1/key/list`
+- **Method**: `GET`
+
+**参数说明**:
+
+| 字段 | 类型 | 必填 | 说明 |
+| :--- | :--- | :--- | :--- |
+| `actor_id` | String | 是 | actor 身份 ID（query 参数） |
+
+**返回说明**:
+- `status`: `"success"` 或 `"error"`
+- `data`: 钥匙 token 字符串数组
+
+**调用示例**:
+```bash
+curl -X GET "http://192.168.66.39:8094/api/v1/key/list?actor_id=415135222"
+```
+
+---
+
+### 26. 吊销钥匙
+
+**功能**: 吊销指定 actor 名下的一把钥匙 token。
+
+**请求**:
+- **URL**: `/api/v1/key/revoke`
+- **Method**: `POST`
+
+**参数说明**:
+
+| 字段 | 类型 | 必填 | 说明 |
+| :--- | :--- | :--- | :--- |
+| `actor_id` | String | 是 | actor 身份 ID |
+| `token` | String | 是 | 要吊销的钥匙 token |
+
+**返回说明**:
+- `status`: `"success"` 或 `"error"`
+- `message`: 操作结果描述
+
+**调用示例**:
+```bash
+curl -X POST "http://192.168.66.39:8094/api/v1/key/revoke" \
+     -H "Content-Type: application/json" \
+     -d '{"actor_id": "415135222", "token": "abc123|def456..."}'
+```
+
+---
+
 ### 通用参数说明
 
 | 字段 | 类型 | 说明 |
@@ -634,6 +955,7 @@ curl -X POST "http://192.168.66.39:8094/api/v1/causal/restore" \
 | `actor_id` | String | 观测者/用户ID，用于个性化权重管理 |
 | `survival_weight` | Float | 事件权重（0-1），大股东约 0.6，其他节点按比例分配 |
 | `max_eyes` | Float | 望远镜功率/事件视界半径，建议范围 30-60 |
+| `token` | String | 私密场域的钥匙 token（"防盗门"鉴权）。访问私密场（is_share=false）时需携带，登录/注册/签发钥匙后获得 |
 
 ---
 

@@ -1,4 +1,6 @@
 import os
+import hashlib
+import secrets
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from dotenv import load_dotenv
@@ -1420,5 +1422,88 @@ class CausalDatabase:
         print(f"[全局权重提升] 更新了 {len(updated_nodes)} 个节点的权重")
         
         return updated_nodes
+
+    # ============================================================
+    #  账号中心：用户（ains_users）/ 场（ains_owner_masters）/ 钥匙
+    # ============================================================
+    @staticmethod
+    def _hash_password(password: str) -> str:
+        """生成密码散列：salt$sha256(salt + password)，salt 为 32 位 hex 随机串。"""
+        salt = secrets.token_hex(16)
+        digest = hashlib.sha256((salt + password).encode('utf-8')).hexdigest()
+        return salt + "$" + digest
+
+    @staticmethod
+    def _verify_password(password: str, stored: str) -> bool:
+        """校验密码是否匹配存储的散列。"""
+        if not stored or "$" not in stored:
+            return False
+        salt, digest = stored.split("$", 1)
+        return hashlib.sha256((salt + password).encode('utf-8')).hexdigest() == digest
+
+    @staticmethod
+    def _new_token(actor_id: str) -> str:
+        """生成一把新钥匙 token，格式：随机前缀|md5(actor_id + 随机串)。"""
+        prefix = secrets.token_hex(6)
+        tail = hashlib.md5((actor_id + secrets.token_hex(16)).encode('utf-8')).hexdigest()
+        return prefix + "|" + tail
+
+    def get_user(self, actor_id: str):
+        sql = "SELECT * FROM ains_users WHERE actor_id = %s"
+        with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(sql, (actor_id,))
+            return cur.fetchone()
+
+    def create_user(self, actor_id: str, password: str, token: str):
+        sql = "INSERT INTO ains_users (actor_id, password, token) VALUES (%s, %s, %s)"
+        with self.conn.cursor() as cur:
+            cur.execute(sql, (actor_id, self._hash_password(password), token))
+
+    def update_user_password(self, actor_id: str, new_password: str):
+        sql = "UPDATE ains_users SET password = %s, updated_at = now() WHERE actor_id = %s"
+        with self.conn.cursor() as cur:
+            cur.execute(sql, (self._hash_password(new_password), actor_id))
+
+    def set_user_tokens(self, actor_id: str, tokens):
+        sql = "UPDATE ains_users SET token = %s, updated_at = now() WHERE actor_id = %s"
+        with self.conn.cursor() as cur:
+            cur.execute(sql, (",".join(tokens), actor_id))
+
+    def get_user_tokens(self, actor_id: str):
+        user = self.get_user(actor_id)
+        if not user or not user.get("token"):
+            return []
+        return [t for t in str(user["token"]).split(",") if t]
+
+    def add_user_token(self, actor_id: str, token: str):
+        tokens = self.get_user_tokens(actor_id)
+        tokens.append(token)
+        self.set_user_tokens(actor_id, tokens)
+
+    def remove_user_token(self, actor_id: str, token: str):
+        tokens = [t for t in self.get_user_tokens(actor_id) if t != token]
+        self.set_user_tokens(actor_id, tokens)
+
+    def list_owners(self, actor_id: str):
+        sql = "SELECT owner_id, name FROM ains_owner_masters WHERE actor_id = %s ORDER BY created_at"
+        with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(sql, (actor_id,))
+            return cur.fetchall()
+
+    def create_owner(self, owner_id: str, name: str, actor_id: str):
+        sql = "INSERT INTO ains_owner_masters (owner_id, name, actor_id) VALUES (%s, %s, %s)"
+        with self.conn.cursor() as cur:
+            cur.execute(sql, (owner_id, name, actor_id))
+
+    def rename_owner(self, owner_id: str, name: str, actor_id: str):
+        sql = "UPDATE ains_owner_masters SET name = %s, updated_at = now() WHERE owner_id = %s AND actor_id = %s"
+        with self.conn.cursor() as cur:
+            cur.execute(sql, (name, owner_id, actor_id))
+
+    def delete_owner(self, owner_id: str, actor_id: str):
+        sql = "DELETE FROM ains_owner_masters WHERE owner_id = %s AND actor_id = %s"
+        with self.conn.cursor() as cur:
+            cur.execute(sql, (owner_id, actor_id))
+
 # 实例化单例
 db = CausalDatabase()

@@ -8,6 +8,41 @@
 const CONFIG_ENHANCE_HORIZON_NODES = false; // 是否提亮事件视界内的普通节点（权重 <= 0.59）
 
 
+
+// --- [全局变量：鉴权] ---
+let currentActorId = null;
+let currentOwnerId = null;
+
+document.addEventListener('DOMContentLoaded', () => {
+    currentActorId = localStorage.getItem('causal_actor_id');
+    const params = new URLSearchParams(window.location.search);
+    currentOwnerId = params.get('owner_id') || 'default';
+});
+
+// URL附带Token
+function appendAuthParams(url) {
+    const token = localStorage.getItem('causal_token');
+    if (!token) return url;
+    
+    const separator = url.includes('?') ? '&' : '?';
+    return `${url}${separator}token=${encodeURIComponent(token)}`;
+}
+
+// Body附带Token、actor、owner
+function appendAuthBody(payload) {
+    const token = localStorage.getItem('causal_token');
+    if (token) {
+        payload.token = token;
+    }
+    if (currentActorId) {
+        payload.actor_id = currentActorId;
+    }
+    if (currentOwnerId && currentOwnerId !== 'default') {
+        payload.owner_id = currentOwnerId;
+    }
+    return payload;
+}
+
 // --- [1. 全局状态管理] ---
 let Graph = null;
 const highlightNodes = new Set();
@@ -973,7 +1008,7 @@ async function restoreFromNecropolis(node) {
         const response = await fetch('/api/v1/causal/restore', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ node_id: node.id })
+            body: JSON.stringify(appendAuthBody({ node_id: node.id }))
         });
         
         const data = await response.json();
@@ -1032,7 +1067,7 @@ async function promoteNodeWeight(node, maxEyes = null) {
         const response = await fetch('/api/v1/causal/click', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(requestData)
+            body: JSON.stringify(appendAuthBody(requestData))
         });
         
         const data = await response.json();
@@ -1075,7 +1110,7 @@ async function loadInitialData() {
         const url = `/api/v1/causal/history${params.toString() ? '?' + params.toString() : ''}`;
         console.log(`[数据加载] 请求URL: ${url}`);
         
-        const response = await fetch(url);
+        const response = await fetch(appendAuthParams(url));
         const res = await response.json();
         
         if (res.status === 'success' && Array.isArray(res.data)) {
@@ -1099,7 +1134,7 @@ async function loadInitialData() {
             // 严格构建连线：只有当父子节点都实际存在于 nodes 数组中时，才建立连线
             const links = [];
             res.data.forEach(nodeData => {
-                const parents = nodeData.previous_ids || (nodeData.previous_id ? [nodeData.previous_id] : []);
+                const parents = nodeData.parent_ids || nodeData.previous_ids || (nodeData.parent_id ? [nodeData.parent_id] : (nodeData.previous_id ? [nodeData.previous_id] : []));
                 parents.forEach(pId => {
                     if (nodeById[pId] && nodeById[nodeData.node_id]) {
                         links.push({ source: pId, target: nodeData.node_id, type: 'causal' });
@@ -1731,7 +1766,7 @@ function openDrawer(nodeId) {
     }
     
     // 父节点ID
-    const pIds = node.previous_ids || (node.previous_id ? [node.previous_id] : []);
+    const pIds = node.parent_ids || node.previous_ids || (node.parent_id ? [node.parent_id] : (node.previous_id ? [node.previous_id] : []));
     document.getElementById('d-parent-ids').value = pIds.join(' | ');
     
     // 图片URL和预览
@@ -2029,7 +2064,7 @@ async function handleSaveNode() {
     
     // 总是发送previous_ids字段，即使为空数组
     // 这样后端可以正确处理父ID为空的情况
-    data.previous_ids = parentIds;
+    data.parent_ids = parentIds; // Map for backend API
 
     console.log('[抽屉编辑] 发送更新数据:', data);
 
@@ -2037,7 +2072,7 @@ async function handleSaveNode() {
         const res = await fetch('/api/v1/causal/update', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(data)
+            body: JSON.stringify(appendAuthBody(data))
         });
         const result = await res.json();
         console.log('API响应:', result);
@@ -2065,7 +2100,7 @@ async function handleDeleteNode() {
         const res = await fetch('/api/v1/causal/delete', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ node_id: currentSelectedNodeId, actor_id: window.currentActorId })
+            body: JSON.stringify(appendAuthBody({ node_id: currentSelectedNodeId, actor_id: window.currentActorId }))
         });
         const result = await res.json();
         if (result.status === 'success') {
@@ -2366,7 +2401,7 @@ async function submitCreateNode() {
         const response = await fetch('/api/v1/causal/genesis', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(requestData)
+            body: JSON.stringify(appendAuthBody(requestData))
         });
         
         const data = await response.json();
@@ -2453,7 +2488,7 @@ function handleNodeClick(node) {
     fetch('/api/v1/causal/click', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestData)
+        body: JSON.stringify(appendAuthBody(requestData))
     })
     .then(response => response.json())
     .then(data => {
@@ -2654,7 +2689,7 @@ async function submitDeriveNode(tag, parentId) {
         const response = await fetch('/api/v1/causal/genesis', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(requestData)
+            body: JSON.stringify(appendAuthBody(requestData))
         });
         
         const data = await response.json();
@@ -2835,7 +2870,7 @@ window.addEventListener('load', () => {
             }
 
             // 判断是否为孤立节点（无父节点且无子节点）
-            const pIds = node.previous_ids || (node.previous_id ? [node.previous_id] : []);
+            const pIds = node.parent_ids || node.previous_ids || (node.parent_id ? [node.parent_id] : (node.previous_id ? [node.previous_id] : []));
             let isIsolated = pIds.length === 0;
             if (isIsolated && Graph && Graph.graphData) {
                 const { links } = Graph.graphData();
@@ -3023,7 +3058,7 @@ window.addEventListener('load', () => {
                 fetch('/api/v1/causal/click', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(requestData)
+                    body: JSON.stringify(appendAuthBody(requestData))
                 })
                 .then(response => response.json())
                 .then(data => {
@@ -3104,7 +3139,7 @@ window.addEventListener('load', () => {
             fetch('/api/v1/causal/click', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(requestData)
+                body: JSON.stringify(appendAuthBody(requestData))
             })
             .then(response => response.json())
             .then(data => {
@@ -3397,7 +3432,7 @@ window.addEventListener('load', () => {
             fetch('/api/v1/causal/click', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(requestData)
+                body: JSON.stringify(appendAuthBody(requestData))
             })
             .then(res => res.json())
             .then(data => {
@@ -3735,7 +3770,7 @@ window.addEventListener('load', () => {
             const response = await fetch(apiUrl, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(requestData)
+                body: JSON.stringify(appendAuthBody(requestData))
             });
             
             const data = await response.json();
@@ -3859,7 +3894,7 @@ window.addEventListener('load', () => {
             const response = await fetch('/api/v1/causal/click', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(requestData)
+                body: JSON.stringify(appendAuthBody(requestData))
             });
 
             const data = await response.json();
