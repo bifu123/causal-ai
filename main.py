@@ -470,6 +470,8 @@ async def update_node(update_data: dict):
         print(f"[更新节点] 父ID处理: previous_ids={previous_ids}, previous_ids_list={previous_ids_list}")
         
         # 检查是否为首贞（父ID为空）
+        is_first_node = not previous_ids_list
+
 
             
         
@@ -838,6 +840,7 @@ async def search_by_serial(search_data: dict):
         
         return {
             "status": "success",
+            "data": [converted_result],
             "actor_id": actor_id
         }
     

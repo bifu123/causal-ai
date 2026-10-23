@@ -1119,10 +1119,12 @@ body::after {
     font-size: 13px;
     color: #f8fafc;
     font-weight: bold;
-    max-width: 150px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    max-width: 100%;
+    /* overflow: hidden; */
+    /* text-overflow: ellipsis; */
+    /* white-space: nowrap; */
+    word-break: break-all;
+    line-height: 1.4;
 }
 
 .result-serial-id {

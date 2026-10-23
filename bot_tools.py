@@ -13,7 +13,7 @@ from langchain_core.tools import tool
 #*************************
 
 ## 从关键字搜索事件列表
-def search_causal_by_keyword(keyword, config: RunnableConfig=None, owner_id=None, limit=50, method="POST", token=None):
+def search_causal_by_keyword(keyword, config: RunnableConfig=None, owner_id=None, limit=50, method="POST", token="af27e18b2e16|a989f710b92e200c8ca9e069d8f59ce3"):
     """
     根据关键字搜索事件列表
     
@@ -91,7 +91,7 @@ def search_causal_by_keyword(keyword, config: RunnableConfig=None, owner_id=None
     return result
 
 ## 从关键字搜索事件列表
-def search_causal_by_embed(keyword, config: RunnableConfig=None, owner_id=None, limit=100, token=None):
+def search_causal_by_embed(keyword, config: RunnableConfig=None, owner_id=None, limit=100, token="af27e18b2e16|a989f710b92e200c8ca9e069d8f59ce3"):
     """
     根据自然语言搜索事件列表
     
@@ -165,7 +165,7 @@ def search_causal_by_embed(keyword, config: RunnableConfig=None, owner_id=None, 
     return result
 
 ## 点击事件
-def search_causal_by_serial(serial_id, config: RunnableConfig=None, actor_id=None, owner_id=None, max_eyes=None, token=None):
+def search_causal_by_serial(serial_id, config: RunnableConfig=None, actor_id=None, owner_id=None, max_eyes=None, token="af27e18b2e16|a989f710b92e200c8ca9e069d8f59ce3"):
     """
     处理事件节点点击、获取事件视界内容
     
@@ -253,7 +253,7 @@ def search_causal_by_serial(serial_id, config: RunnableConfig=None, actor_id=Non
     return result
 
 ## 记录因果数据
-def trigger_causal_node(node_id, action_tag, block_tag, event_tuple, config: RunnableConfig, previous_node=None, full_image_url=None, owner_id=None, is_share=False, return_serial_id=True, token=None):
+def trigger_causal_node(node_id, action_tag, block_tag, event_tuple, config: RunnableConfig, previous_node=None, full_image_url=None, owner_id=None, is_share=False, return_serial_id=True, token="af27e18b2e16|a989f710b92e200c8ca9e069d8f59ce3"):
     """
     进行因果事件记录。
  
@@ -337,7 +337,7 @@ def trigger_causal_node(node_id, action_tag, block_tag, event_tuple, config: Run
 
 ## 修改因果数据事件节点
 def update_causal_node(old_node_id, new_node_id, config: RunnableConfig, event_tuple=None, full_image_url=None, 
-                       previous_ids=None, action_tag=None, block_tag=None, owner_id=None, is_share=None, token=None):
+                       previous_ids=None, action_tag=None, block_tag=None, owner_id=None, is_share=None, token="af27e18b2e16|a989f710b92e200c8ca9e069d8f59ce3"):
     """
     编辑因果事件
     
@@ -421,7 +421,7 @@ def update_causal_node(old_node_id, new_node_id, config: RunnableConfig, event_t
     return result
 
 ## 删除因果数据事件节点
-def delete_causal_node(node_id, config: RunnableConfig, owner_id=None, token=None):
+def delete_causal_node(node_id, config: RunnableConfig, owner_id=None, token="af27e18b2e16|a989f710b92e200c8ca9e069d8f59ce3"):
     """
     删除因果事件
     
@@ -462,7 +462,7 @@ def delete_causal_node(node_id, config: RunnableConfig, owner_id=None, token=Non
     return result
 
 ## 因果链骨架查询
-def get_causal_skeleton(serial_id, config: RunnableConfig, actor_id=None, owner_id=None, token=None):
+def get_causal_skeleton(serial_id, config: RunnableConfig, actor_id=None, owner_id=None, token="af27e18b2e16|a989f710b92e200c8ca9e069d8f59ce3"):
     """
     获取事件的因果链全息图骨架
     
@@ -496,7 +496,7 @@ def get_causal_skeleton(serial_id, config: RunnableConfig, actor_id=None, owner_
     return response.json()
 
 ## 获取当前事件视界
-def get_current_event_horizon(config: RunnableConfig, actor_id=None, owner_id=None, max_eyes=None, token=None):
+def get_current_event_horizon(config: RunnableConfig, actor_id=None, owner_id=None, max_eyes=None, token="af27e18b2e16|a989f710b92e200c8ca9e069d8f59ce3"):
     """
     获取当前观测者在指定因果场中的事件视界。
     系统自动找到当前大股东节点（最高 survival_weight 事件），并以该节点为中心，

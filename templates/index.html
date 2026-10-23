@@ -44,7 +44,7 @@
             height: 100vh;
             z-index: 2;
             pointer-events: none;
-            background: radial-gradient(circle at 50% 50%, rgba(1, 2, 6, 0.15) 0%, rgba(1, 2, 6, 0.8) 80%, rgba(1, 2, 6, 0.98) 100%);
+            background: radial-gradient(circle at 50% 50%, rgba(1, 2, 6, 0.1) 0%, rgba(1, 2, 6, 0.78) 78%, rgba(1, 2, 6, 0.98) 100%);
         }
 
         /* 顶部科技 HUD 导航 */
@@ -97,7 +97,7 @@
         }
 
         .hero-banner-title {
-            font-size: min(1.2vw, 16px);
+            font-size: min(1.6vw, 22px);
             font-weight: 700;
             letter-spacing: 0.4em;
             width: 100%;
@@ -122,7 +122,7 @@
         /* 中央深远景深透视公式 - 聚光 + 远距离经纬奇点 */
         .central-deep-focal {
             position: absolute;
-            top: 55%;
+            top: 52%;
             left: 50%;
             transform: translate(-50%, -50%);
             z-index: 25;
@@ -134,7 +134,7 @@
             text-align: center;
         }
 
-        /* 中心聚光灯强光晕效应（已通过 blur 模糊滤镜与拉长渐变消除硬边缘） */
+        /* 中心聚光灯强光晕效应 */
         .spotlight-beam {
             position: absolute;
             width: 1050px;
@@ -142,7 +142,7 @@
             background: radial-gradient(circle, rgba(56, 189, 248, 0.35) 0%, rgba(192, 132, 252, 0.18) 45%, rgba(56, 189, 248, 0.04) 75%, transparent 100%);
             border-radius: 50%;
             pointer-events: none;
-            filter: blur(45px); /* 核心优化：高斯模糊使边缘彻底丝滑融进暗夜背景 */
+            filter: blur(45px);
             animation: beamPulse 5s ease-in-out infinite alternate;
         }
 
@@ -248,7 +248,7 @@
             transform: translateY(-2px);
         }
 
-        /* 布局网格：无右侧内容，保留左上、左下与右下 */
+        /* 布局网格：PC端样式 */
         .frameless-hud-grid {
             position: relative;
             z-index: 20;
@@ -257,7 +257,7 @@
             display: grid;
             grid-template-columns: 380px 1fr 380px;
             grid-template-rows: 1fr 1fr;
-            padding: 200px 40px 40px 40px;
+            padding: 180px 45px 45px 45px;
             gap: 20px;
             pointer-events: none;
         }
@@ -278,20 +278,21 @@
         .quote-lines {
             padding-left: 0;
             background: linear-gradient(90deg, rgba(56, 189, 248, 0.06) 0%, transparent 100%);
-            padding-top: 10px;
-            padding-bottom: 10px;
+            padding: 12px 16px;
+            border-left: 2px solid rgba(56, 189, 248, 0.5);
+            backdrop-filter: blur(6px);
         }
 
         .quote-lines p {
-            font-size: 0.95rem;
+            font-size: 0.92rem;
             line-height: 1.8;
-            color: #e2e8f0;
+            color: #9ea2a8;
             font-style: italic;
             text-shadow: 0 2px 8px rgba(0, 0, 0, 0.9);
         }
 
         .quote-author {
-            margin-top: 12px;
+            margin-top: 10px;
             font-size: 0.78rem;
             color: #64748b;
             font-family: 'Orbitron', monospace;
@@ -307,34 +308,38 @@
         .dim-matrix {
             display: flex;
             flex-direction: column;
-            gap: 12px;
+            gap: 10px;
+            padding: 14px 16px;
+            background: linear-gradient(90deg, rgba(15, 23, 42, 0.5) 0%, transparent 100%);
+            border-left: 2px solid rgba(192, 132, 252, 0.5);
+            backdrop-filter: blur(6px);
         }
 
         .dim-row {
             display: flex;
             align-items: center;
-            font-size: 0.85rem;
+            font-size: 0.82rem;
             text-shadow: 0 2px 8px rgba(0, 0, 0, 0.9);
         }
 
         .dim-label {
             color: #38bdf8;
             font-weight: 600;
-            width: 75px;
+            width: 70px;
         }
 
         .dim-math {
             font-family: 'Orbitron', monospace;
             color: #c084fc;
-            width: 115px;
-            font-size: 0.8rem;
+            width: 110px;
+            font-size: 0.78rem;
         }
 
         .dim-desc {
             color: #94a3b8;
         }
 
-        /* 3. 右下角：因果链哲理说明 */
+        /* 3. 右下角 bottom-note 科技 HUD 挂轨卡片 */
         .block-bottom-right {
             grid-column: 3;
             grid-row: 2;
@@ -342,44 +347,254 @@
             pointer-events: auto;
             display: flex;
             flex-direction: column;
-            gap: 10px;
         }
 
-        .bottom-note {
+        .bottom-note-card {
+            position: relative;
+            background: linear-gradient(135deg, rgba(15, 23, 42, 0.65) 0%, rgba(2, 4, 10, 0.45) 100%);
+            border-left: 3px solid #38bdf8;
+            padding: 16px 20px;
+            clip-path: polygon(
+                0% 0%, calc(100% - 10px) 0%, 
+                100% 10px, 100% 100%, 
+                0% 100%
+            );
+            backdrop-filter: blur(12px);
+            box-shadow: -5px 10px 25px rgba(0, 0, 0, 0.5), inset 0 1px 1px rgba(255, 255, 255, 0.08);
+            transition: all 0.3s ease;
+        }
+
+        .bottom-note-card:hover {
+            border-left-color: #c084fc;
+            box-shadow: -5px 10px 30px rgba(56, 189, 248, 0.2);
+        }
+
+        .note-card-tag {
+            font-family: 'Orbitron', monospace;
+            font-size: 0.68rem;
+            letter-spacing: 0.2em;
+            color: #38bdf8;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            text-transform: uppercase;
+        }
+
+        .note-card-tag::before {
+            content: '';
+            display: inline-block;
+            width: 5px;
+            height: 5px;
+            background: #38bdf8;
+            border-radius: 50%;
+            box-shadow: 0 0 6px #38bdf8;
+        }
+
+        .bottom-note-text {
             font-size: 0.82rem;
-            color: #64748b;
-            line-height: 1.6;
-            text-align: right;
-            text-shadow: 0 2px 8px rgba(0, 0, 0, 0.9);
+            color: #cbd5e1;
+            line-height: 1.75;
+            text-align: left;
+            text-shadow: 0 2px 6px rgba(0, 0, 0, 0.8);
         }
 
-        /* 移动端自适应 */
-        @media (max-width: 1024px) {
-            .fullwidth-header-banner {
-                top: 70px;
+        .bottom-note-text .highlight-cyan {
+            color: #38bdf8;
+            font-weight: 600;
+        }
+
+        .bottom-note-text .highlight-purple {
+            color: #c084fc;
+            font-weight: 600;
+        }
+
+        /* ================= 页面右下角 ICP 备案号样式 ================= */
+        .icp-footer {
+            position: fixed;
+            bottom: 20px;
+            right: 30px;
+            z-index: 40;
+            font-family: 'Orbitron', 'Noto Sans SC', sans-serif;
+            font-size: 0.72rem;
+            letter-spacing: 0.1em;
+            pointer-events: auto;
+        }
+
+        .icp-footer a {
+            color: #64748b;
+            text-decoration: none;
+            transition: all 0.3s ease;
+            text-shadow: 0 2px 6px rgba(0, 0, 0, 0.9);
+        }
+
+        .icp-footer a:hover {
+            color: #38bdf8;
+            text-shadow: 0 0 10px rgba(56, 189, 248, 0.6);
+        }
+
+        /* ================= 移动端响应式优化 ================= */
+        @media (max-width: 768px) {
+            body, html {
+                overflow-y: auto;
+                overflow-x: hidden;
+            }
+
+            .hud-header {
+                display: none;
+            }
+
+            .frameless-hud-grid {
+                position: absolute;
+                top: 0;
                 left: 0;
                 width: 100vw;
-                padding: 0 20px;
-            }
-            .hero-banner-title {
-                font-size: 1.1rem;
-            }
-            .frameless-hud-grid {
+                height: 100vh;
                 display: flex;
                 flex-direction: column;
-                overflow-y: auto;
-                padding: 160px 20px 20px 20px;
-                gap: 24px;
+                justify-content: space-between;
+                padding: 24px 20px 50px 20px; /* 底部预留空间给 ICP 备案号 */
+                z-index: 20;
+                pointer-events: none;
             }
-            .central-deep-focal {
+
+            .text-block {
+                pointer-events: auto;
+            }
+
+            .mobile-top-section {
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                text-align: center;
+                width: 100%;
+                margin-top: 10px;
+            }
+
+            .fullwidth-header-banner {
                 position: relative;
                 top: auto;
                 left: auto;
-                transform: none;
-                margin: 40px 0;
+                width: 100%;
+                padding: 0;
+                margin-bottom: 16px;
             }
-            .bottom-note {
+
+            .hero-banner-title {
+                font-size: 1.15rem;
+                letter-spacing: 0.25em;
+            }
+
+            .hero-banner-sub {
+                font-size: 0.7rem;
+                letter-spacing: 0.3em;
+                margin-top: 4px;
+            }
+
+            .block-top-left {
+                width: 100%;
                 text-align: left;
+            }
+
+            .quote-lines {
+                background: rgba(1, 2, 6, 0.45);
+                padding: 10px 14px;
+            }
+
+            .quote-lines p {
+                font-size: 0.85rem;
+                line-height: 1.6;
+            }
+
+            .quote-author {
+                margin-top: 6px;
+                font-size: 0.72rem;
+            }
+
+            .central-deep-focal {
+                position: absolute;
+                top: 48%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                width: 100%;
+                margin: 0;
+                z-index: 25;
+            }
+
+            .spotlight-beam {
+                width: 340px;
+                height: 340px;
+                filter: blur(35px);
+            }
+
+            .focal-formula {
+                font-size: 2.1rem;
+                letter-spacing: 0.08em;
+                margin-bottom: 16px;
+            }
+
+            .center-btn-group {
+                flex-direction: row;
+                justify-content: center;
+                gap: 10px;
+            }
+
+            .btn-glow, .btn-ghost {
+                padding: 8px 16px;
+                font-size: 0.78rem;
+                border-radius: 20px;
+                white-space: nowrap;
+            }
+
+            .mobile-bottom-section {
+                display: flex;
+                flex-direction: column;
+                gap: 12px;
+                width: 100%;
+            }
+
+            .block-bottom-left, .block-bottom-right {
+                width: 100%;
+            }
+
+            .dim-matrix {
+                background: rgba(1, 2, 6, 0.45);
+                padding: 12px 14px;
+                gap: 6px;
+            }
+
+            .dim-row {
+                font-size: 0.78rem;
+            }
+
+            .dim-label {
+                width: 65px;
+            }
+
+            .dim-math {
+                width: 100px;
+                font-size: 0.72rem;
+            }
+
+            .dim-desc {
+                font-size: 0.75rem;
+            }
+
+            .bottom-note-card {
+                padding: 12px 16px;
+            }
+
+            .bottom-note-text {
+                font-size: 0.78rem;
+                line-height: 1.65;
+            }
+
+            /* 移动端 ICP 备案号微调，居中沉底 */
+            .icp-footer {
+                right: 0;
+                left: 0;
+                text-align: center;
+                bottom: 15px;
             }
         }
     </style>
@@ -401,12 +616,6 @@
         <div>EVENT CAUSAL MATRIX TUNNEL</div>
     </header>
 
-    <!-- 满屏横幅标题：“从三维空间到因果” -->
-    <div class="fullwidth-header-banner">
-        <h1 class="hero-banner-title">从三维空间到五维因果</h1>
-        <div class="hero-banner-sub">事件 / 因果 / 因果链</div>
-    </div>
-
     <!-- 中央透视深景深高亮公式：聚光 + 按钮组 -->
     <div class="central-deep-focal">
         <div class="spotlight-beam"></div>
@@ -421,54 +630,74 @@
         </div>
     </div>
 
-    <!-- 打散的四周浮动文字布局 -->
+    <!-- 上下分散的浮动网格布局 -->
     <main class="frameless-hud-grid">
         
-        <!-- 1. 左上角：哲学名言 -->
-        <section class="text-block block-top-left">
-            <div class="quote-lines">
-                <p>物质不依赖观测者而存在</p>
-                <p>事件在观测者的注视下发生</p>
-                <p>因果在变化中盲猜出来</p>
-                <div class="quote-author">—— 陈碧甫 · 2026-10-20</div>
+        <!-- 【顶部区域】：标题 + 哲学名言 -->
+        <div class="mobile-top-section">
+            <div class="fullwidth-header-banner">
+                <h1 class="hero-banner-title">从三维空间到因果链</h1>
+                <div class="hero-banner-sub">事件 / 因果 / 因果链</div>
             </div>
-        </section>
 
-        <!-- 2. 左下角：维度空间解构 -->
-        <section class="text-block block-bottom-left">
-            <div class="dim-matrix">
-                <div class="dim-row">
-                    <span class="dim-label">三维空间</span>
-                    <span class="dim-math">(x, y, z)</span>
-                    <span class="dim-desc">某地有某物</span>
+            <section class="text-block block-top-left">
+                <div class="quote-lines">
+                    <p>在原子、光、声、热量……的世界中，你将它们分形/组合出了“它”(概念体O0)，你看着它从四维时空(t0,s0)到(t1,s1)，事件就产生了——很简单吧；如果它的状态改变了，而你还坚持那还是“它”，那就需要因果解释。</p>
+                    <div class="quote-author">—— 陈碧甫 · 2026-10-20</div>
                 </div>
-                <div class="dim-row">
-                    <span class="dim-label">四维时空</span>
-                    <span class="dim-math">(x, y, z, t)</span>
-                    <span class="dim-desc">某时某地有某物</span>
-                </div>
-                <div class="dim-row">
-                    <span class="dim-label">五维因果</span>
-                    <span class="dim-math">(x, y, z, t, w)</span>
-                    <span class="dim-desc">谁观测到某时某地有某物</span>
-                </div>
-            </div>
-        </section>
+            </section>
+        </div>
 
-        <!-- 3. 右下角：因果链哲理说明 -->
-        <section class="text-block block-bottom-right">
-            <div class="bottom-note">
-                事件因 w 而立，也因 w 而空。因果只因众生执念，我们组织起来就是因果链：因果链是多因多果、多意志主体影响下的引力场。
-            </div>
-        </section>
+        <!-- 【底部区域】：左侧维度矩阵 + 右侧重构后的哲理 HUD 卡片 -->
+        <div class="mobile-bottom-section">
+            <section class="text-block block-bottom-left">
+                <div class="dim-matrix">
+                    <div class="dim-row">
+                        <span class="dim-label">三维空间</span>
+                        <span class="dim-math">(x, y, z)</span>
+                        <span class="dim-desc">某地有某物</span>
+                    </div>
+                    <div class="dim-row">
+                        <span class="dim-label">四维时空</span>
+                        <span class="dim-math">(x, y, z, t)</span>
+                        <span class="dim-desc">某时某地有某物</span>
+                    </div>
+                    <div class="dim-row">
+                        <span class="dim-label">五维本体</span>
+                        <span class="dim-math">(x, y, z, t, w)</span>
+                        <span class="dim-desc">谁观测到某时某地有某物</span>
+                    </div>
+                    <div class="dim-row">
+                        <span class="dim-label">六维心识</span>
+                        <span class="dim-math">(x, y, z, t, w, h)</span>
+                        <span class="dim-desc">谁以什么主观观测到某时某地有某物</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 右下角重构的 HUD 科技总结卡片 -->
+            <section class="text-block block-bottom-right">
+                <div class="bottom-note-card">
+                    <div class="note-card-tag">// Causal Field Theory</div>
+                    <p class="bottom-note-text">
+                        事件源于 <span class="highlight-cyan">w 的放不下</span>，因果则是 <span class="highlight-purple">w 的执念</span>。<br>
+                        当它们组织起来，便构成了因果链：<b>因果链是多意志主体影响下多因多果的引力场</b>。
+                    </p>
+                </div>
+            </section>
+        </div>
 
     </main>
 
-    <!-- Three.js 驱动中央经纬线隧道与透视聚光系统 -->
+    <!-- 底部右下角 ICP 备案号 -->
+    <div class="icp-footer">
+        <a href="https://beian.aliyun.com/" target="_blank">黔ICP备2025052204号-1</a>
+    </div>
+
+    <!-- Three.js 驱动背景动画 -->
     <script>
         const container = document.getElementById('canvas-container');
         
-        // 1. 场景与透视相机
         const scene = new THREE.Scene();
         scene.fog = new THREE.FogExp2(0x010206, 0.0012);
 
@@ -480,7 +709,6 @@
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         container.appendChild(renderer.domElement);
 
-        // 2. 经纬线中央透视网格隧道 (Perspective Wireframe Tunnel)
         const tunnelGroup = new THREE.Group();
 
         const ringCount = 24;
@@ -497,7 +725,6 @@
             }
 
             ringGeometry.setFromPoints(points);
-            // 近端淡化，远端聚焦
             const opacityVal = i < 3 ? (i * 0.15) : Math.max(0.04, 0.65 - i * 0.022);
             const ringMaterial = new THREE.LineBasicMaterial({
                 color: i % 2 === 0 ? 0x38bdf8 : 0xc084fc,
@@ -529,7 +756,6 @@
 
         scene.add(tunnelGroup);
 
-        // 3. 量子粒子星云
         const particleCount = 1500;
         const particleGeo = new THREE.BufferGeometry();
         const positions = new Float32Array(particleCount * 3);
@@ -563,7 +789,6 @@
         const particles = new THREE.Points(particleGeo, particleMat);
         scene.add(particles);
 
-        // 4. 视角与鼠标联动
         let mouseX = 0;
         let mouseY = 0;
         let targetX = 0;

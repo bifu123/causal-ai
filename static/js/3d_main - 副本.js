@@ -1134,7 +1134,7 @@ async function loadInitialData() {
             // 严格构建连线：只有当父子节点都实际存在于 nodes 数组中时，才建立连线
             const links = [];
             res.data.forEach(nodeData => {
-                const parents = nodeData.parent_ids || (nodeData.parent_id ? [nodeData.parent_id] : []);
+                const parents = nodeData.parent_ids || nodeData.previous_ids || (nodeData.parent_id ? [nodeData.parent_id] : (nodeData.previous_id ? [nodeData.previous_id] : []));
                 parents.forEach(pId => {
                     if (nodeById[pId] && nodeById[nodeData.node_id]) {
                         links.push({ source: pId, target: nodeData.node_id, type: 'causal' });
@@ -1766,7 +1766,7 @@ function openDrawer(nodeId) {
     }
     
     // 父节点ID
-    const pIds = node.parent_ids || (node.parent_id ? [node.parent_id] : []);
+    const pIds = node.parent_ids || node.previous_ids || (node.parent_id ? [node.parent_id] : (node.previous_id ? [node.previous_id] : []));
     document.getElementById('d-parent-ids').value = pIds.join(' | ');
     
     // 图片URL和预览
@@ -1837,7 +1837,7 @@ function openDrawer(nodeId) {
         action_tag: node.action_tag,
         block_tag: node.block_tag,
         survival_weight: node.survival_weight,
-        parent_ids_count: pIds.length,
+        previous_ids_count: pIds.length,
         has_image: !!(node.full_image_url || node.image_url)
     });
 }
@@ -2062,9 +2062,9 @@ async function handleSaveNode() {
         owner_id: window.currentOwnerId || 'default'
     };
     
-    // 总是发送parent_ids字段，即使为空数组
+    // 总是发送previous_ids字段，即使为空数组
     // 这样后端可以正确处理父ID为空的情况
-    data.parent_ids = parentIds;
+    data.parent_ids = parentIds; // Map for backend API
 
     console.log('[抽屉编辑] 发送更新数据:', data);
 
@@ -2392,7 +2392,7 @@ async function submitCreateNode() {
         is_share: isShare,
         actor_id: window.currentActorId,
         owner_id: window.currentOwnerId || 'default'
-        // 不发送block_tag、action_tag和parent_id，让后端处理
+        // 不发送block_tag、action_tag和previous_id，让后端处理
     };
     
     console.log('[发起首贞] 提交创建请求:', requestData);
@@ -2870,7 +2870,7 @@ window.addEventListener('load', () => {
             }
 
             // 判断是否为孤立节点（无父节点且无子节点）
-            const pIds = node.parent_ids || (node.parent_id ? [node.parent_id] : []);
+            const pIds = node.parent_ids || node.previous_ids || (node.parent_id ? [node.parent_id] : (node.previous_id ? [node.previous_id] : []));
             let isIsolated = pIds.length === 0;
             if (isIsolated && Graph && Graph.graphData) {
                 const { links } = Graph.graphData();

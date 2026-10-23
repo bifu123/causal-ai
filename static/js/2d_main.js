@@ -2480,6 +2480,41 @@ function displaySearchResults(results, searchType = 'keyword') {
 // 处理搜索结果点击事件 - 定义为全局函数
 window.handleSearchResultClick = async function(serialId, nodeId) {
     console.log(`[搜索点击] 点击搜索结果: serial_id=${serialId}, node_id=${nodeId}`);
+    console.log(`[搜索点击] is_change=${is_change}, activeParentIdField=`, activeParentIdField);
+    // 兜底：如果失焦导致 activeParentIdField 为 null，重新获取它
+    if (!is_change && !activeParentIdField) {
+        activeParentIdField = document.getElementById("d-parent-ids");
+    }
+
+    // **拦截逻辑：如果在父ID选择模式（is_change为false），只需填入输入框而不打开抽屉**
+    if (!is_change && activeParentIdField) {
+        let ids = activeParentIdField.value.split('|').map(s => s.trim()).filter(s => s);
+        const strNodeId = String(nodeId);
+
+        // 如果节点未在输入框中，则链入
+        if (!ids.includes(strNodeId)) {
+
+            activeParentIdField.value = ids.join(' | ');
+            showSelectionHint(`已链入父节点: ${strNodeId}`);
+        }
+
+        // 无论如何，自动展开抽屉以显示填入的结果
+        if (typeof window.expandDrawer === "function") {
+            window.expandDrawer();
+        }
+
+        // 隐藏搜索结果面板
+        const searchFormContainer = document.getElementById('search-form-container');
+        if (searchFormContainer) searchFormContainer.classList.remove('expanded');
+
+        const resultsContainer = document.getElementById('search-results');
+        if (resultsContainer) resultsContainer.style.display = 'none';
+
+        // 跳出，不提升权重也不改变当前正在编辑的抽屉和摄像机视角
+        return;
+    }
+
+
     
     try {
         // 调用点击事件API
