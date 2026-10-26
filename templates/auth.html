@@ -440,6 +440,22 @@
             transform: translateY(-2px);
         }
 
+        /* 获取 API/SKILL 按钮（青紫渐变，区别于主/幽灵按钮） */
+        .btn.api {
+            border: 1px solid rgba(192, 132, 252, 0.55);
+            background: rgba(192, 132, 252, 0.15);
+            color: #e9d5ff;
+            box-shadow: 0 0 10px rgba(192, 132, 252, 0.18);
+        }
+
+        .btn.api:hover {
+            background: rgba(192, 132, 252, 0.35);
+            border-color: #c084fc;
+            color: #ffffff;
+            box-shadow: 0 0 20px rgba(192, 132, 252, 0.45);
+            transform: translateY(-2px);
+        }
+
         .empty {
             color: #64748b;
             font-size: 0.85rem;
@@ -485,6 +501,117 @@
             margin: 0 12px;
             color: #334155;
         }
+
+        /* ================= API / SKILL 模态框 ================= */
+        .api-modal {
+            position: fixed;
+            inset: 0;
+            z-index: 1000;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .api-modal.show {
+            display: flex;
+        }
+
+        .api-modal-mask {
+            position: absolute;
+            inset: 0;
+            background: rgba(1, 2, 6, 0.82);
+            backdrop-filter: blur(8px);
+        }
+
+        .api-modal-dialog {
+            position: relative;
+            width: min(860px, 100%);
+            max-height: 88vh;
+            display: flex;
+            flex-direction: column;
+            background: rgba(10, 16, 30, 0.92);
+            backdrop-filter: blur(16px);
+            clip-path: polygon(
+                14px 0%, calc(100% - 14px) 0%,
+                100% 14px, 100% calc(100% - 14px),
+                calc(100% - 14px) 100%, 14px 100%,
+                0% calc(100% - 14px), 0% 14px
+            );
+            border: 1px solid rgba(56, 189, 248, 0.4);
+            box-shadow: 0 0 60px rgba(56, 189, 248, 0.25), 0 0 30px rgba(192, 132, 252, 0.15);
+            animation: fadeIn 0.25s ease;
+        }
+
+        .api-modal-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px 22px;
+            background: linear-gradient(90deg, rgba(56, 189, 248, 0.12) 0%, rgba(15, 23, 42, 0.2) 100%);
+            border-bottom: 1px solid rgba(56, 189, 248, 0.18);
+            font-weight: 700;
+            letter-spacing: 0.06em;
+            color: #f1f5f9;
+            text-shadow: 0 0 10px rgba(56, 189, 248, 0.35);
+        }
+
+        .api-modal-body {
+            margin: 0;
+            padding: 20px 22px;
+            flex: 1;
+            overflow: auto;
+            white-space: pre-wrap;
+            word-break: break-word;
+            font-family: ui-monospace, 'SF Mono', 'Cascadia Code', Consolas, 'Courier New', 'Microsoft YaHei', 'PingFang SC', monospace;
+            font-size: 0.82rem;
+            line-height: 1.7;
+            color: #cbd5e1;
+        }
+
+        .api-modal-body::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .api-modal-body::-webkit-scrollbar-thumb {
+            background: rgba(56, 189, 248, 0.35);
+            border-radius: 4px;
+        }
+
+        .api-modal-foot {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+            padding: 14px 22px;
+            border-top: 1px solid rgba(56, 189, 248, 0.15);
+        }
+
+        .api-icon {
+            width: 34px;
+            height: 34px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            background: rgba(2, 4, 10, 0.65);
+            color: #cbd5e1;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .api-icon:hover {
+            background: rgba(239, 68, 68, 0.3);
+            border-color: #ef4444;
+            color: #ffffff;
+            box-shadow: 0 0 15px rgba(239, 68, 68, 0.4);
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(12px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
     </style>
 </head>
 <body>
@@ -506,8 +633,8 @@
 
         <nav class="tabs" id="tabs">
             <button class="tab active" data-tab="actor">🧑 身份</button>
-            <button class="tab" data-tab="owner">🏠 场</button>
             <button class="tab" data-tab="key">🔑 钥匙</button>
+            <button class="tab" data-tab="owner">🏠 场</button>
         </nav>
 
         <!-- ① actor 注册 / 登录 -->
@@ -593,7 +720,34 @@
             </div>
         </section>
 
-        <!-- ② 场 owner 管理 -->
+        <!-- ② 钥匙 token 管理 -->
+        <section class="panel" id="panel-key">
+            <div class="card collapsed">
+                <div class="card-header" onclick="toggleCard(this)">
+                    <h2>签发新钥匙</h2>
+                    <span class="collapse-icon">▼</span>
+                </div>
+                <div class="card-body">
+                    <p class="hint">钥匙用于进入私密场域的“防盗门”鉴权，新钥匙只会显示一次。</p>
+                    <button id="key-generate" class="btn primary">签发一把新钥匙</button>
+                    <div id="key-new" class="key-new"></div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header" onclick="toggleCard(this)">
+                    <h2>我的钥匙</h2>
+                    <span class="collapse-icon">▼</span>
+                </div>
+                <div class="card-body">
+                    <div id="key-list" class="list">
+                        <p class="empty">请先登录后查看钥匙</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ③ 场 owner 管理 -->
         <section class="panel" id="panel-owner">
             <div class="card collapsed">
                 <div class="card-header" onclick="toggleCard(this)">
@@ -626,37 +780,26 @@
             </div>
         </section>
 
-        <!-- ③ 钥匙 token 管理 -->
-        <section class="panel" id="panel-key">
-            <div class="card collapsed">
-                <div class="card-header" onclick="toggleCard(this)">
-                    <h2>签发新钥匙</h2>
-                    <span class="collapse-icon">▼</span>
-                </div>
-                <div class="card-body">
-                    <p class="hint">钥匙用于进入私密场域的“防盗门”鉴权，新钥匙只会显示一次。</p>
-                    <button id="key-generate" class="btn primary">签发一把新钥匙</button>
-                    <div id="key-new" class="key-new"></div>
-                </div>
-            </div>
-
-            <div class="card">
-                <div class="card-header" onclick="toggleCard(this)">
-                    <h2>我的钥匙</h2>
-                    <span class="collapse-icon">▼</span>
-                </div>
-                <div class="card-body">
-                    <div id="key-list" class="list">
-                        <p class="empty">请先登录后查看钥匙</p>
-                    </div>
-                </div>
-            </div>
-        </section>
-
         <footer class="footer">
             <a href="/">← 返回首页</a>
             <span class="sep">|</span>
         </footer>
+    </div>
+
+    <!-- API / SKILL 模态框 -->
+    <div class="api-modal" id="api-modal">
+        <div class="api-modal-mask" data-close></div>
+        <div class="api-modal-dialog">
+            <div class="api-modal-head">
+                <span>📡 获取 API / SKILL</span>
+                <button class="api-icon" id="api-close" title="关闭">✕</button>
+            </div>
+            <pre class="api-modal-body" id="api-body"></pre>
+            <div class="api-modal-foot">
+                <button class="btn small primary" id="api-copy">📋 复制</button>
+                <button class="btn small ghost" id="api-cancel">✕ 关闭</button>
+            </div>
+        </div>
     </div>
 
     <!-- 卡片折叠与背景动画脚本 -->

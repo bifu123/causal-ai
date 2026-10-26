@@ -16,16 +16,23 @@
 - `相事件`：为了自洽、配平已有连线的因果，或者推导可能出现的后续，假定或者写入的虚拟事件枚举，以观察它在事件视界中的时空曲率，发现或等待近似侯选事件的产生，它的因缘标签是“相”。
 - `势`: 多个相事件在四维时空（语义距离三空间+时间代谢衰减+观测激活恢复）中的叠影对齐程度。
 - `当下`: 观测者所处的因果链位置，是一种特殊的事件视界，它一般是由客体系统呈现的，无须参数。
+- `因果星空`: 人类专用的3D视图UI。
 
 ---
 
 ## 🚀 元龙因果链开发专用API
 
-本系统允许 Agent 通过 HTTP 接口操作因果星空系统。
+### 0. 场参数和基础地址
 
-**参数**: owner_id="454652835_3787687088", actor_id="3787687088"
-**基础地址**: `http://192.168.66.39:8094`
+|owner_id|actor_id|说明|token|
+|---|---|---|---|
+|222302526|415135222|理论公共场|无|
+|{owner_id}|{actor_id}|私有场|{token}|
+
+
+**基础地址**: `https://wwww.aicity.wang`
 **Content-Type**: `application/json` (POST/PUT 请求)
+本系统允许 Agent 通过 HTTP 接口操作因果星空系统。
 
 ---
 
@@ -59,7 +66,7 @@
 
 **调用示例**:
 ```bash
-curl -X POST "http://192.168.66.39:8094/api/v1/causal/genesis" \
+curl -X POST "https://www.aicity.wang/api/v1/causal/genesis" \
      -H "Content-Type: application/json" \
      -d '{
            "node_id": "王占曰：吉，其来",
@@ -101,7 +108,7 @@ curl -X POST "http://192.168.66.39:8094/api/v1/causal/genesis" \
 
 **调用示例**:
 ```bash
-curl -X POST "http://192.168.66.39:8094/api/v1/causal/genesis" \
+curl -X POST "https://www.aicity.wang/api/v1/causal/genesis" \
      -H "Content-Type: application/json" \
      -d '{
            "node_id": "丙申，王占曰：吉",
@@ -143,7 +150,7 @@ curl -X POST "http://192.168.66.39:8094/api/v1/causal/genesis" \
 
 **调用示例**:
 ```bash
-curl -X POST "http://192.168.66.39:8094/api/v1/causal/genesis" \
+curl -X POST "https://www.aicity.wang/api/v1/causal/genesis" \
      -H "Content-Type: application/json" \
      -d '{
            "node_id": "旬有二日，方来",
@@ -185,7 +192,7 @@ curl -X POST "http://192.168.66.39:8094/api/v1/causal/genesis" \
 
 **调用示例**:
 ```bash
-curl -X POST "http://192.168.66.39:8094/api/v1/causal/delete" \
+curl -X POST "https://www.aicity.wang/api/v1/causal/delete" \
      -H "Content-Type: application/json" \
      -d '{
            "node_id": "王占曰：吉，其来",
@@ -229,7 +236,7 @@ curl -X POST "http://192.168.66.39:8094/api/v1/causal/delete" \
 
 ```bash
 # 修改事件叙述
-curl -X POST "http://192.168.66.39:8094/api/v1/causal/update" \
+curl -X POST "https://www.aicity.wang/api/v1/causal/update" \
      -H "Content-Type: application/json" \
      -d '{
            "old_node_id": "王占曰：吉，其来",
@@ -239,7 +246,7 @@ curl -X POST "http://192.168.66.39:8094/api/v1/causal/update" \
          }'
 
 # 修改事件ID（标题node_id）和父事件（因果连线）
-curl -X POST "http://192.168.66.39:8094/api/v1/causal/update" \
+curl -X POST "https://www.aicity.wang/api/v1/causal/update" \
      -H "Content-Type: application/json" \
      -d '{
            "old_node_id": "王占曰：吉，其来",
@@ -248,7 +255,7 @@ curl -X POST "http://192.168.66.39:8094/api/v1/causal/update" \
          }'
 
 # 将事件变为首贞（清空父事件）
-curl -X POST "http://192.168.66.39:8094/api/v1/causal/update" \
+curl -X POST "https://www.aicity.wang/api/v1/causal/update" \
      -H "Content-Type: application/json" \
      -d '{
            "old_node_id": "某个事件",
@@ -286,10 +293,10 @@ curl -X POST "http://192.168.66.39:8094/api/v1/causal/update" \
 **调用示例**:
 ```bash
 # 获取全局历史数据
-curl -X GET "http://192.168.66.39:8094/api/v1/causal/history?owner_id=worker"
+curl -X GET "https://www.aicity.wang/api/v1/causal/history?owner_id=worker"
 
 # 获取用户个性化权重历史数据
-curl -X GET "http://192.168.66.39:8094/api/v1/causal/history?actor_id=user2&owner_id=worker"
+curl -X GET "https://www.aicity.wang/api/v1/causal/history?actor_id=user2&owner_id=worker"
 ```
 
 ---
@@ -320,10 +327,10 @@ curl -X GET "http://192.168.66.39:8094/api/v1/causal/history?actor_id=user2&owne
 **调用示例**:
 ```bash
 # GET 方式
-curl -X GET "http://192.168.66.39:8094/api/v1/causal/search/keyword?keyword=商王&owner_id=worker&limit=50"
+curl -X GET "https://www.aicity.wang/api/v1/causal/search/keyword?keyword=商王&owner_id=worker&limit=50"
 
 # POST 方式
-curl -X POST "http://192.168.66.39:8094/api/v1/causal/search/keyword" \
+curl -X POST "https://www.aicity.wang/api/v1/causal/search/keyword" \
      -H "Content-Type: application/json" \
      -d '{
            "keyword": "祭祀",
@@ -360,7 +367,7 @@ curl -X POST "http://192.168.66.39:8094/api/v1/causal/search/keyword" \
 
 **调用示例**:
 ```bash
-curl -X POST "http://192.168.66.39:8094/api/v1/causal/search/vector" \
+curl -X POST "https://www.aicity.wang/api/v1/causal/search/vector" \
      -H "Content-Type: application/json" \
      -d '{
            "keyword": "商王祭祀",
@@ -396,14 +403,14 @@ curl -X POST "http://192.168.66.39:8094/api/v1/causal/search/vector" \
 **调用示例**:
 ```bash
 # 全局权重查询
-curl -X POST "http://192.168.66.39:8094/api/v1/causal/search/serial" \
+curl -X POST "https://www.aicity.wang/api/v1/causal/search/serial" \
      -H "Content-Type: application/json" \
      -d '{
            "serial_id": 1
          }'
 
 # 用户个性化权重查询
-curl -X POST "http://192.168.66.39:8094/api/v1/causal/search/serial" \
+curl -X POST "https://www.aicity.wang/api/v1/causal/search/serial" \
      -H "Content-Type: application/json" \
      -d '{
            "serial_id": 256,
@@ -447,10 +454,10 @@ curl -X POST "http://192.168.66.39:8094/api/v1/causal/search/serial" \
 **调用示例**:
 ```bash
 # GET 方式（便于浏览器/curl直接访问）
-curl -X GET "http://192.168.66.39:8094/api/v1/causal/click?serial_id=313&owner_id=cbf&actor_id=user2&max_eyes=40"
+curl -X GET "https://www.aicity.wang/api/v1/causal/click?serial_id=313&owner_id=cbf&actor_id=user2&max_eyes=40"
 
 # POST 方式（Agent/前端JS调用）
-curl -X POST "http://192.168.66.39:8094/api/v1/causal/click" \
+curl -X POST "https://www.aicity.wang/api/v1/causal/click" \
      -H "Content-Type: application/json" \
      -d '{
            "serial_id": 313,
@@ -489,10 +496,10 @@ curl -X POST "http://192.168.66.39:8094/api/v1/causal/click" \
 **调用示例**:
 ```bash
 # GET 方式
-curl -X GET "http://192.168.66.39:8094/api/v1/causal/horizon?actor_id=415135222&owner_id=222302526&max_eyes=40"
+curl -X GET "https://www.aicity.wang/api/v1/causal/horizon?actor_id=415135222&owner_id=222302526&max_eyes=40"
 
 # POST 方式
-curl -X POST "http://192.168.66.39:8094/api/v1/causal/horizon" \
+curl -X POST "https://www.aicity.wang/api/v1/causal/horizon" \
      -H "Content-Type: application/json" \
      -d '{
            "actor_id": "415135222",
@@ -527,7 +534,7 @@ curl -X POST "http://192.168.66.39:8094/api/v1/causal/horizon" \
 
 **调用示例**:
 ```bash
-curl -X POST "http://192.168.66.39:8094/api/v1/causal/skeleton" \
+curl -X POST "https://www.aicity.wang/api/v1/causal/skeleton" \
      -H "Content-Type: application/json" \
      -d '{
            "serial_id": 312,
@@ -563,7 +570,7 @@ curl -X POST "http://192.168.66.39:8094/api/v1/causal/skeleton" \
 
 **调用示例**:
 ```bash
-curl -X POST "http://192.168.66.39:8094/api/v1/causal/promote_chain" \
+curl -X POST "https://www.aicity.wang/api/v1/causal/promote_chain" \
      -H "Content-Type: application/json" \
      -d '{
            "node_id": "王占曰：吉，其来",
@@ -596,7 +603,7 @@ curl -X POST "http://192.168.66.39:8094/api/v1/causal/promote_chain" \
 
 **调用示例**:
 ```bash
-curl -X POST "http://192.168.66.39:8094/api/v1/causal/upload" \
+curl -X POST "https://www.aicity.wang/api/v1/causal/upload" \
      -F "file=@/path/to/image.png"
 ```
 
@@ -623,7 +630,7 @@ curl -X POST "http://192.168.66.39:8094/api/v1/causal/upload" \
 
 **调用示例**:
 ```bash
-curl -X POST "http://192.168.66.39:8094/api/v1/causal/restore" \
+curl -X POST "https://www.aicity.wang/api/v1/causal/restore" \
      -H "Content-Type: application/json" \
      -d '{
            "node_id": "王占曰：吉，其来"
@@ -654,7 +661,7 @@ curl -X POST "http://192.168.66.39:8094/api/v1/causal/restore" \
 
 **调用示例**:
 ```bash
-curl -X POST "http://192.168.66.39:8094/api/v1/auth/register" \
+curl -X POST "https://www.aicity.wang/api/v1/auth/register" \
      -H "Content-Type: application/json" \
      -d '{"actor_id": "zhangsan", "password": "123456"}'
 ```
@@ -683,7 +690,7 @@ curl -X POST "http://192.168.66.39:8094/api/v1/auth/register" \
 
 **调用示例**:
 ```bash
-curl -X POST "http://192.168.66.39:8094/api/v1/auth/login" \
+curl -X POST "https://www.aicity.wang/api/v1/auth/login" \
      -H "Content-Type: application/json" \
      -d '{"actor_id": "zhangsan", "password": "123456"}'
 ```
@@ -712,7 +719,7 @@ curl -X POST "http://192.168.66.39:8094/api/v1/auth/login" \
 
 **调用示例**:
 ```bash
-curl -X POST "http://192.168.66.39:8094/api/v1/auth/password/change" \
+curl -X POST "https://www.aicity.wang/api/v1/auth/password/change" \
      -H "Content-Type: application/json" \
      -d '{"actor_id": "zhangsan", "old_password": "123456", "new_password": "654321"}'
 ```
@@ -741,7 +748,7 @@ curl -X POST "http://192.168.66.39:8094/api/v1/auth/password/change" \
 
 **调用示例**:
 ```bash
-curl -X POST "http://192.168.66.39:8094/api/v1/auth/password/reset" \
+curl -X POST "https://www.aicity.wang/api/v1/auth/password/reset" \
      -H "Content-Type: application/json" \
      -d '{"actor_id": "zhangsan", "token": "abc123|def456...", "new_password": "654321"}'
 ```
@@ -771,7 +778,7 @@ curl -X POST "http://192.168.66.39:8094/api/v1/auth/password/reset" \
 
 **调用示例**:
 ```bash
-curl -X POST "http://192.168.66.39:8094/api/v1/owner/create" \
+curl -X POST "https://www.aicity.wang/api/v1/owner/create" \
      -H "Content-Type: application/json" \
      -d '{"owner_id": "cbf", "name": "因果观测站", "actor_id": "415135222"}'
 ```
@@ -798,7 +805,7 @@ curl -X POST "http://192.168.66.39:8094/api/v1/owner/create" \
 
 **调用示例**:
 ```bash
-curl -X GET "http://192.168.66.39:8094/api/v1/owner/list?actor_id=415135222"
+curl -X GET "https://www.aicity.wang/api/v1/owner/list?actor_id=415135222"
 ```
 
 ---
@@ -825,7 +832,7 @@ curl -X GET "http://192.168.66.39:8094/api/v1/owner/list?actor_id=415135222"
 
 **调用示例**:
 ```bash
-curl -X POST "http://192.168.66.39:8094/api/v1/owner/update" \
+curl -X POST "https://www.aicity.wang/api/v1/owner/update" \
      -H "Content-Type: application/json" \
      -d '{"owner_id": "cbf", "name": "新名字", "actor_id": "415135222"}'
 ```
@@ -853,7 +860,7 @@ curl -X POST "http://192.168.66.39:8094/api/v1/owner/update" \
 
 **调用示例**:
 ```bash
-curl -X POST "http://192.168.66.39:8094/api/v1/owner/delete" \
+curl -X POST "https://www.aicity.wang/api/v1/owner/delete" \
      -H "Content-Type: application/json" \
      -d '{"owner_id": "cbf", "actor_id": "415135222"}'
 ```
@@ -880,7 +887,7 @@ curl -X POST "http://192.168.66.39:8094/api/v1/owner/delete" \
 
 **调用示例**:
 ```bash
-curl -X POST "http://192.168.66.39:8094/api/v1/key/generate" \
+curl -X POST "https://www.aicity.wang/api/v1/key/generate" \
      -H "Content-Type: application/json" \
      -d '{"actor_id": "415135222"}'
 ```
@@ -907,7 +914,7 @@ curl -X POST "http://192.168.66.39:8094/api/v1/key/generate" \
 
 **调用示例**:
 ```bash
-curl -X GET "http://192.168.66.39:8094/api/v1/key/list?actor_id=415135222"
+curl -X GET "https://www.aicity.wang/api/v1/key/list?actor_id=415135222"
 ```
 
 ---
@@ -933,7 +940,7 @@ curl -X GET "http://192.168.66.39:8094/api/v1/key/list?actor_id=415135222"
 
 **调用示例**:
 ```bash
-curl -X POST "http://192.168.66.39:8094/api/v1/key/revoke" \
+curl -X POST "https://www.aicity.wang/api/v1/key/revoke" \
      -H "Content-Type: application/json" \
      -d '{"actor_id": "415135222", "token": "abc123|def456..."}'
 ```
@@ -975,4 +982,5 @@ curl -X POST "http://192.168.66.39:8094/api/v1/key/revoke" \
 > **注意**: 一旦 API 调用成功，连接到观测站 UI 的所有屏幕将实时同步渲染该事件。
 
 ### 本体论和认知推理
-请见 `REACT_API.md`
+- [Agnet](http://aicity.wang:8094/api/v1/causal/click?serial_id=702&owner_id=454652835&actor_id=415135222&max_eyes=30)
+- [人类](http://aicity.wang:8094/3d?serial_id=702&owner_id=454652835&actor_id=415135222&max_eyes=30)

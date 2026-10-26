@@ -1558,6 +1558,14 @@ async def get_tools():
     返回 tools.py 文件内容（保持原始格式，供Agent使用）
     """
     return read_file("tools.py")
+
+@app.get("/api/v1/apimd/raw")
+async def get_api_md_raw():
+    """
+    返回 API.md 文件内容（保持原始格式，供账号中心生成 API/SKILL 使用）
+    """
+    return read_file("API.md")
+
 @app.get("/auth", response_class=HTMLResponse)
 async def get_auth(request: Request):
     """账号中心页面"""

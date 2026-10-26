@@ -73,19 +73,20 @@
     }
 
     // ---------- 兼容性复制函数 ----------
-    function copyText(text) {
+    function copyText(text, onSuccess) {
         if (navigator.clipboard && navigator.clipboard.writeText) {
             navigator.clipboard.writeText(text).then(() => {
-                toast('已复制', 'success');
+                toast('已复制! 你可交给Agent', 'success');
+                if (onSuccess) onSuccess();
             }).catch(() => {
-                fallbackCopy(text);
+                fallbackCopy(text, onSuccess);
             });
         } else {
-            fallbackCopy(text);
+            fallbackCopy(text, onSuccess);
         }
     }
 
-    function fallbackCopy(text) {
+    function fallbackCopy(text, onSuccess) {
         const textarea = document.createElement('textarea');
         textarea.value = text;
         textarea.style.position = 'fixed'; // 避免页面滚动
@@ -96,6 +97,7 @@
             const successful = document.execCommand('copy');
             if (successful) {
                 toast('已复制', 'success');
+                if (onSuccess) onSuccess();
             } else {
                 toast('复制失败，请手动复制', 'error');
             }
@@ -247,6 +249,7 @@
                     <button class="btn small ghost" data-enter="${escapeHtml(o.owner_id)}">进入星空(只读)</button>
                     <button class="btn small primary" data-enter="${escapeHtml(o.owner_id)}" data-edit="true">进入星空(可写)</button>
                     <button class="btn small ghost" data-rename="${escapeHtml(o.owner_id)}">改名</button>
+                    <button class="btn small api" data-api="${escapeHtml(o.owner_id)}">📡 获取API/SKILL</button>
                     <button class="btn small danger" data-del="${escapeHtml(o.owner_id)}">删除</button>
                 </div>
             </div>`).join('');
@@ -265,6 +268,7 @@
             toast(r.message || (r.status === 'success' ? '已删除' : '删除失败'), r.status === 'success' ? 'success' : 'error');
             refreshOwners();
         }));
+        box.querySelectorAll('[data-api]').forEach(b => b.addEventListener('click', () => openApiSkillModal(b.dataset.api)));
     }
 
 
@@ -328,6 +332,75 @@
         }));
     }
 
+    // ---------- API / SKILL 模态框 ----------
+    let API_MD_CACHE = null;
+
+    async function loadApiMd() {
+        if (API_MD_CACHE != null) return API_MD_CACHE;
+        try {
+            const res = await fetch('/api/v1/apimd/raw');
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            API_MD_CACHE = await res.text();
+        } catch (e) {
+            API_MD_CACHE = '';
+            toast('读取 API.md 失败: ' + e.message, 'error');
+        }
+        return API_MD_CACHE;
+    }
+
+    function fillTemplate(tpl, ownerId) {
+        const baseUrl = window.location.origin;
+        return String(tpl == null ? '' : tpl)
+            .replace(/\{base_url\}/g, baseUrl)
+            .replace(/\{owner_id\}/g, ownerId || '')
+            .replace(/\{actor_id\}/g, LS.actor || '')
+            .replace(/\{token\}/g, LS.token || '');
+    }
+
+    async function openApiSkillModal(ownerId) {
+        if (!ownerId) { toast('缺少场 ID', 'error'); return; }
+        const tpl = await loadApiMd();
+        const rendered = fillTemplate(tpl, ownerId);
+        const body = document.getElementById('api-body');
+        body.textContent = rendered; // textContent 注入，天然防 XSS
+        const modal = document.getElementById('api-modal');
+        modal.classList.add('show');
+        document.body.style.overflow = 'hidden';
+    }
+
+    function closeApiSkillModal() {
+        const modal = document.getElementById('api-modal');
+        modal.classList.remove('show');
+        document.body.style.overflow = '';
+    }
+
+    function bindApiModal() {
+        const modal = document.getElementById('api-modal');
+        document.getElementById('api-close').addEventListener('click', closeApiSkillModal);
+        document.getElementById('api-cancel').addEventListener('click', closeApiSkillModal);
+        document.getElementById('api-copy').addEventListener('click', () => {
+            const btn = document.getElementById('api-copy');
+            const text = document.getElementById('api-body').textContent;
+            if (!text) { toast('无可复制内容', 'error'); return; }
+            copyText(text, () => {
+                const original = btn.innerHTML;
+                btn.innerHTML = '✓ 已复制';
+                btn.style.color = '#10b981';
+                clearTimeout(btn._copiedTimer);
+                btn._copiedTimer = setTimeout(() => {
+                    btn.innerHTML = original;
+                    btn.style.color = '';
+                }, 2000);
+            });
+        });
+        modal.addEventListener('click', e => {
+            if (e.target === modal || e.target.hasAttribute('data-close')) closeApiSkillModal();
+        });
+        document.addEventListener('keydown', e => {
+            if (e.key === 'Escape' && modal.classList.contains('show')) closeApiSkillModal();
+        });
+    }
+
     function refreshAll() {
         refreshOwners();
         refreshKeys();
@@ -340,6 +413,7 @@
         bindAuth();
         bindOwner();
         bindKeys();
+        bindApiModal();
         updateStatus();
         refreshAll();
     }

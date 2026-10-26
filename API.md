@@ -1,4 +1,4 @@
-# 元龙因果星空开发专用API
+# 元龙因果星空API
 
 
 ## 术语前置
@@ -24,13 +24,13 @@
 
 ### 0. 场参数和基础地址
 
-|owner_id|actor_id|说明|
-|---|---|---|
-|222302526|415135222|理论专场|
-|454652835_3787687088|3787687088|开发专场|
-|其它owner_id|其它actor_id|用户注册创建的场和观测者|
+|owner_id|actor_id|说明|token|
+|---|---|---|---|
+|222302526|415135222|理论公共场|无|
+|{owner_id}|{actor_id}|私有场|{token}|
 
-**基础地址**: `https://wwww.aicity.wang`
+
+**基础地址**: `{base_url}`
 **Content-Type**: `application/json` (POST/PUT 请求)
 本系统允许 Agent 通过 HTTP 接口操作因果星空系统。
 
@@ -639,34 +639,6 @@ curl -X POST "https://www.aicity.wang/api/v1/causal/restore" \
 
 ---
 
-### 16. 注册新 actor
-
-**功能**: 注册一个新的 actor 身份，同时签发其首把钥匙 token（仅此一次返回明文）。
-
-**请求**:
-- **URL**: `/api/v1/auth/register`
-- **Method**: `POST`
-
-**参数说明**:
-
-| 字段 | 类型 | 必填 | 说明 |
-| :--- | :--- | :--- | :--- |
-| `actor_id` | String | 是 | actor 身份 ID（唯一） |
-| `password` | String | 是 | 设置密码，至少 6 位 |
-
-**返回说明**:
-- `status`: `"success"` 或 `"error"`
-- `message`: 操作结果描述
-- `data.token`: 首把钥匙 token（仅此一次返回，请妥善保存）
-
-**调用示例**:
-```bash
-curl -X POST "https://www.aicity.wang/api/v1/auth/register" \
-     -H "Content-Type: application/json" \
-     -d '{"actor_id": "zhangsan", "password": "123456"}'
-```
-
----
 
 ### 17. 登录
 
@@ -755,35 +727,6 @@ curl -X POST "https://www.aicity.wang/api/v1/auth/password/reset" \
 
 ---
 
-### 20. 创建场（场域）
-
-**功能**: 创建一个场（owner_id），创建者成为该场的主人（owner）。
-
-**请求**:
-- **URL**: `/api/v1/owner/create`
-- **Method**: `POST`
-
-**参数说明**:
-
-| 字段 | 类型 | 必填 | 说明 |
-| :--- | :--- | :--- | :--- |
-| `owner_id` | String | 是 | 场 ID（owner_id，全局唯一） |
-| `name` | String | 是 | 场名称 |
-| `actor_id` | String | 是 | 创建者（actor 身份 ID） |
-
-**返回说明**:
-- `status`: `"success"` 或 `"error"`
-- `message`: 操作结果描述
-- `data`: 包含 `owner_id` 与 `name`
-
-**调用示例**:
-```bash
-curl -X POST "https://www.aicity.wang/api/v1/owner/create" \
-     -H "Content-Type: application/json" \
-     -d '{"owner_id": "cbf", "name": "因果观测站", "actor_id": "415135222"}'
-```
-
----
 
 ### 21. 我的场列表
 
@@ -863,33 +806,6 @@ curl -X POST "https://www.aicity.wang/api/v1/owner/update" \
 curl -X POST "https://www.aicity.wang/api/v1/owner/delete" \
      -H "Content-Type: application/json" \
      -d '{"owner_id": "cbf", "actor_id": "415135222"}'
-```
-
----
-
-### 24. 签发新钥匙
-
-**功能**: 为 actor 签发一把新钥匙 token（仅此一次返回明文）。
-
-**请求**:
-- **URL**: `/api/v1/key/generate`
-- **Method**: `POST`
-
-**参数说明**:
-
-| 字段 | 类型 | 必填 | 说明 |
-| :--- | :--- | :--- | :--- |
-| `actor_id` | String | 是 | actor 身份 ID |
-
-**返回说明**:
-- `status`: `"success"` 或 `"error"`
-- `data.token`: 新签发的钥匙 token（仅此一次返回）
-
-**调用示例**:
-```bash
-curl -X POST "https://www.aicity.wang/api/v1/key/generate" \
-     -H "Content-Type: application/json" \
-     -d '{"actor_id": "415135222"}'
 ```
 
 ---
@@ -981,6 +897,6 @@ curl -X POST "https://www.aicity.wang/api/v1/key/revoke" \
 
 > **注意**: 一旦 API 调用成功，连接到观测站 UI 的所有屏幕将实时同步渲染该事件。
 
-### 本体论和认知推理
+### 因果链专用推理方法
 - [Agnet](http://aicity.wang:8094/api/v1/causal/click?serial_id=702&owner_id=454652835&actor_id=415135222&max_eyes=30)
 - [人类](http://aicity.wang:8094/3d?serial_id=702&owner_id=454652835&actor_id=415135222&max_eyes=30)
