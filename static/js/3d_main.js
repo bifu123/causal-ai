@@ -57,7 +57,10 @@ let hoverNode = null;
 let hoverScaleNode = null; // 追踪当前悬浮绽放的节点（非大股东节点的悬浮放大效果）
 let currentSelectedNodeId = null; 
 let is_change = true; // true: 编辑模式, false: 链入父ID模式
-const is_edit_mode = new URLSearchParams(window.location.search).get('edit') === 'true'; // URL参数 edit=true 才允许编辑
+const urlEdit = new URLSearchParams(window.location.search).get("edit") === "true";
+const hasToken = !!localStorage.getItem("causal_token");
+const is_edit_mode = urlEdit && hasToken;
+
 let nodeCache = {};
 
 // 根据 edit 参数控制编辑相关按钮的可见性

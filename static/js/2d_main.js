@@ -52,7 +52,11 @@ let currentSelectedNode = null;
 const nodeCache = {}; // 存储完整数据
 
 // 根据 edit 参数控制编辑相关按钮的可见性
-const is_edit_mode = new URLSearchParams(window.location.search).get('edit') === 'true';
+// 根据 edit 参数和 token 控制编辑相关按钮的可见性
+const urlEdit = new URLSearchParams(window.location.search).get("edit") === "true";
+const hasToken = !!localStorage.getItem("causal_token");
+const is_edit_mode = urlEdit && hasToken;
+
 
 (function initEditModeUI() {
     const editElements = document.querySelectorAll('.edit-only');
@@ -432,7 +436,7 @@ function openCreateModal() {
     // 创建自定义模态框
     const modalHtml = `
         <div id="create-modal" class="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-            <div class="bg-gray-900 border border-gray-700 rounded-lg p-6 w-96">
+            <div class="bg-gray-900 border border-gray-700 rounded-lg p-6 w-[600px] max-w-[90vw]">
                 <h3 class="text-lg font-bold text-blue-400 mb-4">发起首贞</h3>
                 
                 <div class="space-y-4">
@@ -447,7 +451,7 @@ function openCreateModal() {
                 <div>
                     <div>
                         <label class="text-xs text-gray-400 block mb-1">事件叙述</label>
-                        <textarea id="modal-event-tuple" class="w-full h-24 bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500 resize-none"></textarea>
+                        <textarea id="modal-event-tuple" class="w-full h-64 bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500 resize-none"></textarea>
                     </div>
                     
                     <div>
@@ -593,6 +597,7 @@ async function submitCreateNode() {
         node_id: nodeId, 
         event_tuple: eventTuple, 
         full_image_url: fullImageUrl,
+        is_share: document.getElementById("d-is-share") ? document.getElementById("d-is-share").checked : false,
         owner_id: currentOwnerId
         // 不发送block_tag、action_tag和previous_id，让后端处理
     };
@@ -609,7 +614,7 @@ function deriveNode(tag) {
     // 创建子节点模态框（基于单个父节点）
     const modalHtml = `
         <div id="derive-modal" class="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-            <div class="bg-gray-900 border border-gray-700 rounded-lg p-6 w-96">
+            <div class="bg-gray-900 border border-gray-700 rounded-lg p-6 w-[800px] max-w-[90vw]">
                 <h3 class="text-lg font-bold text-blue-400 mb-4">寻龙：${tag}（基于: ${currentSelectedNode}）</h3>
                 
                 <div class="space-y-4">
@@ -638,7 +643,7 @@ function deriveNode(tag) {
                     
                     <div>
                         <label class="text-xs text-gray-400 block mb-1">事件叙述</label>
-                        <textarea id="derive-event-tuple" class="w-full h-24 bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500 resize-none"></textarea>
+                        <textarea id="derive-event-tuple" class="w-full h-64 bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500 resize-none"></textarea>
                     </div>
                     
                     <div>
@@ -742,6 +747,7 @@ postNode({
     event_tuple: eventTuple,
     action_tag: tag,
     full_image_url: fullImageUrl,
+        is_share: document.getElementById("d-is-share") ? document.getElementById("d-is-share").checked : false,
     owner_id: currentOwnerId
 });
     
@@ -912,6 +918,7 @@ async function saveNodeChanges() {
         block_tag: blockTag,
         event_tuple: eventTuple,
         full_image_url: fullImageUrl,
+        is_share: document.getElementById("d-is-share") ? document.getElementById("d-is-share").checked : false,
         owner_id: currentOwnerId
     };
     
@@ -973,7 +980,7 @@ network.on("click", (p) => {
                     console.log('地宫恢复成功，直接使用恢复的数据更新抽屉');
                     
                     // 立即更新抽屉显示恢复的全息信息
-                    if (is_change) {
+                    if (is_change && is_edit_mode) {
                         // 直接使用恢复的数据填充抽屉
                         updateDrawerWithNecropolisData(nodeId, restoreResult.data);
                     }
@@ -981,26 +988,24 @@ network.on("click", (p) => {
                 
                 // 无论地宫恢复是否成功，都尝试提升因果链权重
                 return promoteChainWeights(nodeId).then(promoted => {
-                    console.log('权重提升完成');
-                    // 根据 is_change 决定是否打开抽屉（如果地宫恢复失败或没有恢复数据）
-                    if (is_change && (!restoreResult.restored || !restoreResult.data)) {
+                    if (is_change && is_edit_mode && (!restoreResult.restored || !restoreResult.data)) {
                         // 延迟打开抽屉，确保Socket.IO已经接收到更新
                         setTimeout(() => {
-                            console.log('打开抽屉，显示当前内容');
+                            console.log("打开抽屉，显示当前内容");
                             openDrawerWithLatestData(nodeId);
                         }, 300);
                     } else if (!is_change) {
-                        console.log('is_change = false，只填充父ID字段');
+                        console.log("is_change = false，只填充父ID字段");
                         // is_change = false 时，只将节点ID添加到父ID字段
                         addNodeIdToParentField(nodeId);
                     }
                 });
             }).catch(error => {
-                console.error('节点点击处理失败:', error);
+                console.error("节点点击处理失败:", error);
                 // 恢复失败时，正常打开抽屉
-                if (is_change) {
+                if (is_change && is_edit_mode) {
                     openDrawerWithLatestData(nodeId);
-                } else {
+                } else if (!is_change) {
                     addNodeIdToParentField(nodeId);
                 }
             });
@@ -1102,7 +1107,7 @@ function createChildFromSelectedParents() {
     // 创建子节点模态框
     const modalHtml = `
         <div id="child-modal" class="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-            <div class="bg-gray-900 border border-gray-700 rounded-lg p-6 w-96">
+            <div class="bg-gray-900 border border-gray-700 rounded-lg p-6 w-[800px] max-w-[90vw]">
                 <h3 class="text-lg font-bold text-blue-400 mb-4">创建子节点（基于: ${parentIdStr}）</h3>
                 
                 <div class="space-y-4">
@@ -1129,7 +1134,7 @@ function createChildFromSelectedParents() {
                     
                     <div>
                         <label class="text-xs text-gray-400 block mb-1">事件叙述</label>
-                        <textarea id="child-event-tuple" class="w-full h-24 bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500 resize-none"></textarea>
+                        <textarea id="child-event-tuple" class="w-full h-64 bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500 resize-none"></textarea>
                     </div>
                     
                     <div>
@@ -1262,6 +1267,7 @@ async function submitChildNode(parentIds) {
         event_tuple: eventTuple,
         action_tag: actionTag,
         full_image_url: fullImageUrl,
+        is_share: document.getElementById("d-is-share") ? document.getElementById("d-is-share").checked : false,
         owner_id: currentOwnerId
     });
     
@@ -1745,7 +1751,7 @@ function updateDrawerWithNecropolisData(nodeId, necropolisData) {
     // 抽屉打开时，调整网格图位置，避免被抽屉遮挡
     const networkContainer = document.getElementById('network');
     if (networkContainer) {
-        networkContainer.style.right = '384px'; // 抽屉宽度 w-96 = 384px
+        networkContainer.style.right = '384px'; // 抽屉宽度 w-[800px] max-w-[90vw] = 384px
         networkContainer.style.transition = 'right 0.3s ease';
         console.log('抽屉打开，网格图 right = 384px（抽屉宽度）');
     }
@@ -1830,7 +1836,7 @@ function openDrawerWithLatestData(nodeId) {
     // 抽屉打开时，调整网格图位置，避免被抽屉遮挡
     const networkContainer = document.getElementById('network');
     if (networkContainer) {
-        networkContainer.style.right = '384px'; // 抽屉宽度 w-96 = 384px
+        networkContainer.style.right = '384px'; // 抽屉宽度 w-[800px] max-w-[90vw] = 384px
         networkContainer.style.transition = 'right 0.3s ease';
         console.log('抽屉打开，网格图 right = 384px（抽屉宽度）');
     }
@@ -2247,7 +2253,7 @@ function openDrawer(nodeId) {
     // 抽屉打开时，调整网格图位置，避免被抽屉遮挡
     const networkContainer = document.getElementById('network');
     if (networkContainer) {
-        networkContainer.style.right = '384px'; // 抽屉宽度 w-96 = 384px
+        networkContainer.style.right = '384px'; // 抽屉宽度 w-[800px] max-w-[90vw] = 384px
         networkContainer.style.transform = '';
         networkContainer.style.transition = 'right 0.3s ease, transform 0.3s ease';
         console.log('抽屉打开，网格图 right = 384px（抽屉宽度）');

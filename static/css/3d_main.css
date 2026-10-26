@@ -1851,3 +1851,9 @@ body::after {
         overflow: hidden;
     }
 }
+
+/* 覆盖发起首贞模态框宽度 */
+#create-modal .modal-content {
+    width: 600px;
+    max-width: 90vw;
+}
