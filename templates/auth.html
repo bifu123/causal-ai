@@ -8,6 +8,9 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <!-- Google Fonts 科技与人文字体 -->
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Noto+Sans+SC:wght@300;400;700;900&display=swap" rel="stylesheet">
+    <!-- EasyMDE：复用 event-tuple-modal 的 Markdown 渲染方案 -->
+    <link rel="stylesheet" href="/static/css/easymde.min.css">
+    <script src="/static/js/easymde.min.js"></script>
     <style>
         * {
             box-sizing: border-box;
@@ -527,7 +530,9 @@
         .api-modal-dialog {
             position: relative;
             width: min(860px, 100%);
+            height: 88vh; /* 定高：让 flex 子项获得确定高度，从而启用 CodeMirror 内部滚动 */
             max-height: 88vh;
+            overflow: hidden;
             display: flex;
             flex-direction: column;
             background: rgba(10, 16, 30, 0.92);
@@ -556,26 +561,142 @@
             text-shadow: 0 0 10px rgba(56, 189, 248, 0.35);
         }
 
-        .api-modal-body {
-            margin: 0;
-            padding: 20px 22px;
+        .api-modal-editor {
             flex: 1;
-            overflow: auto;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* EasyMDE 深色主题覆盖（复用 event-tuple-modal 的 Markdown 渲染菜单栏方案） */
+        .api-modal-editor .EasyMDEContainer {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+            width: 100%;
+            min-height: 0;
+            background: rgba(2, 6, 23, 0.6) !important;
+            border: none !important;
+            border-radius: 0 !important;
+            overflow: hidden;
+        }
+
+        .api-modal-editor .editor-toolbar {
+            opacity: 1 !important;
+            border: none !important;
+            border-bottom: 1px solid rgba(56, 189, 248, 0.18) !important;
+            border-radius: 0 !important;
+            background: rgba(15, 23, 42, 0.5) !important;
+        }
+
+        .api-modal-editor .editor-toolbar button {
+            color: #cbd5e1 !important;
+            border: none !important;
+            background: transparent !important;
+        }
+
+        .api-modal-editor .editor-toolbar button:hover,
+        .api-modal-editor .editor-toolbar button.active {
+            color: #38bdf8 !important;
+            background: rgba(56, 189, 248, 0.15) !important;
+        }
+
+        .api-modal-editor .CodeMirror {
+            flex: 1;
+            min-height: 0 !important; /* 关键：允许在 flex 容器内收缩，启用 CodeMirror 内部滚动 */
+            overflow: hidden;
+            border: none !important;
+            border-radius: 0 !important;
+            background: transparent !important;
+            color: #d1d5db !important;
+            font-family: ui-monospace, 'SF Mono', 'Cascadia Code', Consolas, 'Courier New', 'Microsoft YaHei', 'PingFang SC', monospace;
+            font-size: 14px;
+        }
+
+        .api-modal-editor .CodeMirror-scroll {
+            min-height: 0 !important; /* 覆盖 EasyMDE 内联设置的 min-height，避免滚动容器超出被裁剪 */
+        }
+
+        .api-modal-editor .CodeMirror-cursor {
+            border-left: 2px solid #38bdf8 !important;
+        }
+
+        .api-modal-editor .editor-statusbar {
+            padding: 8px 12px;
+            background: rgba(15, 23, 42, 0.5) !important;
+            border-top: 1px solid rgba(56, 189, 248, 0.15) !important;
+            color: #94a3b8 !important;
+        }
+
+        .api-modal-editor .editor-preview,
+        .api-modal-editor .editor-preview-side {
+            background: #020617 !important; /* 纯色不透明，完全遮挡底层源码，避免重影 */
+            color: #e2e8f0 !important;
+            border: none !important;
+        }
+
+        .api-modal-editor .editor-preview-side {
+            border-left: 1px solid rgba(56, 189, 248, 0.2) !important;
+        }
+
+        /* 适配 markdown 预览内的元素，防止深色模式下不可读 */
+        .api-modal-editor .editor-preview pre {
+            background: rgba(15, 23, 42, 0.8) !important;
+            border: 1px solid rgba(56, 189, 248, 0.2) !important;
+            border-radius: 6px;
+            color: #e2e8f0 !important;
+            padding: 10px;
+        }
+        .api-modal-editor .editor-preview code {
+            background: rgba(15, 23, 42, 0.8) !important;
+            color: #38bdf8 !important;
+            padding: 2px 4px;
+            border-radius: 4px;
+        }
+        .api-modal-editor .editor-preview pre code {
+            background: transparent !important;
+            color: inherit !important;
+            padding: 0;
+        }
+        .api-modal-editor .editor-preview table th,
+        .api-modal-editor .editor-preview table td {
+            border-color: rgba(56, 189, 248, 0.3) !important;
+        }
+        .api-modal-editor .editor-preview a {
+            color: #38bdf8 !important;
+        }
+        .api-modal-editor .editor-preview ul, 
+        .api-modal-editor .editor-preview ol {
+            color: #e2e8f0 !important;
+        }
+
+        /* 移动端/窄屏内容防溢出 */
+        .api-modal-editor .editor-preview,
+        .api-modal-editor .editor-preview-side {
+            max-width: 100%;
+            overflow-wrap: break-word;
+            word-wrap: break-word;
+        }
+        .api-modal-editor .editor-preview pre {
+            max-width: 100%;
+            overflow-x: auto;
             white-space: pre-wrap;
             word-break: break-word;
-            font-family: ui-monospace, 'SF Mono', 'Cascadia Code', Consolas, 'Courier New', 'Microsoft YaHei', 'PingFang SC', monospace;
-            font-size: 0.82rem;
-            line-height: 1.7;
-            color: #cbd5e1;
         }
-
-        .api-modal-body::-webkit-scrollbar {
-            width: 8px;
+        .api-modal-editor .editor-preview table {
+            display: block;
+            max-width: 100%;
+            overflow-x: auto;
         }
-
-        .api-modal-body::-webkit-scrollbar-thumb {
-            background: rgba(56, 189, 248, 0.35);
-            border-radius: 4px;
+        .api-modal-editor .editor-preview img {
+            max-width: 100%;
+            height: auto;
+        }
+        .api-modal-editor .editor-preview .katex-display {
+            max-width: 100%;
+            overflow-x: auto;
+            overflow-y: hidden;
         }
 
         .api-modal-foot {
@@ -612,6 +733,43 @@
             from { opacity: 0; transform: translateY(12px); }
             to { opacity: 1; transform: translateY(0); }
         }
+
+        /* 移动端 API / SKILL 模态框适配 */
+        @media (max-width: 768px) {
+            .api-modal {
+                padding: 8px;
+            }
+            .api-modal-dialog {
+                width: 100%;
+                height: 92vh;
+                max-height: 92vh;
+            }
+            .api-modal-head {
+                padding: 12px 14px;
+                font-size: 0.9rem;
+            }
+            .api-modal-foot {
+                padding: 10px 14px;
+            }
+            .api-modal-editor .CodeMirror {
+                font-size: 13px;
+            }
+            .api-modal-editor .editor-toolbar {
+                overflow-x: auto;
+                white-space: nowrap;
+                flex-wrap: nowrap;
+                -webkit-overflow-scrolling: touch;
+            }
+            .api-modal-editor .editor-toolbar button {
+                flex-shrink: 0;
+            }
+        }
+    <!-- KaTeX for formula rendering -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.21/dist/katex.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/marked@4.3.0/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.21/dist/katex.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked-katex-extension@5.1.13/lib/index.umd.js"></script>
+
     </style>
 </head>
 <body>
@@ -794,10 +952,11 @@
                 <span>📡 获取 API / SKILL</span>
                 <button class="api-icon" id="api-close" title="关闭">✕</button>
             </div>
-            <pre class="api-modal-body" id="api-body"></pre>
+            <div class="api-modal-editor">
+                <textarea id="api-editor"></textarea>
+            </div>
             <div class="api-modal-foot">
                 <button class="btn small primary" id="api-copy">📋 复制</button>
-                <button class="btn small ghost" id="api-cancel">✕ 关闭</button>
             </div>
         </div>
     </div>

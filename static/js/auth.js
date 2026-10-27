@@ -255,22 +255,22 @@
                 </div>
             </div>`).join('');
 
-        box.querySelectorAll('[data-enter]').forEach(b => b.addEventListener('click', () => enter(b.dataset.enter, b.dataset.edit === 'true')));
-        box.querySelectorAll('[data-rename]').forEach(b => b.addEventListener('click', async () => {
+        box.querySelectorAll('[data-enter').forEach(b => b.addEventListener('click', () => enter(b.dataset.enter, b.dataset.edit === 'true')));
+        box.querySelectorAll('[data-rename').forEach(b => b.addEventListener('click', async () => {
             const name = prompt('新场名称：');
             if (!name) return;
             const r = await post('/api/v1/owner/update', { owner_id: b.dataset.rename, name, actor_id: LS.actor });
             toast(r.message || (r.status === 'success' ? '已改名' : '改名失败'), r.status === 'success' ? 'success' : 'error');
             refreshOwners();
         }));
-        box.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', async () => {
+        box.querySelectorAll('[data-del').forEach(b => b.addEventListener('click', async () => {
             if (!confirm('确定删除该场？(不删除节点数据)')) return;
             const r = await post('/api/v1/owner/delete', { owner_id: b.dataset.del, actor_id: LS.actor });
             toast(r.message || (r.status === 'success' ? '已删除' : '删除失败'), r.status === 'success' ? 'success' : 'error');
             refreshOwners();
         }));
-        box.querySelectorAll('[data-api]').forEach(b => b.addEventListener('click', () => openApiSkillModal(b.dataset.api, 'api')));
-        box.querySelectorAll('[data-skill]').forEach(b => b.addEventListener('click', () => openApiSkillModal(b.dataset.skill, 'skill')));
+        box.querySelectorAll('[data-api').forEach(b => b.addEventListener('click', () => openApiSkillModal(b.dataset.api, 'api')));
+        box.querySelectorAll('[data-skill').forEach(b => b.addEventListener('click', () => openApiSkillModal(b.dataset.skill, 'skill')));
     }
 
 
@@ -318,15 +318,15 @@
             </div>`;
         }).join('');
 
-        box.querySelectorAll('[data-use]').forEach(b => b.addEventListener('click', () => {
+        box.querySelectorAll('[data-use').forEach(b => b.addEventListener('click', () => {
             LS.token = b.dataset.use;
             toast('已设为主钥匙', 'success');
             refreshKeys();
         }));
-        box.querySelectorAll('[data-copy]').forEach(b => b.addEventListener('click', () => {
+        box.querySelectorAll('[data-copy').forEach(b => b.addEventListener('click', () => {
             copyText(b.dataset.copy);
         }));
-        box.querySelectorAll('[data-revoke]').forEach(b => b.addEventListener('click', async () => {
+        box.querySelectorAll('[data-revoke').forEach(b => b.addEventListener('click', async () => {
             if (!confirm('确定吊销该钥匙？')) return;
             const r = await post('/api/v1/key/revoke', { actor_id: LS.actor, token: b.dataset.revoke });
             toast(r.message || (r.status === 'success' ? '已吊销' : '吊销失败'), r.status === 'success' ? 'success' : 'error');
@@ -373,12 +373,54 @@
             .replace(/\{token\}/g, LS.token || '');
     }
 
+    // ---------- EasyMDE 只读编辑器（复用 event-tuple-modal 的 Markdown 渲染菜单栏方案） ----------
+    let apiMde = null;
+
+    function ensureApiEditor() {
+        if (apiMde) return apiMde;
+        const el = document.getElementById('api-editor');
+        if (!el) return null;
+        try {
+        const isMobile = window.innerWidth < 768;
+        apiMde = new EasyMDE({
+            element: el,
+            spellChecker: false,
+            autoDownloadFontAwesome: true,
+            status: isMobile ? false : ['lines', 'words'],
+            renderingConfig: { 
+                codeSyntaxHighlighting: true,
+                markedOptions: {
+                    extensions: (window.markedKatex ? window.markedKatex({ throwOnError: false }).extensions : [])
+                    
+                }
+            },
+
+            theme: 'sober',
+            minHeight: isMobile ? '200px' : '420px',
+            placeholder: '（只读）API / SKILL 文档...',
+            toolbar: isMobile
+                ? ["preview", "|", "guide"]
+                : ["preview", "side-by-side", "fullscreen", "|", "guide"]
+        });
+        } catch(e) {
+            console.error("EasyMDE init error", e);
+            return null;
+        }
+        return apiMde;
+    }
+
     async function openApiSkillModal(ownerId, kind) {
         if (!ownerId) { toast('缺少场 ID', 'error'); return; }
         const tpl = kind === 'skill' ? await loadSkillMd() : await loadApiMd();
         const rendered = fillTemplate(tpl, ownerId);
-        const body = document.getElementById('api-body');
-        body.textContent = rendered; // textContent 注入，天然防 XSS
+        const mde = ensureApiEditor();
+        if (!mde) { toast('Markdown 编辑器初始化失败', 'error'); return; }
+        mde.value(rendered);
+        if (mde.codemirror) {
+            mde.codemirror.setOption('readOnly', true);
+            // 等模态框显示后再刷新，确保 CodeMirror 高度计算正确
+            setTimeout(() => mde.codemirror.refresh(), 150);
+        }
         const modal = document.getElementById('api-modal');
         modal.classList.add('show');
         document.body.style.overflow = 'hidden';
@@ -393,10 +435,10 @@
     function bindApiModal() {
         const modal = document.getElementById('api-modal');
         document.getElementById('api-close').addEventListener('click', closeApiSkillModal);
-        document.getElementById('api-cancel').addEventListener('click', closeApiSkillModal);
         document.getElementById('api-copy').addEventListener('click', () => {
             const btn = document.getElementById('api-copy');
-            const text = document.getElementById('api-body').textContent;
+            const mde = ensureApiEditor();
+            const text = mde ? (mde.value() || '') : '';
             if (!text) { toast('无可复制内容', 'error'); return; }
             copyText(text, () => {
                 const original = btn.innerHTML;
