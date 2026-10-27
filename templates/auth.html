@@ -658,7 +658,7 @@
                 </div>
             </div>
 
-            <div class="card collapsed">
+            <div class="card collapsed" id="register-card">
                 <div class="card-header" onclick="toggleCard(this)">
                     <h2>注册新 actor</h2>
                     <span class="collapse-icon">▼</span>
@@ -809,17 +809,23 @@
             card.classList.toggle('collapsed');
         }
 
-        // 根据登录状态自动折叠/展开“登录”卡片
+        // 根据登录状态自动折叠/展开“登录”卡片、隐藏/显示“注册新 actor”卡片
         const loginCard = document.getElementById('login-card');
+        const registerCard = document.getElementById('register-card');
         const statusText = document.getElementById('status-text');
 
         function updateLoginCardState() {
-            if (!loginCard || !statusText) return;
-            const isNotLoggedIn = statusText.textContent.includes('未登录');
-            if (isNotLoggedIn) {
-                loginCard.classList.remove('collapsed'); // 未登录：展开
-            } else {
-                loginCard.classList.add('collapsed');    // 已登录：折叠
+            if (!statusText) return;
+            const isLoggedIn = statusText.textContent.includes('已登录');
+            if (loginCard) {
+                if (isLoggedIn) {
+                    loginCard.classList.add('collapsed');    // 已登录：折叠登录卡片
+                } else {
+                    loginCard.classList.remove('collapsed'); // 未登录：展开登录卡片
+                }
+            }
+            if (registerCard) {
+                registerCard.style.display = isLoggedIn ? 'none' : ''; // 已登录：隐藏注册卡片
             }
         }
 
