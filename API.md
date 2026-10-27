@@ -66,7 +66,7 @@
 
 **调用示例**:
 ```bash
-curl -X POST "https://www.aicity.wang/api/v1/causal/genesis" \
+curl -X POST "{base_url}/api/v1/causal/genesis" \
      -H "Content-Type: application/json" \
      -d '{
            "node_id": "王占曰：吉，其来",
@@ -74,9 +74,10 @@ curl -X POST "https://www.aicity.wang/api/v1/causal/genesis" \
            "action_tag": "贞",
            "event_tuple": "那一天阴云密布，雷电时不时划过天际，祭坛上摆着砍下的人牲的肢体，巨大的鼎里正在炖着被辟为两半的牛，热汤正在沸腾，奴隶们不断的地被敲碎脑袋，惨叫声传出很远。\n\n贞人蓬头散发，走上台来作法，别着腰刀（明阳花山石画），女奴献酒，族人围火载舞，但是用于祭祀的羌人仍然不够，因为十二天后就是从先祖太甲到母戊的大型祭祀。需要人牲四百多人，目前的库存实在紧缺，商王紧皱眉头，决定以最诚的心去打动上天。于是他亲自问卜....\n\n卜文曰：\n贞：\"王占曰：吉，其来\"\n\n翻译：商王占卜结果很好（事件主体投入意志），方国会来（预判）。",
            "full_image_url": "uploads/raw/zhen.png",
-           "owner_id": "worker",
+           "owner_id": "{owner_id}",
            "is_share": false,
-           "return_serial_id": true
+           "return_serial_id": true,
+           "token": "{token}"
          }'
 ```
 
@@ -108,7 +109,7 @@ curl -X POST "https://www.aicity.wang/api/v1/causal/genesis" \
 
 **调用示例**:
 ```bash
-curl -X POST "https://www.aicity.wang/api/v1/causal/genesis" \
+curl -X POST "{base_url}/api/v1/causal/genesis" \
      -H "Content-Type: application/json" \
      -d '{
            "node_id": "丙申，王占曰：吉",
@@ -116,8 +117,9 @@ curl -X POST "https://www.aicity.wang/api/v1/causal/genesis" \
            "block_tag": "因",
            "action_tag": "又贞",
            "event_tuple": "不觉到了丙申那天，边缰的将领没有俘虏羌人的消息，方国也没有来进贡大乌龟和人牲，而祭祀大典日近，贞人们的龟甲骨头都是惜着用，商王不放心，再次贞问。\n\n卜文曰：\n贞：\"丙申，王占曰：吉\"\n\n翻译：商王占卜结果很好（事件主体继续投入意志），争取结果向期望方向坍塌（方国还是会来）",
-           "owner_id": "worker",
-           "is_share": false
+           "owner_id": "{owner_id}",
+           "is_share": false,
+           "token": "{token}"
          }'
 ```
 **如果previous_node原本非空请要不置空它，注意检查**
@@ -150,7 +152,7 @@ curl -X POST "https://www.aicity.wang/api/v1/causal/genesis" \
 
 **调用示例**:
 ```bash
-curl -X POST "https://www.aicity.wang/api/v1/causal/genesis" \
+curl -X POST "{base_url}/api/v1/causal/genesis" \
      -H "Content-Type: application/json" \
      -d '{
            "node_id": "旬有二日，方来",
@@ -158,8 +160,9 @@ curl -X POST "https://www.aicity.wang/api/v1/causal/genesis" \
            "block_tag": "果",
            "action_tag": "对贞",
            "event_tuple": "终于在距离首贞十二天后，方国来进贡了，商王朝的心终于落下了。\n\n卜文曰：\n对贞：\"旬有二日，方来\"\n\n翻译：终于在距离首贞十二天后，方国来进贡了（事件主体对结果确认）",
-           "owner_id": "worker",
-           "is_share": false
+           "owner_id": "{owner_id}",
+           "is_share": false,
+           "token": "{token}"
          }'
 ```
 **如果previous_node原本非空请要不置空它，注意检查**
@@ -192,11 +195,12 @@ curl -X POST "https://www.aicity.wang/api/v1/causal/genesis" \
 
 **调用示例**:
 ```bash
-curl -X POST "https://www.aicity.wang/api/v1/causal/delete" \
+curl -X POST "{base_url}/api/v1/causal/delete" \
      -H "Content-Type: application/json" \
      -d '{
            "node_id": "王占曰：吉，其来",
-           "owner_id": "worker"
+           "owner_id": "{owner_id}",
+           "token": "{token}"
          }'
 ```
 
@@ -236,31 +240,34 @@ curl -X POST "https://www.aicity.wang/api/v1/causal/delete" \
 
 ```bash
 # 修改事件叙述
-curl -X POST "https://www.aicity.wang/api/v1/causal/update" \
+curl -X POST "{base_url}/api/v1/causal/update" \
      -H "Content-Type: application/json" \
      -d '{
            "old_node_id": "王占曰：吉，其来",
            "new_node_id": "王占曰：吉，其来",
            "event_tuple": "更新后的事件叙述内容...",
-           "is_share": false
+           "is_share": false,
+           "token": "{token}"
          }'
 
 # 修改事件ID（标题node_id）和父事件（因果连线）
-curl -X POST "https://www.aicity.wang/api/v1/causal/update" \
+curl -X POST "{base_url}/api/v1/causal/update" \
      -H "Content-Type: application/json" \
      -d '{
            "old_node_id": "王占曰：吉，其来",
            "new_node_id": "更新后的事件ID",
-           "previous_ids": "父事件1|父事件2"
+           "previous_ids": "父事件1|父事件2",
+           "token": "{token}"
          }'
 
 # 将事件变为首贞（清空父事件）
-curl -X POST "https://www.aicity.wang/api/v1/causal/update" \
+curl -X POST "{base_url}/api/v1/causal/update" \
      -H "Content-Type: application/json" \
      -d '{
            "old_node_id": "某个事件",
            "new_node_id": "某个事件",
-           "previous_ids": ""
+           "previous_ids": "",
+           "token": "{token}"
          }'
 ```
 
@@ -293,10 +300,10 @@ curl -X POST "https://www.aicity.wang/api/v1/causal/update" \
 **调用示例**:
 ```bash
 # 获取全局历史数据
-curl -X GET "https://www.aicity.wang/api/v1/causal/history?owner_id=worker"
+curl -X GET "{base_url}/api/v1/causal/history?owner_id={owner_id}&token={token}"
 
 # 获取用户个性化权重历史数据
-curl -X GET "https://www.aicity.wang/api/v1/causal/history?actor_id=user2&owner_id=worker"
+curl -X GET "{base_url}/api/v1/causal/history?actor_id={actor_id}&owner_id={owner_id}&token={token}"
 ```
 
 ---
@@ -327,15 +334,16 @@ curl -X GET "https://www.aicity.wang/api/v1/causal/history?actor_id=user2&owner_
 **调用示例**:
 ```bash
 # GET 方式
-curl -X GET "https://www.aicity.wang/api/v1/causal/search/keyword?keyword=商王&owner_id=worker&limit=50"
+curl -X GET "{base_url}/api/v1/causal/search/keyword?keyword=商王&owner_id={owner_id}&limit=50&token={token}"
 
 # POST 方式
-curl -X POST "https://www.aicity.wang/api/v1/causal/search/keyword" \
+curl -X POST "{base_url}/api/v1/causal/search/keyword" \
      -H "Content-Type: application/json" \
      -d '{
            "keyword": "祭祀",
-           "owner_id": "worker",
-           "limit": 50
+           "owner_id": "{owner_id}",
+           "limit": 50,
+           "token": "{token}"
          }'
 ```
 
@@ -367,13 +375,14 @@ curl -X POST "https://www.aicity.wang/api/v1/causal/search/keyword" \
 
 **调用示例**:
 ```bash
-curl -X POST "https://www.aicity.wang/api/v1/causal/search/vector" \
+curl -X POST "{base_url}/api/v1/causal/search/vector" \
      -H "Content-Type: application/json" \
      -d '{
            "keyword": "商王祭祀",
-           "owner_id": "worker",
+           "owner_id": "{owner_id}",
            "limit": 20,
-           "threshold": 0.7
+           "threshold": 0.7,
+           "token": "{token}"
          }'
 ```
 
@@ -403,18 +412,20 @@ curl -X POST "https://www.aicity.wang/api/v1/causal/search/vector" \
 **调用示例**:
 ```bash
 # 全局权重查询
-curl -X POST "https://www.aicity.wang/api/v1/causal/search/serial" \
+curl -X POST "{base_url}/api/v1/causal/search/serial" \
      -H "Content-Type: application/json" \
      -d '{
-           "serial_id": 1
+           "serial_id": 1,
+           "token": "{token}"
          }'
 
 # 用户个性化权重查询
-curl -X POST "https://www.aicity.wang/api/v1/causal/search/serial" \
+curl -X POST "{base_url}/api/v1/causal/search/serial" \
      -H "Content-Type: application/json" \
      -d '{
            "serial_id": 256,
-           "actor_id": "user2"
+           "actor_id": "{actor_id}",
+           "token": "{token}"
          }'
 ```
 
@@ -454,16 +465,17 @@ curl -X POST "https://www.aicity.wang/api/v1/causal/search/serial" \
 **调用示例**:
 ```bash
 # GET 方式（便于浏览器/curl直接访问）
-curl -X GET "https://www.aicity.wang/api/v1/causal/click?serial_id=313&owner_id=cbf&actor_id=user2&max_eyes=40"
+curl -X GET "{base_url}/api/v1/causal/click?serial_id=313&owner_id={owner_id}&actor_id={actor_id}&max_eyes=40&token={token}"
 
 # POST 方式（Agent/前端JS调用）
-curl -X POST "https://www.aicity.wang/api/v1/causal/click" \
+curl -X POST "{base_url}/api/v1/causal/click" \
      -H "Content-Type: application/json" \
      -d '{
            "serial_id": 313,
-           "actor_id": "user2",
-           "owner_id": "cbf",
-           "max_eyes": 40
+           "actor_id": "{actor_id}",
+           "owner_id": "{owner_id}",
+           "max_eyes": 40,
+           "token": "{token}"
          }'
 ```
 
@@ -496,15 +508,16 @@ curl -X POST "https://www.aicity.wang/api/v1/causal/click" \
 **调用示例**:
 ```bash
 # GET 方式
-curl -X GET "https://www.aicity.wang/api/v1/causal/horizon?actor_id=415135222&owner_id=222302526&max_eyes=40"
+curl -X GET "{base_url}/api/v1/causal/horizon?actor_id={actor_id}&owner_id={owner_id}&max_eyes=40&token={token}"
 
 # POST 方式
-curl -X POST "https://www.aicity.wang/api/v1/causal/horizon" \
+curl -X POST "{base_url}/api/v1/causal/horizon" \
      -H "Content-Type: application/json" \
      -d '{
-           "actor_id": "415135222",
-           "owner_id": "222302526",
-           "max_eyes": 40
+           "actor_id": "{actor_id}",
+           "owner_id": "{owner_id}",
+           "max_eyes": 40,
+           "token": "{token}"
          }'
 ```
 
@@ -534,11 +547,12 @@ curl -X POST "https://www.aicity.wang/api/v1/causal/horizon" \
 
 **调用示例**:
 ```bash
-curl -X POST "https://www.aicity.wang/api/v1/causal/skeleton" \
+curl -X POST "{base_url}/api/v1/causal/skeleton" \
      -H "Content-Type: application/json" \
      -d '{
            "serial_id": 312,
-           "actor_id": "user2"
+           "actor_id": "{actor_id}",
+           "token": "{token}"
          }'
 ```
 
@@ -570,12 +584,13 @@ curl -X POST "https://www.aicity.wang/api/v1/causal/skeleton" \
 
 **调用示例**:
 ```bash
-curl -X POST "https://www.aicity.wang/api/v1/causal/promote_chain" \
+curl -X POST "{base_url}/api/v1/causal/promote_chain" \
      -H "Content-Type: application/json" \
      -d '{
            "node_id": "王占曰：吉，其来",
-           "actor_id": "user2",
-           "owner_id": "worker"
+           "actor_id": "{actor_id}",
+           "owner_id": "{owner_id}",
+           "token": "{token}"
          }'
 ```
 
@@ -595,6 +610,7 @@ curl -X POST "https://www.aicity.wang/api/v1/causal/promote_chain" \
 | 字段 | 类型 | 必填 | 说明 |
 | :--- | :--- | :--- | :--- |
 | `file` | File | 是 | 要上传的图片文件 |
+| `token` | String | 否 | 私密场域的钥匙 token（"防盗门"鉴权）。上传到私密场（is_share=false）时需携带，登录/注册/签发钥匙后获得，默认 `null` |
 
 **返回说明**:
 - `status`: `"success"` 或 `"error"`
@@ -603,8 +619,9 @@ curl -X POST "https://www.aicity.wang/api/v1/causal/promote_chain" \
 
 **调用示例**:
 ```bash
-curl -X POST "https://www.aicity.wang/api/v1/causal/upload" \
-     -F "file=@/path/to/image.png"
+curl -X POST "{base_url}/api/v1/causal/upload" \
+     -F "file=@/path/to/image.png" \
+     -F "token={token}"
 ```
 
 ---
@@ -622,6 +639,8 @@ curl -X POST "https://www.aicity.wang/api/v1/causal/upload" \
 | 字段 | 类型 | 必填 | 说明 |
 | :--- | :--- | :--- | :--- |
 | `node_id` | String | 是 | 要恢复的事件ID |
+| `owner_id` | String | 否 | 事件拥有者ID，默认 `"default"` |
+| `token` | String | 否 | 私密场域的钥匙 token（"防盗门"鉴权）。访问私密场（is_share=false）时需携带，登录/注册/签发钥匙后获得，默认 `null` |
 
 **返回说明**:
 - `status`: `"success"` 或 `"error"`
@@ -630,10 +649,12 @@ curl -X POST "https://www.aicity.wang/api/v1/causal/upload" \
 
 **调用示例**:
 ```bash
-curl -X POST "https://www.aicity.wang/api/v1/causal/restore" \
+curl -X POST "{base_url}/api/v1/causal/restore" \
      -H "Content-Type: application/json" \
      -d '{
-           "node_id": "王占曰：吉，其来"
+           "node_id": "王占曰：吉，其来",
+           "owner_id": "{owner_id}",
+           "token": "{token}"
          }'
 ```
 
@@ -662,9 +683,9 @@ curl -X POST "https://www.aicity.wang/api/v1/causal/restore" \
 
 **调用示例**:
 ```bash
-curl -X POST "https://www.aicity.wang/api/v1/auth/login" \
+curl -X POST "{base_url}/api/v1/auth/login" \
      -H "Content-Type: application/json" \
-     -d '{"actor_id": "zhangsan", "password": "123456"}'
+     -d '{"actor_id": "{actor_id}", "password": "123456"}'
 ```
 
 ---
@@ -691,9 +712,9 @@ curl -X POST "https://www.aicity.wang/api/v1/auth/login" \
 
 **调用示例**:
 ```bash
-curl -X POST "https://www.aicity.wang/api/v1/auth/password/change" \
+curl -X POST "{base_url}/api/v1/auth/password/change" \
      -H "Content-Type: application/json" \
-     -d '{"actor_id": "zhangsan", "old_password": "123456", "new_password": "654321"}'
+     -d '{"actor_id": "{actor_id}", "old_password": "123456", "new_password": "654321"}'
 ```
 
 ---
@@ -720,9 +741,9 @@ curl -X POST "https://www.aicity.wang/api/v1/auth/password/change" \
 
 **调用示例**:
 ```bash
-curl -X POST "https://www.aicity.wang/api/v1/auth/password/reset" \
+curl -X POST "{base_url}/api/v1/auth/password/reset" \
      -H "Content-Type: application/json" \
-     -d '{"actor_id": "zhangsan", "token": "abc123|def456...", "new_password": "654321"}'
+     -d '{"actor_id": "{actor_id}", "token": "{token}", "new_password": "654321"}'
 ```
 
 ---
@@ -748,7 +769,7 @@ curl -X POST "https://www.aicity.wang/api/v1/auth/password/reset" \
 
 **调用示例**:
 ```bash
-curl -X GET "https://www.aicity.wang/api/v1/owner/list?actor_id=415135222"
+curl -X GET "{base_url}/api/v1/owner/list?actor_id={actor_id}"
 ```
 
 ---
@@ -775,9 +796,9 @@ curl -X GET "https://www.aicity.wang/api/v1/owner/list?actor_id=415135222"
 
 **调用示例**:
 ```bash
-curl -X POST "https://www.aicity.wang/api/v1/owner/update" \
+curl -X POST "{base_url}/api/v1/owner/update" \
      -H "Content-Type: application/json" \
-     -d '{"owner_id": "cbf", "name": "新名字", "actor_id": "415135222"}'
+     -d '{"owner_id": "{owner_id}", "name": "新名字", "actor_id": "{actor_id}"}'
 ```
 
 ---
@@ -803,9 +824,9 @@ curl -X POST "https://www.aicity.wang/api/v1/owner/update" \
 
 **调用示例**:
 ```bash
-curl -X POST "https://www.aicity.wang/api/v1/owner/delete" \
+curl -X POST "{base_url}/api/v1/owner/delete" \
      -H "Content-Type: application/json" \
-     -d '{"owner_id": "cbf", "actor_id": "415135222"}'
+     -d '{"owner_id": "{owner_id}", "actor_id": "{actor_id}"}'
 ```
 
 ---
@@ -830,7 +851,7 @@ curl -X POST "https://www.aicity.wang/api/v1/owner/delete" \
 
 **调用示例**:
 ```bash
-curl -X GET "https://www.aicity.wang/api/v1/key/list?actor_id=415135222"
+curl -X GET "{base_url}/api/v1/key/list?actor_id={actor_id}"
 ```
 
 ---
@@ -856,9 +877,9 @@ curl -X GET "https://www.aicity.wang/api/v1/key/list?actor_id=415135222"
 
 **调用示例**:
 ```bash
-curl -X POST "https://www.aicity.wang/api/v1/key/revoke" \
+curl -X POST "{base_url}/api/v1/key/revoke" \
      -H "Content-Type: application/json" \
-     -d '{"actor_id": "415135222", "token": "abc123|def456..."}'
+     -d '{"actor_id": "{actor_id}", "token": "{token}"}'
 ```
 
 ---
@@ -898,5 +919,6 @@ curl -X POST "https://www.aicity.wang/api/v1/key/revoke" \
 > **注意**: 一旦 API 调用成功，连接到观测站 UI 的所有屏幕将实时同步渲染该事件。
 
 ### 因果链专用推理方法
-- [Agnet](http://aicity.wang:8094/api/v1/causal/click?serial_id=702&owner_id=454652835&actor_id=415135222&max_eyes=30)
-- [人类](http://aicity.wang:8094/3d?serial_id=702&owner_id=454652835&actor_id=415135222&max_eyes=30)
+- [Agnet]({base_url}/api/v1/causal/click?serial_id=702&owner_id={owner_id}&actor_id={actor_id}&max_eyes=30&token={token})
+- [人类]({base_url}/3d?serial_id=702&owner_id={owner_id}&actor_id={actor_id}&max_eyes=30)
+

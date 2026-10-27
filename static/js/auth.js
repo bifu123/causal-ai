@@ -249,7 +249,8 @@
                     <button class="btn small ghost" data-enter="${escapeHtml(o.owner_id)}">进入星空(只读)</button>
                     <button class="btn small primary" data-enter="${escapeHtml(o.owner_id)}" data-edit="true">进入星空(可写)</button>
                     <button class="btn small ghost" data-rename="${escapeHtml(o.owner_id)}">改名</button>
-                    <button class="btn small api" data-api="${escapeHtml(o.owner_id)}">📡 获取API/SKILL</button>
+                    <button class="btn small api" data-api="${escapeHtml(o.owner_id)}">📡 获取API</button>
+                    <button class="btn small api" data-skill="${escapeHtml(o.owner_id)}">📡 获取SKILL</button>
                     <button class="btn small danger" data-del="${escapeHtml(o.owner_id)}">删除</button>
                 </div>
             </div>`).join('');
@@ -268,7 +269,8 @@
             toast(r.message || (r.status === 'success' ? '已删除' : '删除失败'), r.status === 'success' ? 'success' : 'error');
             refreshOwners();
         }));
-        box.querySelectorAll('[data-api]').forEach(b => b.addEventListener('click', () => openApiSkillModal(b.dataset.api)));
+        box.querySelectorAll('[data-api]').forEach(b => b.addEventListener('click', () => openApiSkillModal(b.dataset.api, 'api')));
+        box.querySelectorAll('[data-skill]').forEach(b => b.addEventListener('click', () => openApiSkillModal(b.dataset.skill, 'skill')));
     }
 
 
@@ -334,6 +336,7 @@
 
     // ---------- API / SKILL 模态框 ----------
     let API_MD_CACHE = null;
+    let SKILL_MD_CACHE = null;
 
     async function loadApiMd() {
         if (API_MD_CACHE != null) return API_MD_CACHE;
@@ -348,6 +351,19 @@
         return API_MD_CACHE;
     }
 
+    async function loadSkillMd() {
+        if (SKILL_MD_CACHE != null) return SKILL_MD_CACHE;
+        try {
+            const res = await fetch('/SKILL.md');
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            SKILL_MD_CACHE = await res.text();
+        } catch (e) {
+            SKILL_MD_CACHE = '';
+            toast('读取 SKILL.md 失败: ' + e.message, 'error');
+        }
+        return SKILL_MD_CACHE;
+    }
+
     function fillTemplate(tpl, ownerId) {
         const baseUrl = window.location.origin;
         return String(tpl == null ? '' : tpl)
@@ -357,9 +373,9 @@
             .replace(/\{token\}/g, LS.token || '');
     }
 
-    async function openApiSkillModal(ownerId) {
+    async function openApiSkillModal(ownerId, kind) {
         if (!ownerId) { toast('缺少场 ID', 'error'); return; }
-        const tpl = await loadApiMd();
+        const tpl = kind === 'skill' ? await loadSkillMd() : await loadApiMd();
         const rendered = fillTemplate(tpl, ownerId);
         const body = document.getElementById('api-body');
         body.textContent = rendered; // textContent 注入，天然防 XSS
