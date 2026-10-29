@@ -57,7 +57,10 @@ let hoverNode = null;
 let hoverScaleNode = null; // 追踪当前悬浮绽放的节点（非大股东节点的悬浮放大效果）
 let currentSelectedNodeId = null; 
 let is_change = true; // true: 编辑模式, false: 链入父ID模式
-const is_edit_mode = new URLSearchParams(window.location.search).get('edit') === 'true'; // URL参数 edit=true 才允许编辑
+const urlEdit = new URLSearchParams(window.location.search).get("edit") === "true";
+const hasToken = !!localStorage.getItem("causal_token");
+const is_edit_mode = urlEdit && hasToken;
+
 let nodeCache = {};
 
 // 根据 edit 参数控制编辑相关按钮的可见性
@@ -2064,7 +2067,7 @@ async function handleSaveNode() {
     
     // 总是发送previous_ids字段，即使为空数组
     // 这样后端可以正确处理父ID为空的情况
-    data.parent_ids = parentIds; // Map for backend API
+    data.previous_ids = parentIds; // Map for backend API
 
     console.log('[抽屉编辑] 发送更新数据:', data);
 
@@ -2979,7 +2982,7 @@ window.addEventListener('load', () => {
         .onNodeClick(node => {
             if (!node) return;
 
-            // --- 防误触：在事件视界模式下，屏蔽视界外隐身/微弱可见节点的点击事件 ---
+            // --- 公共变量 ---
             const hasHorizon = typeof horizonNodes !== 'undefined' && horizonNodes.size > 0;
             const urlParamsForJump = new URLSearchParams(window.location.search);
             const currentOwnerId = urlParamsForJump.get('owner_id') || 'default';
@@ -2987,9 +2990,27 @@ window.addEventListener('load', () => {
 
             const isSharedForeignNode = isForeignNode && !node.is_locked;
 
-            // 视界外防误触拦截：如果节点在视界外，且它不是分享状态的异场节点，则拦截点击
-            if (hasHorizon && !horizonNodes.has(node.id) && !isSharedForeignNode) {
-                console.log(`[防误触] 节点 ${node.id} 处于视界外深空状态，忽略点击`);
+            // --- 双击检测（移到防误触之前）：双击 = 点击，覆盖视界内外 ---
+            const now = Date.now();
+            const isDoubleClick = node.__lastClickTime && (now - node.__lastClickTime < 500);
+
+            if (isDoubleClick) {
+                node.__lastClickTime = 0; // 重置
+                if (!node.__lastClickBlocked) {
+                    // 视界内双击：第一次点击已执行点击功能，跳过避免重复
+                    return;
+                }
+                node.__lastClickBlocked = false;
+                // 视界外双击：第一次点击被防误触拦截，这次补上点击功能（继续向下）
+            } else {
+                node.__lastClickTime = now;
+                node.__lastClickBlocked = false;
+            }
+
+            // --- 防误触：仅拦截「单击」（非双击）的视界外节点 ---
+            if (!isDoubleClick && hasHorizon && !horizonNodes.has(node.id) && !isSharedForeignNode) {
+                node.__lastClickBlocked = true;
+                console.log(`[防误触] 节点 ${node.id} 处于视界外深空状态，忽略单击（双击可强制点击）`);
                 return;
             }
 
@@ -3006,17 +3027,6 @@ window.addEventListener('load', () => {
                 window.location.href = url.toString();
                 return;
             }
-
-            // 移动端长按/双击兼容：如果两次点击间隔小于 500ms，视为双击，触发右键逻辑
-            const now = Date.now();
-            if (node.__lastClickTime && (now - node.__lastClickTime < 500)) {
-                if (window.openNodeViewerModal) {
-                    window.openNodeViewerModal(node);
-                }
-                node.__lastClickTime = 0; // 重置
-                return; // 阻止后续的单击逻辑
-            }
-            node.__lastClickTime = now;
 
             lastLocalActionTime = now; // 记录操作时间，屏蔽远端跃迁干扰
 
@@ -3876,6 +3886,41 @@ window.addEventListener('load', () => {
     // 处理搜索结果点击事件 - 定义为全局函数
     window.handleSearchResultClick = async function(serialId, nodeId, maxEyes = null) {
         console.log(`[搜索点击] 点击搜索结果: serial_id=${serialId}, node_id=${nodeId}, maxEyes=${maxEyes}`);
+        console.log(`[搜索点击] is_change=${is_change}, activeParentIdField=`, activeParentIdField);
+        // 兜底：如果失焦导致 activeParentIdField 为 null，重新获取它
+        if (!is_change && !activeParentIdField) {
+            activeParentIdField = document.getElementById("d-parent-ids");
+        }
+
+        // **拦截逻辑：如果在父ID选择模式（is_change为false），只需填入输入框而不打开抽屉**
+        if (!is_change && activeParentIdField) {
+            let ids = activeParentIdField.value.split('|').map(s => s.trim()).filter(s => s);
+            const strNodeId = String(nodeId);
+            
+            // 如果节点未在输入框中，则链入
+            if (!ids.includes(strNodeId)) {
+                ids.push(strNodeId);
+
+                activeParentIdField.value = ids.join(' | ');
+                showSelectionHint(`已链入父节点: ${strNodeId}`);
+            }
+            
+            // 无论如何，自动展开抽屉以显示填入的结果
+            if (typeof window.expandDrawer === "function") {
+                window.expandDrawer();
+            }
+
+            // 隐藏搜索结果面板
+            const searchFormContainer = document.getElementById('search-form-container');
+            if (searchFormContainer) searchFormContainer.classList.remove('expanded');
+            
+            const resultsContainer = document.getElementById('search-results');
+            if (resultsContainer) resultsContainer.style.display = 'none';
+            
+            // 跳出，不提升权重也不改变当前正在编辑的抽屉和摄像机视角
+            return;
+        }
+
         lastLocalActionTime = Date.now(); // 记录操作时间，屏蔽远端跃迁干扰
 
         try {
