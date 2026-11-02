@@ -63,6 +63,117 @@ const is_edit_mode = urlEdit && hasToken;
 
 let nodeCache = {};
 
+// --- 移动端长按补丁状态 ---
+let longPressTimer = null;          // 长按定时器
+let longPressStartPos = null;       // 长按起始触摸坐标
+let longPressTriggered = false;     // 是否已触发长按（用于松手时抑制后续 click）
+let suppressNodeClickUntil = 0;     // 长按松手后，抑制一段时间内库派发的那次单击
+let lastViewerOpenNode = null;      // 去重：上一次打开内容查看器的节点
+let lastViewerOpenAt = 0;           // 去重：上一次打开内容查看器的时间戳
+
+/**
+ * 打开节点内容查看器（右键 / 移动端长按共用入口）
+ * 内部做短时间去重，避免 contextmenu 与长按补丁重复触发
+ */
+function openNodeViewer(node) {
+    if (!node) return;
+    const now = Date.now();
+    if (lastViewerOpenNode === node && now - lastViewerOpenAt < 800) {
+        return; // 同一节点短时间内重复触发，忽略
+    }
+    lastViewerOpenNode = node;
+    lastViewerOpenAt = now;
+    if (window.openNodeViewerModal) {
+        window.openNodeViewerModal(node);
+    } else {
+        console.warn('[移动端长按] openNodeViewerModal 未定义');
+    }
+}
+
+/**
+ * 移动端长按补丁：
+ * 在 3D 渲染器 canvas 上挂载 touchstart/touchend，超过 600ms 视为长按，
+ * 触发 openNodeViewerModal(node)；移动或松手则取消。
+ * 不调用 preventDefault，避免干扰库自带的单击/双击/右键逻辑。
+ */
+function installMobileLongPress() {
+    if (!Graph || typeof Graph.renderer !== 'function') {
+        console.warn('[移动端长按] Graph.renderer 不可用，跳过补丁');
+        return;
+    }
+    const canvas = Graph.renderer().domElement;
+    if (!canvas) {
+        console.warn('[移动端长按] 未找到渲染器 DOM 元素');
+        return;
+    }
+
+    const LONG_PRESS_MS = 600;
+    const MOVE_TOLERANCE = 15; // 像素
+
+    const cancelLongPress = () => {
+        if (longPressTimer) {
+            clearTimeout(longPressTimer);
+            longPressTimer = null;
+        }
+        longPressStartPos = null;
+    };
+
+    canvas.addEventListener('touchstart', (e) => {
+        if (e.touches.length !== 1) { // 仅单指长按
+            cancelLongPress();
+            longPressTriggered = false;
+            return;
+        }
+        const touch = e.touches[0];
+        longPressStartPos = { x: touch.clientX, y: touch.clientY };
+        longPressTriggered = false;
+
+        clearTimeout(longPressTimer);
+        longPressTimer = setTimeout(() => {
+            longPressTimer = null;
+            longPressTriggered = true;
+            // 长按命中：使用当前 hoverNode（渲染循环已在触摸时完成射线命中）
+            const node = hoverNode;
+            if (node) {
+                console.log(`[移动端长按] 命中节点 ${node.id || node.node_id}，打开内容查看器`);
+                openNodeViewer(node);
+            } else {
+                console.log('[移动端长按] 未命中节点，忽略');
+            }
+        }, LONG_PRESS_MS);
+    }, { passive: true });
+
+    canvas.addEventListener('touchmove', (e) => {
+        if (!longPressStartPos || e.touches.length !== 1) {
+            cancelLongPress();
+            return;
+        }
+        const touch = e.touches[0];
+        const dx = touch.clientX - longPressStartPos.x;
+        const dy = touch.clientY - longPressStartPos.y;
+        if (dx * dx + dy * dy > MOVE_TOLERANCE * MOVE_TOLERANCE) {
+            // 手指位移过大，视为拖动/旋转，取消长按
+            cancelLongPress();
+        }
+    }, { passive: true });
+
+    canvas.addEventListener('touchend', () => {
+        // 长按已触发：松手时抑制库随后派发的那次“单击”，避免长按后又触发聚焦/点击
+        if (longPressTriggered) {
+            suppressNodeClickUntil = Date.now() + 500;
+        }
+        longPressTriggered = false;
+        cancelLongPress();
+    }, { passive: true });
+
+    canvas.addEventListener('touchcancel', () => {
+        longPressTriggered = false;
+        cancelLongPress();
+    }, { passive: true });
+
+    console.log('[移动端长按] 补丁已挂载到渲染器 DOM 元素');
+}
+
 // 根据 edit 参数控制编辑相关按钮的可见性
 (function initEditModeUI() {
     const editElements = document.querySelectorAll('.edit-only, #btn-create-node');
@@ -2973,14 +3084,15 @@ window.addEventListener('load', () => {
         // --- [4. 交互：抽屉避让聚焦算法] ---
         .onNodeRightClick(node => {
             if (!node) return;
-            if (window.openNodeViewerModal) {
-                window.openNodeViewerModal(node);
-            } else {
-                console.warn('openNodeViewerModal 未定义');
-            }
+            openNodeViewer(node);
         })
         .onNodeClick(node => {
             if (!node) return;
+
+            // --- 长按松手抑制：长按已打开内容查看器，忽略随后派发的那次“单击” ---
+            if (Date.now() < suppressNodeClickUntil) {
+                return;
+            }
 
             // --- 公共变量 ---
             const hasHorizon = typeof horizonNodes !== 'undefined' && horizonNodes.size > 0;
@@ -3348,6 +3460,10 @@ window.addEventListener('load', () => {
             return `rgb(0, ${colorVal}, ${colorVal})`;
         })
         .linkDirectionalArrowRelPos(1);
+
+    // --- [5.5 移动端长按补丁] ---
+    // 在渲染器 canvas 上挂载 touchstart/touchend，弥补移动端 contextmenu 长按不灵敏的问题
+    installMobileLongPress();
 
     // --- [6. 初始化力场与事件] ---
     // 调整全局排斥力，防止节点挤在一起
