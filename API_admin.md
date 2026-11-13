@@ -268,7 +268,7 @@ curl -X POST "https://www.aicity.wang/api/v1/causal/update" \
 
 ### 6. 获取历史数据
 
-**功能**: 获取指定因果场中的所有活跃事件列表，用于前端初始化或全量同步。支持 `actor_id` 参数返回用户个性化权重。
+**功能**: 获取指定因果场中的所有活跃事件列表，用于前端初始化或全量同步。支持 `actor_id` 参数返回用户个性化权重；支持 `bot_id` 参数合并元龙因果 Agent 的 memory（跨场 `[chat]` 节点）。
 
 **请求**:
 - **URL**: `/api/v1/causal/history`
@@ -280,6 +280,7 @@ curl -X POST "https://www.aicity.wang/api/v1/causal/update" \
 | :--- | :--- | :--- | :--- |
 | `actor_id` | String | 否 | 用户ID，提供则返回用户个性化权重 |
 | `owner_id` | String | 否 | 事件拥有者ID，默认 `"default"` |
+| `bot_id` | String | 否 | 元龙因果 Agent 的机器人ID。提供则额外合并异场中属于该 bot 且带 `[chat]` 标记的节点（用于全量初始化并入记忆；"当下/过往"语义详见 `/api/v1/causal/horizon` 与 `/api/v1/causal/click`） |
 | `token` | String | 否 | 私密场域的钥匙 token（"防盗门"鉴权）。访问私密场（is_share=false）时需携带，登录/注册/签发钥匙后获得，默认 `null` |
 
 **返回说明**:
@@ -299,6 +300,8 @@ curl -X GET "https://www.aicity.wang/api/v1/causal/history?owner_id=worker"
 curl -X GET "https://www.aicity.wang/api/v1/causal/history?actor_id=user2&owner_id=worker"
 ```
 
+> **元龙因果 Agent 的 Memory（`当下`/`过往`）**：`bot_id` 在此用于全量初始化并入记忆；"当下"对应 `/api/v1/causal/horizon`（获取当前事件视界），"过往"对应 `/api/v1/causal/click`（点击），详见各自小节。
+
 ---
 
 ### 7. 关键字搜索事件
@@ -315,6 +318,7 @@ curl -X GET "https://www.aicity.wang/api/v1/causal/history?actor_id=user2&owner_
 | :--- | :--- | :--- | :--- |
 | `keyword` | String | 是 | 搜索关键词，支持 `&` 逻辑与 |
 | `owner_id` | String | 否 | 事件拥有者ID，默认 `"default"` |
+| `bot_id` | String | 否 | 机器人ID。提供后，系统会跨场检索该 bot 所有带 `[chat]` 标记的记忆节点并汇入搜索结果 |
 | `limit` | Integer | 否 | 返回结果数量限制，默认 `100` |
 | `token` | String | 否 | 私密场域的钥匙 token（"防盗门"鉴权）。访问私密场（is_share=false）时需携带，登录/注册/签发钥匙后获得，默认 `null` |
 
@@ -335,6 +339,7 @@ curl -X POST "https://www.aicity.wang/api/v1/causal/search/keyword" \
      -d '{
            "keyword": "祭祀",
            "owner_id": "worker",
+           "bot_id": "your_bot_id",
            "limit": 50
          }'
 ```
@@ -355,6 +360,7 @@ curl -X POST "https://www.aicity.wang/api/v1/causal/search/keyword" \
 | :--- | :--- | :--- | :--- |
 | `keyword` | String | 是 | 搜索关键词（自然语言描述） |
 | `owner_id` | String | 否 | 事件拥有者ID |
+| `bot_id` | String | 否 | 机器人ID。提供后，系统会跨场检索该 bot 所有带 `[chat]` 标记的记忆节点并汇入搜索结果 |
 | `limit` | Integer | 否 | 返回结果数量限制，默认 `100` |
 | `threshold` | Float | 否 | 余弦相似度阈值（0-1），默认 `0.0`（不过滤）。建议设 `≥0.7` 过滤噪声 |
 | `token` | String | 否 | 私密场域的钥匙 token（"防盗门"鉴权）。访问私密场（is_share=false）时需携带，登录/注册/签发钥匙后获得，默认 `null` |
@@ -372,6 +378,7 @@ curl -X POST "https://www.aicity.wang/api/v1/causal/search/vector" \
      -d '{
            "keyword": "商王祭祀",
            "owner_id": "worker",
+           "bot_id": "your_bot_id",
            "limit": 20,
            "threshold": 0.7
          }'
@@ -440,6 +447,7 @@ curl -X POST "https://www.aicity.wang/api/v1/causal/search/serial" \
 | `serial_id` | Integer | 是 | 事件节点的物理ID |
 | `actor_id` | String | 否 | 用户ID，用于个性化权重更新 |
 | `owner_id` | String | 否 | 事件拥有者ID，默认节点自身的 `owner_id` |
+| `bot_id` | String | 否 | 元龙因果 Agent 的机器人ID。Agent 主动点击以获取"过往"事件视界（体现"我想到哪里去"） |
 | `max_eyes` | Float | 否 | 望远镜功率/事件视界半径。若提供则覆盖 `.env` 默认值并缓存 |
 | `token` | String | 否 | 私密场域的钥匙 token（"防盗门"鉴权）。访问私密场（is_share=false）时需携带，登录/注册/签发钥匙后获得，默认 `null` |
 
@@ -483,6 +491,7 @@ curl -X POST "https://www.aicity.wang/api/v1/causal/click" \
 | :--- | :--- | :--- | :--- |
 | `actor_id` | String | 否 | 用户ID，用于个性化权重。不同观测者的大股东可能不同 |
 | `owner_id` | String | 否 | 事件拥有者ID，默认 `"default"` |
+| `bot_id` | String | 否 | 元龙因果 Agent 的机器人ID。提供则并入该 bot 跨场的 `[chat]` 记忆节点（`当下`：系统推送的当前视界） |
 | `max_eyes` | Float | 否 | 望远镜功率。若提供则覆盖默认值并缓存 |
 | `token` | String | 否 | 私密场域的钥匙 token（"防盗门"鉴权）。访问私密场（is_share=false）时需携带，登录/注册/签发钥匙后获得，默认 `null` |
 
@@ -507,6 +516,10 @@ curl -X POST "https://www.aicity.wang/api/v1/causal/horizon" \
            "max_eyes": 40
          }'
 ```
+
+---
+
+**元龙因果 Agent 的 Memory（Agent Memory）**：详见独立文档 [Memory.md](./Memory.md)。该文档完整描述了 Memory 的定义、参数、返回与示例。
 
 ---
 

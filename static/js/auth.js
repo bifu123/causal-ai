@@ -120,6 +120,22 @@
         }
     }
 
+    // ---------- 退出登录 ----------
+    function logout() {
+        LS.actor = '';
+        LS.token = '';
+        updateStatus();
+        toast('已退出登录', 'success');
+        refreshAll();
+    }
+
+    function bindLogout() {
+        const btn = document.getElementById('logout-btn');
+        if (btn) {
+            btn.addEventListener('click', logout);
+        }
+    }
+
     // ---------- 标签切换 ----------
     function bindTabs() {
         document.querySelectorAll('.tab').forEach(tab => {
@@ -221,12 +237,56 @@
         });
     }
 
+    // function enter(ownerId, isEdit = false) {
+    //     // 场名形如 {owner_actor}_{bot_id} 时，用下划线后半段作为 actor_id（如 755750209_3787687088 -> 3787687088）
+    //     let actorId = LS.actor;
+    //     const idx = ownerId.indexOf('_');
+    //     if (idx !== -1) {
+    //         const suffix = ownerId.slice(idx + 1);
+    //         if (suffix) actorId = suffix;
+    //     }
+    //     const token = LS.token || '';
+    //     const url = '/3d?owner_id=' + encodeURIComponent(ownerId)
+    //         + '&actor_id=' + encodeURIComponent(actorId)
+    //         + (token ? '&token=' + encodeURIComponent(token) : '')
+    //         + (isEdit ? '&edit=true' : '');
+    //     window.open(url, '_blank');
+    // }
+
     function enter(ownerId, isEdit = false) {
+        // 场名形如 {owner_actor}_{bot_id} 时，取下划线前半段作为 actor_id
+        // 例如：755750209_3787687088 -> 755750209
+        let actorId = LS.actor;
+        const idx = ownerId.indexOf('_');
+        if (idx !== -1) {
+            const prefix = ownerId.slice(0, idx);
+            if (prefix) actorId = prefix;
+        }
+
         const token = LS.token || '';
         const url = '/3d?owner_id=' + encodeURIComponent(ownerId)
-            + '&actor_id=' + encodeURIComponent(LS.actor)
+            + '&actor_id=' + encodeURIComponent(actorId)
             + (token ? '&token=' + encodeURIComponent(token) : '')
             + (isEdit ? '&edit=true' : '');
+        window.open(url, '_blank');
+    }
+
+
+    // ---------- Agent 专用场 Memory 直连 ----------
+    // owner_id 形如 {owner_actor}_{bot_id}：前半段即观测者 actor_id，后半段即 bot_id。
+    // 例如 454652835_3787687088 => actor_id = 454652835, bot_id = 3787687088。
+    function enterMemory(ownerId) {
+        const idx = ownerId.indexOf('_');
+        if (idx === -1) { toast('该场非 Agent 专用场（owner_id 无 _），无 Memory', 'error'); return; }
+        const ownerActor = ownerId.slice(0, idx) || LS.actor;   // 前半段 = 观测者 actor_id
+        const botId = ownerId.slice(idx + 1);                    // 后半段 = bot_id
+        if (!botId) { toast('bot_id 为空，无法拼接 Memory URL', 'error'); return; }
+        const token = LS.token || '';
+        const url = '/3d?owner_id=' + encodeURIComponent(ownerId)
+            + '&actor_id=' + encodeURIComponent(ownerActor)
+            + '&bot_id=' + encodeURIComponent(botId)
+            + (token ? '&token=' + encodeURIComponent(token) : '')
+            + '&edit=true';
         window.open(url, '_blank');
     }
 
@@ -248,29 +308,38 @@
                 <div class="actions">
                     <button class="btn small ghost" data-enter="${escapeHtml(o.owner_id)}">进入星空(只读)</button>
                     <button class="btn small primary" data-enter="${escapeHtml(o.owner_id)}" data-edit="true">进入星空(可写)</button>
+                    ${o.owner_id.includes('_') ? '<button class="btn small memory" data-memory="' + escapeHtml(o.owner_id) + '">🧠 Memory</button>' : ''}
                     <button class="btn small ghost" data-rename="${escapeHtml(o.owner_id)}">改名</button>
                     <button class="btn small api" data-api="${escapeHtml(o.owner_id)}">📡 获取API</button>
                     <button class="btn small api" data-skill="${escapeHtml(o.owner_id)}">📡 获取SKILL</button>
                     <button class="btn small danger" data-del="${escapeHtml(o.owner_id)}">删除</button>
+                    <button class="btn small danger" data-delall="${escapeHtml(o.owner_id)}">删除全部</button>
                 </div>
             </div>`).join('');
 
-        box.querySelectorAll('[data-enter').forEach(b => b.addEventListener('click', () => enter(b.dataset.enter, b.dataset.edit === 'true')));
-        box.querySelectorAll('[data-rename').forEach(b => b.addEventListener('click', async () => {
+        box.querySelectorAll('[data-enter]').forEach(b => b.addEventListener('click', () => enter(b.dataset.enter, b.dataset.edit === 'true')));
+        box.querySelectorAll('[data-memory]').forEach(b => b.addEventListener('click', () => enterMemory(b.dataset.memory)));
+        box.querySelectorAll('[data-rename]').forEach(b => b.addEventListener('click', async () => {
             const name = prompt('新场名称：');
             if (!name) return;
             const r = await post('/api/v1/owner/update', { owner_id: b.dataset.rename, name, actor_id: LS.actor });
             toast(r.message || (r.status === 'success' ? '已改名' : '改名失败'), r.status === 'success' ? 'success' : 'error');
             refreshOwners();
         }));
-        box.querySelectorAll('[data-del').forEach(b => b.addEventListener('click', async () => {
+        box.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', async () => {
             if (!confirm('确定删除该场？(不删除节点数据)')) return;
             const r = await post('/api/v1/owner/delete', { owner_id: b.dataset.del, actor_id: LS.actor });
             toast(r.message || (r.status === 'success' ? '已删除' : '删除失败'), r.status === 'success' ? 'success' : 'error');
             refreshOwners();
         }));
-        box.querySelectorAll('[data-api').forEach(b => b.addEventListener('click', () => openApiSkillModal(b.dataset.api, 'api')));
-        box.querySelectorAll('[data-skill').forEach(b => b.addEventListener('click', () => openApiSkillModal(b.dataset.skill, 'skill')));
+        box.querySelectorAll('[data-delall]').forEach(b => b.addEventListener('click', async () => {
+            if (!confirm('确定彻底删除该场？将删除所有事件节点、地宫、权重及场注册，且无法恢复！')) return;
+            const r = await post('/api/v1/owner/delete_all', { owner_id: b.dataset.delall, actor_id: LS.actor });
+            toast(r.message || (r.status === 'success' ? '已彻底删除' : '删除失败'), r.status === 'success' ? 'success' : 'error');
+            refreshOwners();
+        }));
+        box.querySelectorAll('[data-api]').forEach(b => b.addEventListener('click', () => openApiSkillModal(b.dataset.api, 'api')));
+        box.querySelectorAll('[data-skill]').forEach(b => b.addEventListener('click', () => openApiSkillModal(b.dataset.skill, 'skill')));
     }
 
 
@@ -318,15 +387,15 @@
             </div>`;
         }).join('');
 
-        box.querySelectorAll('[data-use').forEach(b => b.addEventListener('click', () => {
+        box.querySelectorAll('[data-use]').forEach(b => b.addEventListener('click', () => {
             LS.token = b.dataset.use;
             toast('已设为主钥匙', 'success');
             refreshKeys();
         }));
-        box.querySelectorAll('[data-copy').forEach(b => b.addEventListener('click', () => {
+        box.querySelectorAll('[data-copy]').forEach(b => b.addEventListener('click', () => {
             copyText(b.dataset.copy);
         }));
-        box.querySelectorAll('[data-revoke').forEach(b => b.addEventListener('click', async () => {
+        box.querySelectorAll('[data-revoke]').forEach(b => b.addEventListener('click', async () => {
             if (!confirm('确定吊销该钥匙？')) return;
             const r = await post('/api/v1/key/revoke', { actor_id: LS.actor, token: b.dataset.revoke });
             toast(r.message || (r.status === 'success' ? '已吊销' : '吊销失败'), r.status === 'success' ? 'success' : 'error');
@@ -472,6 +541,7 @@
         bindOwner();
         bindKeys();
         bindApiModal();
+        bindLogout();
         updateStatus();
         refreshAll();
     }

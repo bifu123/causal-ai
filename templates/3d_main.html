@@ -424,9 +424,15 @@
             return ownerId || 'default';
         }
         
+        function getBotIdFromURL() {
+            const urlParams = new URLSearchParams(window.location.search);
+            return urlParams.get('bot_id') || '';
+        }
+        
         // 设置全局用户ID和拥有者ID变量
         window.currentActorId = getActorIdFromURL();
         window.currentOwnerId = getOwnerIdFromURL();
+        window.currentBotId = getBotIdFromURL();
         
         // 配置Socket.IO连接，确保与服务器兼容
         const socket = io({

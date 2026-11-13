@@ -66,6 +66,9 @@ def search_causal_by_keyword(keyword, config: RunnableConfig=None, owner_id=None
     
     # 2. Determine owner_id: prioritize explicit argument, then config
     payload["owner_id"] = owner_id or config["configurable"].get("data", {}).get("source_id")
+    
+    if "_" in payload["owner_id"]:
+        payload["bot_id"] = owner_id.split("_")[0]
         
     # 3. Add limit
     if limit is not None:
@@ -144,6 +147,9 @@ def search_causal_by_embed(keyword, config: RunnableConfig=None, owner_id=None, 
     
     if final_owner_id:
         payload["owner_id"] = final_owner_id
+        
+    if "_" in payload["owner_id"]:
+        payload["bot_id"] = owner_id.split("_")[0]
         
     # 3. Add limit
     if limit is not None:

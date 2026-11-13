@@ -14,8 +14,9 @@ let currentActorId = null;
 let currentOwnerId = null;
 
 document.addEventListener('DOMContentLoaded', () => {
-    currentActorId = localStorage.getItem('causal_actor_id');
     const params = new URLSearchParams(window.location.search);
+    // 身份优先级：URL 显式参数 > localStorage 记住的登录身份
+    currentActorId = params.get('actor_id') || localStorage.getItem('causal_actor_id');
     currentOwnerId = params.get('owner_id') || 'default';
 });
 
@@ -34,11 +35,18 @@ function appendAuthBody(payload) {
     if (token) {
         payload.token = token;
     }
-    if (currentActorId) {
-        payload.actor_id = currentActorId;
+    // 身份优先级：URL 显式参数（window.*）> localStorage 记住的登录身份
+    const effectiveActorId = window.currentActorId || currentActorId;
+    if (effectiveActorId) {
+        payload.actor_id = effectiveActorId;
     }
-    if (currentOwnerId && currentOwnerId !== 'default') {
-        payload.owner_id = currentOwnerId;
+    const effectiveOwnerId = window.currentOwnerId || currentOwnerId;
+    if (effectiveOwnerId && effectiveOwnerId !== 'default') {
+        payload.owner_id = effectiveOwnerId;
+    }
+    // 附带 bot_id（跨场记忆融合态），确保后端能并入 bot 的异场 [chat] 记忆节点
+    if (window.currentBotId) {
+        payload.bot_id = window.currentBotId;
     }
     return payload;
 }
@@ -658,35 +666,147 @@ function updateEventHorizonVisibility() {
             const baseOpacity = 0.4 + weight * 0.6;
             
             // 如果节点正在进行透明度动画，跳过视界更新，防止覆盖动画效果
-            if (node.__threeObj.__isAnimatingOpacity) return;
+            // if (node.__threeObj.__isAnimatingOpacity) return;
 
             const isForeignNodeForVis = (node.owner_id && node.owner_id !== currentOwnerId);
             const isSharedForeignNode = isForeignNodeForVis && !node.is_locked;
 
-            // 如果是视界外，并且不是公开分享的异场节点，则执行可见性惩罚
-            if (hasHorizon && !horizonNodes.has(node.id) && !isSharedForeignNode) {
-                // 视界外：根据权重与距离双重惩罚（权重成正比，距离成反比）
+            // 如果是视界外，则执行可见性惩罚。不再为异场节点豁免虚化惩罚。
+            if (hasHorizon && !horizonNodes.has(node.id)) {
+                const isMemoryMode = !!new URLSearchParams(window.location.search).get('bot_id');
                 let dimmedOpacity = 0;
-                if (bossNode && node.x !== undefined && bossNode.x !== undefined) {
-                    const dx = node.x - bossNode.x;
-                    const dy = node.y - bossNode.y;
-                    const dz = node.z - bossNode.z;
-                    const distance = Math.max(1, Math.sqrt(dx * dx + dy * dy + dz * dz));
-                    const distancePenalty = (weight * 100) / distance;
-                    dimmedOpacity = Math.min(baseOpacity, baseOpacity * 0.3 * distancePenalty);
+
+                if (isMemoryMode) {
+                    // Memory 模式专属规矩：视界外节点不透明度强制置0，彻底隐身
+                    dimmedOpacity = 0;
+                } else {
+                    // 非 Memory 模式保留原始逻辑（或极微弱的不透明度）
+                    dimmedOpacity = 0.05;
                 }
+
                 if (sphere && sphere.material) {
                     sphere.material.transparent = true;
                     sphere.material.opacity = dimmedOpacity;
                     sphere.material.needsUpdate = true;
+                    // 如果透明度为0，直接隐藏
+                    if (dimmedOpacity === 0) sphere.visible = false;
                 }
                 if (sprite && sprite.material) {
-                    sprite.material.opacity = dimmedOpacity * 0.8; // 降低文字标签的亮度使其稍弱于节点本体
+                    sprite.material.opacity = dimmedOpacity * 0.8;
                     sprite.material.needsUpdate = true;
+                    if (dimmedOpacity === 0) sprite.visible = false;
+                }
+
+                // 连线隐藏
+                if (Graph && typeof Graph.graphData === 'function') {
+                    const { links } = Graph.graphData();
+                    links.forEach(link => {
+                        if ((link.source && link.source.id === node.id) || (link.target && link.target.id === node.id)) {
+                            if (link.__lineObj) {
+                                if (dimmedOpacity === 0) {
+                                    link.__lineObj.visible = false;
+                                } else {
+                                    if (link.__lineObj.material) {
+                                        link.__lineObj.material.transparent = true;
+                                        link.__lineObj.material.opacity = dimmedOpacity;
+                                    }
+                                }
+                            }
+                            if (link.__arrowObj) {
+                                if (dimmedOpacity === 0) {
+                                    link.__arrowObj.visible = false;
+                                } else {
+                                    if (link.__arrowObj.material) {
+                                        link.__arrowObj.material.transparent = true;
+                                        link.__arrowObj.material.opacity = dimmedOpacity;
+                                    }
+                                }
+                            }
+                        }
+                    });
                 }
             } else {
                 // 视界内或无视界（上帝视角）：恢复基础透明度
+                
+                // 【核心修复：前端距离二次校验】
+                // 即便后端将其算作视界内节点，如果它在物理空间上距离大股东的相对距离超出了当前视界半径 (max_eyes) 太多，
+                // 也应当强制将其虚化隐藏，保证“观测者视角”下视界边缘干净。
+                let forcedHideByDistance = false;
+                if (hasHorizon && bossNode && node.x !== undefined && bossNode.x !== undefined) {
+                    const slider = document.getElementById('telescope-slider');
+                    const maxEyes = slider ? parseFloat(slider.value) : 40; // 默认给40，与后端通常的默认值一致
+                    
+                    const dx = node.x - bossNode.x;
+                    const dy = node.y - bossNode.y;
+                    const dz = node.z - bossNode.z;
+                    // 三维欧氏距离
+                    const distance = Math.max(1, Math.sqrt(dx * dx + dy * dy + dz * dz));
+                    
+                    // 将后端的逻辑距离(maxEyes)换算成前端的物理距离阈值
+                    // 注意：前端物理坐标 = 后端逻辑距离 * 3D-Force-Graph 力导向缩放系数
+                    // 这个系数通常在100~300之间，这里放宽一点限制，以物理距离作为硬性屏蔽阈值
+                    // 如果节点物理距离超出 800 (约等于极远边界)，并且它是异场节点，强制隐藏
+                    const isForeign = (node.owner_id && node.owner_id !== currentOwnerId);
+                    
+                    // 假设前端物理距离与逻辑距离(maxEyes)成比例，设定一个合适的物理距离阈值
+                    // 由于力导向图的坐标是动态的，距离判断不能太死，可以设为： 物理距离 > (maxEyes * 20)
+                    const physicalThreshold = Math.max(800, maxEyes * 15);
+                    
+                    if (isForeign && distance > physicalThreshold) {
+                        forcedHideByDistance = true;
+                        console.log(`[Debug] 节点 ${node.id} 物理距离过远(${distance.toFixed(1)} > ${physicalThreshold})，强制剔除可视`);
+                    }
+                }
+                
+                if (forcedHideByDistance) {
+                    if (sphere && sphere.material) {
+                        sphere.material.opacity = 0;
+                        sphere.visible = false;
+                    }
+                    if (sprite && sprite.material) {
+                        sprite.material.opacity = 0;
+                        sprite.visible = false;
+                    }
+                    if (Graph && typeof Graph.graphData === 'function') {
+                        const { links } = Graph.graphData();
+                        links.forEach(link => {
+                            if ((link.source && link.source.id === node.id) || (link.target && link.target.id === node.id)) {
+                                if (link.__lineObj) link.__lineObj.visible = false;
+                                if (link.__arrowObj) link.__arrowObj.visible = false;
+                            }
+                        });
+                    }
+                    return; // 跳过后续的上帝视角恢复逻辑
+                }
+
+                if (sphere) sphere.visible = true;
+                if (sprite) sprite.visible = true;
+                
+                // 恢复关联连线的显示
+                if (Graph && typeof Graph.graphData === 'function') {
+                    const { links } = Graph.graphData();
+                    links.forEach(link => {
+                        // 只有当连线的两端都在视界内（或者没有视界）时，才恢复连线的显示
+                        const sourceInHorizon = !hasHorizon || (link.source && horizonNodes.has(link.source.id));
+                        const targetInHorizon = !hasHorizon || (link.target && horizonNodes.has(link.target.id));
+                        
+                        if (sourceInHorizon && targetInHorizon) {
+                            if (link.__lineObj) link.__lineObj.visible = true;
+                            if (link.__arrowObj) link.__arrowObj.visible = true;
+                        }
+                    });
+                }
+                
                 let finalOpacity = baseOpacity;
+
+                // 如果存在视界且节点在视界内，但它是一个异场节点，不要用上帝视角的完全亮度，
+                // 我们也可以给它一个特殊的亮度惩罚，确保观测者视角下异场节点的从属感
+                const isForeignNodeInHorizon = isForeignNodeForVis && !node.is_locked;
+                if (hasHorizon && isForeignNodeInHorizon && (node.id !== currentBossNodeId && node.node_id !== currentBossNodeId)) {
+                    // 对于处于视界内的异场节点，亮度打个折，不能像本场视界节点那么亮
+                    finalOpacity = Math.max(0.2, finalOpacity * 0.5); 
+                }
+
                 
                 // 【新增逻辑】如果开启了配置，且处于事件视界中，且该节点在视界内，且不是大股东
                 if (CONFIG_ENHANCE_HORIZON_NODES && hasHorizon && horizonNodes.has(node.id) && node.survival_weight <= 0.59) {
@@ -1166,6 +1286,9 @@ async function promoteNodeWeight(node, maxEyes = null) {
             serial_id: node.serial_id || node.id, // 兼容处理，click接口需要serial_id
             owner_id: ownerId !== 'default' ? ownerId : undefined
         };
+        if (window.currentBotId) {
+            requestData.bot_id = window.currentBotId;
+        }
         
         if (actorId) {
             requestData.actor_id = actorId;
@@ -1211,6 +1334,7 @@ async function loadInitialData() {
     try {
         const actorId = window.currentActorId || '';
         const ownerId = window.currentOwnerId || 'default';
+        const botId = window.currentBotId || null;
         
         // 构建查询参数
         const params = new URLSearchParams();
@@ -1219,6 +1343,9 @@ async function loadInitialData() {
         }
         if (ownerId && ownerId !== 'default') {
             params.append('owner_id', ownerId);
+        }
+        if (botId) {
+            params.append('bot_id', botId);
         }
         
         const url = `/api/v1/causal/history${params.toString() ? '?' + params.toString() : ''}`;
@@ -1280,6 +1407,11 @@ async function loadInitialData() {
 
             console.log(`[3D星空] 最终图谱数据: nodes=${nodes.length}, links=${links.length}`);
             Graph.graphData({ nodes, links });
+            
+            // 解决刷新后大股东变量丢失的问题：如果后端返回了大股东，在此处初始化
+            if (res.boss_node_id && res.event_horizon && res.event_horizon.length > 0) {
+                currentBossNodeId = res.boss_node_id;
+            }
             
             // 检查是否有 NaN 坐标
             setTimeout(() => {
@@ -1429,7 +1561,9 @@ function updateNodeIncremental(data) {
         const sid = uNode.serial_id || uNode["本事件ID"];
         // 2. 如果找不到，尝试使用node_id
         const nid = uNode.node_id || uNode["本事件标题"];
-        const newWeight = uNode.survival_weight || uNode["本事件权重"];
+        const newWeight = (uNode.survival_weight !== undefined && uNode.survival_weight !== null)
+            ? uNode.survival_weight
+            : uNode["本事件权重"];
         
         // 尝试多种查找方式更新缓存
         let cacheNode = nodeCache[sid] || nodeCache[nid];
@@ -1498,7 +1632,7 @@ function updateNodeIncremental(data) {
                         const isForeignNodeOpacity = (gNode.owner_id && gNode.owner_id !== currentOwnerIdForOpacity);
                         const isSharedForeignNodeOpacity = isForeignNodeOpacity && !gNode.is_locked;
                         
-                        const isOutsideHorizon = hasHorizon && !horizonNodes.has(gNode.id) && !isSharedForeignNodeOpacity;
+                        const isOutsideHorizon = hasHorizon && !horizonNodes.has(gNode.id);
                         let targetOpacity = baseOpacity;
                         if (isOutsideHorizon) {
                             let dimmedOpacity = 0;
@@ -1515,7 +1649,8 @@ function updateNodeIncremental(data) {
                                     dimmedOpacity = Math.min(baseOpacity, baseOpacity * 0.3 * distancePenalty);
                                 }
                             }
-                            targetOpacity = dimmedOpacity;
+                            // 强制统一由 updateEventHorizonVisibility 控制，不在此处重新计算
+                            targetOpacity = 0.05;
                         }
                         
                         // 使用 Tween 平滑过渡
@@ -1536,10 +1671,10 @@ function updateNodeIncremental(data) {
                             .easing(TWEEN.Easing.Quadratic.Out)
                             .onUpdate(obj => {
                                 mainSprite.scale.set(obj.scale, obj.scale, 1);
-                                if (mainSprite.material) {
-                                    mainSprite.material.opacity = obj.opacity;
-                                    mainSprite.material.needsUpdate = true;
-                                }
+                                // 【修复】不再在此处更新 opacity：node_updated 的透明度 Tween 会覆盖
+                                // updateEventHorizonVisibility 依据最新视界(horizonNodes)计算的虚化结果，
+                                // 导致 Memory 模式点击后“除大股东外其它节点一律显示”。
+                                // opacity 统一由 horizon_updated 广播触发 updateEventHorizonVisibility 控制。
                                 // 同步缩放光柱
                                 if (typeof activeBeam !== 'undefined' && activeBeam && activeBeam.userData.nodeId === (gNode.id || gNode.node_id)) {
                                     const currentPhysicalRadius = obj.scale / 2.5;
@@ -1550,17 +1685,21 @@ function updateNodeIncremental(data) {
                             .onComplete(() => {
                                 gNode.__threeObj.__currentMainTween = null;
                                 gNode.__threeObj.__isAnimatingOpacity = false;
+                                // 缩放动画结束后，重新应用事件视界虚化，确保 opacity 与最新视界一致
+                                updateEventHorizonVisibility();
                             })
                             .start();
                         } else {
                             mainSprite.scale.set(spriteScale, spriteScale, 1);
                             if (mainSprite.material) {
-                                mainSprite.material.opacity = targetOpacity;
-                                mainSprite.material.needsUpdate = true;
+                                // 同样，在无动画的 fallback 分支里，也不要直接覆盖 opacity，交由视界统一控制
+                                // mainSprite.material.opacity = targetOpacity;
+                                // mainSprite.material.needsUpdate = true;
                             }
                             if (typeof activeBeam !== 'undefined' && activeBeam && activeBeam.userData.nodeId === (gNode.id || gNode.node_id)) {
                                 activeBeam.scale.set(1, 1, 1);
                             }
+                            updateEventHorizonVisibility();
                         }
                     }
                     
@@ -1703,8 +1842,26 @@ function initSocketHandlers() {
         const currentActorId = new URLSearchParams(window.location.search).get('actor_id');
         
         // 检查是否属于当前拥有者
+        // 【核心修复】望远镜更新也可能包含当前视野中的异场节点信息。如果只按 owner_id 强行拦截，会导致
+        // 我们点异场节点生成的视界事件被本场忽略（因为后端发出的 horizon_updated 是针对点下的节点的 owner_id 发的）。
+        // 改为放宽拦截条件：只要视界的触发者 actor_id 和自己一致，或者有特定的 owner_id 标记且在当前视图中，就不拦截。
+        const botId = new URLSearchParams(window.location.search).get('bot_id');
+        const isMemoryMode = !!botId;
+
         if (data.owner_id && data.owner_id !== currentOwnerId) {
-            return;
+            // Memory 模式下：允许同用户跨域视界；非 Memory 模式下：严格拦截跨域
+            if (isMemoryMode) {
+                // 如果我们是同一个人（actor_id一致）点的跨域节点产生的视界变化，必须放行！
+                if (!(currentActorId && data.actor_id === currentActorId)) {
+                    console.log(`[Socket.IO horizon_updated] Memory模式 - 拦截他人跨域视界: ${data.owner_id}`);
+                    return;
+                } else {
+                    console.log(`[Socket.IO horizon_updated] Memory模式 - 放行同用户跨域视界`);
+                }
+            } else {
+                console.log(`[Socket.IO horizon_updated] 非Memory模式 - 严格拦截跨域视界: ${data.owner_id}`);
+                return;
+            }
         }
         
         // 检查是否属于当前用户
@@ -1750,14 +1907,20 @@ function initSocketHandlers() {
     });
 
     window.socket.on('node_updated', (data) => {
-        const currentOwnerId = new URLSearchParams(window.location.search).get('owner_id') || 'default';
-        const currentActorId = new URLSearchParams(window.location.search).get('actor_id');
+        const urlParams = new URLSearchParams(window.location.search);
+        const currentOwnerId = urlParams.get('owner_id') || 'default';
+
+        console.log(`[Socket.IO node_updated] 收到: node_id=${data.node_id}, owner_id=${data.owner_id}, actor_id=${data.actor_id}, weight=${data.survival_weight}`);
         
-        // 1. 隔离不同的 owner_id
-        if (data.owner_id && data.owner_id !== currentOwnerId) return;
-        
-        // 2. 隔离不同的 actor_id
-        if (data.actor_id && currentActorId && data.actor_id !== currentActorId) return;
+        // 隔离不同的 owner_id：仅当异场节点已加载进当前视图（nodeCache 命中）时才放行，
+        // 避免无关场域的更新污染当前视图。
+        if (data.owner_id && data.owner_id !== currentOwnerId && !nodeCache[data.node_id]) {
+            console.log(`[Socket.IO node_updated] 拦截(owner_id不匹配且不在缓存): ${data.node_id}`);
+            return;
+        }
+
+        // 注意：权重与 parent_id 是每个观测者各自的副本，允许任意 actor 对任意场域改权重 / 自定义 parent_id，
+        // 因此 node_updated 不再按 actor_id 拦截（只有 node_created / node_deleted 等增删改才需按 actor 隔离）。
 
         nodeCache[data.node_id] = data;
         // 使用增量更新而不是全量刷新，保留节点坐标，防止重绘抖动
@@ -1791,6 +1954,18 @@ function initSocketHandlers() {
 
         delete nodeCache[data.node_id];
         if (currentSelectedNodeId === data.node_id) closeDrawer();
+        loadInitialData();
+    });
+
+    // 场删除广播：本场被删则跳回 auth，他场受影响则重绘
+    window.socket.on('field_deleted', (data) => {
+        const currentOwnerId = new URLSearchParams(window.location.search).get('owner_id') || 'default';
+        if (data.deleted_owner_id && data.deleted_owner_id === currentOwnerId) {
+            alert('本场已被删除');
+            window.location.href = '/auth';
+            return;
+        }
+        // 他场：接触面爹已被清除，重绘反映最新连线
         loadInitialData();
     });
 
@@ -2596,6 +2771,9 @@ function handleNodeClick(node) {
     if (window.currentOwnerId && window.currentOwnerId !== 'default') {
         requestData.owner_id = window.currentOwnerId;
     }
+    if (window.currentBotId) {
+        requestData.bot_id = window.currentBotId;
+    }
     
     console.log(`[点击事件] 请求数据:`, requestData);
     
@@ -3120,13 +3298,14 @@ window.addEventListener('load', () => {
             }
 
             // --- 防误触：仅拦截「单击」（非双击）的视界外节点 ---
-            if (!isDoubleClick && hasHorizon && !horizonNodes.has(node.id) && !isSharedForeignNode) {
+            if (!isDoubleClick && hasHorizon && !horizonNodes.has(node.id)) {
                 node.__lastClickBlocked = true;
                 console.log(`[防误触] 节点 ${node.id} 处于视界外深空状态，忽略单击（双击可强制点击）`);
                 return;
             }
 
             // 异场节点跳转漫游（带着当前观测者身份进入异场，焦点不变）
+            // 不管是否携带 bot_id，只要点击异场节点就立即跨场跳转
             if (isForeignNode) {
                 console.log(`[星空跳跃] 即将前往异场 ${node.owner_id}，目标焦点 ${node.id}`);
                 const url = new URL(window.location.href);
@@ -3177,6 +3356,14 @@ window.addEventListener('load', () => {
                 if (window.currentOwnerId && window.currentOwnerId !== 'default') {
                     requestData.owner_id = window.currentOwnerId;
                 }
+                if (window.currentBotId) {
+                    requestData.bot_id = window.currentBotId;
+                }
+                const slider = document.getElementById('telescope-slider');
+                if (slider && slider.value) {
+                    requestData.max_eyes = parseFloat(slider.value);
+                }
+                console.log(`[点击事件(只读)] 请求数据:`, requestData);
                 fetch('/api/v1/causal/click', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -3255,8 +3442,15 @@ window.addEventListener('load', () => {
             if (window.currentOwnerId && window.currentOwnerId !== 'default') {
                 requestData.owner_id = window.currentOwnerId;
             }
+            if (window.currentBotId) {
+                requestData.bot_id = window.currentBotId;
+            }
+            const slider = document.getElementById('telescope-slider');
+            if (slider && slider.value) {
+                requestData.max_eyes = parseFloat(slider.value);
+            }
             
-            console.log(`[点击事件] 请求数据:`, requestData);
+            console.log(`[点击事件(编辑)] 请求数据:`, requestData);
             
             fetch('/api/v1/causal/click', {
                 method: 'POST',
@@ -3983,7 +4177,7 @@ window.addEventListener('load', () => {
                         </div>
                     </div>
                     <div class="result-actions">
-                        <button class="result-action-btn" onclick="handleSearchResultClick(${serialId}, '${nodeId}')">
+                        <button class="result-action-btn" onclick="handleSearchResultClick(${serialId}, '${nodeId}', null, '${result.owner_id || ''}')">
                             瞄定此事件
                         </button>
                     </div>
@@ -4000,8 +4194,23 @@ window.addEventListener('load', () => {
     }
     
     // 处理搜索结果点击事件 - 定义为全局函数
-    window.handleSearchResultClick = async function(serialId, nodeId, maxEyes = null) {
-        console.log(`[搜索点击] 点击搜索结果: serial_id=${serialId}, node_id=${nodeId}, maxEyes=${maxEyes}`);
+    window.handleSearchResultClick = async function(serialId, nodeId, maxEyes = null, resultOwnerId = null) {
+        console.log(`[搜索点击] 点击搜索结果: serial_id=${serialId}, node_id=${nodeId}, maxEyes=${maxEyes}, owner_id=${resultOwnerId}`);
+        
+        // 异场节点统一跳转逻辑（不管是否开启 Memory 模式）
+        const currentOwnerId = window.currentOwnerId || 'default';
+        if (resultOwnerId && resultOwnerId !== currentOwnerId) {
+            console.log(`[星空跳跃] 搜索结果点击，即将前往异场 ${resultOwnerId}，目标焦点 ${nodeId}`);
+            const url = new URL(window.location.href);
+            url.searchParams.set('owner_id', resultOwnerId);
+            url.searchParams.set('serial_id', serialId || nodeId);
+            if (window.currentActorId) {
+                url.searchParams.set('actor_id', window.currentActorId);
+            }
+            window.location.href = url.toString();
+            return;
+        }
+
         console.log(`[搜索点击] is_change=${is_change}, activeParentIdField=`, activeParentIdField);
         // 兜底：如果失焦导致 activeParentIdField 为 null，重新获取它
         if (!is_change && !activeParentIdField) {
@@ -4046,6 +4255,9 @@ window.addEventListener('load', () => {
                 actor_id: window.currentActorId || '',
                 owner_id: window.currentOwnerId || 'default'
             };
+            if (window.currentBotId) {
+                requestData.bot_id = window.currentBotId;
+            }
             if (maxEyes !== null) {
                 requestData.max_eyes = maxEyes;
             }
@@ -4552,40 +4764,87 @@ window.addEventListener('load', () => {
 });
 
 
-// --- [大股东节点透明度定时监控] ---
+// --- [全局节点透明度及视界定时监控] ---
 setInterval(() => {
     if (!Graph) return;
     const { nodes } = Graph.graphData();
     if (!nodes) return;
 
+    let horizonNeedsRefresh = false;
+    const hasHorizon = typeof horizonNodes !== 'undefined' && horizonNodes.size > 0 && typeof currentBossNodeId !== 'undefined' && currentBossNodeId;
+    let bossNode = null;
+    
+    if (hasHorizon) {
+        bossNode = nodes.find(n => n.id === currentBossNodeId || n.node_id === currentBossNodeId);
+    }
+
+    let debugLogs = [];
+
     nodes.forEach(node => {
-        // 判断是否为大股东 (survival_weight > 0.59)
-        if (node.survival_weight > 0.59 && node.__threeObj) {
-            const sphere = node.__threeObj.children[0];
-            const sprite = node.__threeObj.children[1];
-            
-            // 如果正在进行动画，暂时不强制覆盖
-            if (node.__threeObj.__isAnimatingOpacity) return;
+        if (!node.__threeObj) return;
+        const sphere = node.__threeObj.children[0];
+        const sprite = node.__threeObj.children[1];
+        if (!sphere || !sphere.material) return;
 
+        // 1. 对于大股东节点，强保透明度（最高权重）
+        if (node.survival_weight > 0.59) {
             let needsUpdate = false;
-
-            if (sphere && sphere.material && sphere.material.opacity < 0.98) {
+            if (sphere.material.opacity < 0.98) {
                 sphere.material.opacity = 0.98;
                 sphere.material.needsUpdate = true;
                 needsUpdate = true;
             }
-            
             if (sprite && sprite.material && sprite.material.opacity < 0.98) {
                 sprite.material.opacity = 0.98 * 0.8;
                 sprite.material.needsUpdate = true;
                 needsUpdate = true;
             }
+        } 
+        // 2. 对于普通节点，如果存在视界，检查视界外节点是否异常显示
+        else if (hasHorizon && bossNode && !horizonNodes.has(node.id)) {
+            const expectedDimmedOpacity = 0.05;
             
-            if (needsUpdate) {
-                // console.log(`[Monitor] 强制恢复大股东节点 ${node.id} 的透明度为 1.0`);
+            if (sphere.material.opacity > expectedDimmedOpacity + 0.1) {
+                horizonNeedsRefresh = true;
+                if (debugLogs.length < 5) {
+                    debugLogs.push(`Node ${node.id.substring(0,6)}: actual opacity ${sphere.material.opacity.toFixed(2)} > expected ${expectedDimmedOpacity.toFixed(2)}`);
+                }
             }
         }
     });
-}, 1000);
 
+    if (debugLogs.length > 0) {
+        console.log(`[Monitor] 异常详情: ${debugLogs.join(' | ')}`);
+        console.log(`[Monitor] 视界内节点数量: ${horizonNodes.size}, 大股东: ${currentBossNodeId}`);
+    }
+    
+    // 调试：输出特定前缀的节点信息
+    const testNodeIdPrefix = '759';
+    nodes.forEach(node => {
+        if (node.id && String(node.id).startsWith(testNodeIdPrefix)) {
+            const inHorizon = typeof horizonNodes !== 'undefined' && horizonNodes.has(node.id);
+            let dist = -1;
+            if (bossNode && node.x !== undefined && bossNode.x !== undefined) {
+                const dx = node.x - bossNode.x;
+                const dy = node.y - bossNode.y;
+                const dz = node.z - bossNode.z;
+                dist = Math.max(1, Math.sqrt(dx * dx + dy * dy + dz * dz));
+            }
+            
+            const sphere = node.__threeObj ? node.__threeObj.children[0] : null;
+            const op = (sphere && sphere.material) ? sphere.material.opacity : -1;
+            const vis = sphere ? sphere.visible : false;
+            
+            console.log(`[Debug 759 Node] ID: ${node.id}, IsInHorizon: ${inHorizon}, DistanceToBoss: ${dist.toFixed(2)}, Opacity: ${op.toFixed(2)}, Visible: ${vis}`);
+        }
+    });
+
+    if (horizonNeedsRefresh) {
+        console.log("[Monitor] 检测到视界外普通节点透明度异常，触发全局视界重绘");
+        if (typeof updateEventHorizonVisibility === 'function') {
+            updateEventHorizonVisibility();
+        }
+    }
+}, 1000);
 initStarHud();
+

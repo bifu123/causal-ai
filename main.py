@@ -393,8 +393,12 @@ async def delete_node(delete_data: dict):
             # 如果是根事件，子事件变为新的根事件（前事件ID为NULL）
             db.update_children_to_null_previous(node_id)
         
-        # 广播删除事件
-        await sm.emit('node_deleted', {"node_id": node_id})
+        # 广播删除事件（带上 owner_id/actor_id，供前端跨场隔离）
+        await sm.emit('node_deleted', {
+            "node_id": node_id,
+            "owner_id": node.get('owner_id'),
+            "actor_id": node.get('actor_id'),
+        })
         
         return {
             "status": "success",
@@ -548,12 +552,13 @@ async def update_node(update_data: dict):
 
 # --- 历史数据接口：获取所有活跃事件 ---
 @app.get("/api/v1/causal/history")
-async def get_causal_history(actor_id: str = None, owner_id: str = None):
+async def get_causal_history(actor_id: str = None, owner_id: str = None, bot_id: str = None):
     """
     职责：返回所有活跃事件数据，用于前端初始化显示。
     支持参数：
         actor_id: 用户ID，如果提供则返回用户特定的权重数据
         owner_id: 事件拥有者ID，如果提供则只返回该拥有者的事件
+        bot_id: 机器人ID，如果提供则额外合并异场中属于该 bot 的 [chat] 节点
     """
     try:
         # 如果没有提供owner_id，使用默认值'default'
@@ -563,6 +568,23 @@ async def get_causal_history(actor_id: str = None, owner_id: str = None):
         if actor_id:
             # 获取指定owner_id的节点数据
             active_nodes = db.get_all_active(owner_id)
+
+            # 追加合并跨场接触面节点
+            cross_nodes = db.get_cross_field_contact_surface(owner_id=owner_id, actor_id=actor_id)
+            existing_ids = {n['node_id'] for n in active_nodes}
+            for n in cross_nodes:
+                if n['node_id'] not in existing_ids:
+                    active_nodes.append(n)
+                    existing_ids.add(n['node_id'])
+            
+            # 追加合并 bot 专属 chat 节点（跨 owner_id 场）
+            if bot_id:
+                bot_nodes = db.get_bot_chat_nodes_cross_field(bot_id, exclude_owner_id=owner_id)
+                for n in bot_nodes:
+                    if n['node_id'] not in existing_ids:
+                        active_nodes.append(n)
+                        existing_ids.add(n['node_id'])
+                print(f"[bot合并] 纳入 bot({bot_id}) 的异场 chat 节点 {len(bot_nodes)} 个")
             
             # 检查是否有节点没有用户权重记录，如果有则创建默认记录
             # 注意：这里只处理属于当前owner_id的节点
@@ -581,7 +603,7 @@ async def get_causal_history(actor_id: str = None, owner_id: str = None):
             # 重新获取用户节点数据（包含新创建的权重记录）
             # 注意：这里需要重新获取，因为get_user_nodes不支持owner_id参数
             # 所以我们需要手动处理：先获取owner_id的节点，然后应用用户权重
-            active_nodes = db.get_all_active(owner_id)
+            # active_nodes = db.get_all_active(owner_id) # REMOVED: Do not overwrite the list we just built!
             for node in active_nodes:
                 serial_id = node.get('serial_id')
                 if serial_id:
@@ -601,20 +623,7 @@ async def get_causal_history(actor_id: str = None, owner_id: str = None):
         # 获取全图语义连线 (相似度阈值设为 0.6，可根据需要调整)
         semantic_links = db.get_all_semantic_links(owner_id=owner_id, threshold=0.6)
         
-        # 追加合并跨场接触面节点
-        cross_nodes = []
-        if actor_id:
-            cross_nodes = db.get_cross_field_contact_surface(owner_id=owner_id, actor_id=actor_id)
-            
-            # 去重和格式化
-            existing_ids = {n['node_id'] for n in active_nodes}
-            for n in cross_nodes:
-                if n['node_id'] not in existing_ids:
-                    n['last_accessed'] = str(n['last_accessed'])
-                    n['created_at'] = str(n['created_at'])
-                    n['survival_weight'] = float(n['survival_weight'])
-                    active_nodes.append(n)
-        
+                
         # 检查是否存在大股东节点（权重 >= 0.59），如果有则计算事件视界
         boss_node_id = None
         event_horizon_ids = None
@@ -684,6 +693,7 @@ async def search_by_keyword(request: Request):
 
         keyword = search_data.get('keyword')
         owner_id = search_data.get('owner_id', 'default')
+        bot_id = search_data.get('bot_id')
         
         limit_val = search_data.get('limit', 100)
         try:
@@ -698,7 +708,7 @@ async def search_by_keyword(request: Request):
         from core.search import get_event_with_params
         
         # 执行搜索
-        results = get_event_with_params(keyword, owner_id, limit)
+        results = get_event_with_params(keyword, owner_id, limit, bot_id)
         
         # 将中文键名转换为英文键名，以便与前端保持一致
         converted_results = []
@@ -745,6 +755,7 @@ async def search_by_vector(search_data: dict):
     try:
         keyword = search_data.get('keyword')
         owner_id = search_data.get('owner_id', 'default')
+        bot_id = search_data.get('bot_id')
         limit = search_data.get('limit', 100)
         threshold = search_data.get('threshold', 0.0)
         
@@ -755,7 +766,7 @@ async def search_by_vector(search_data: dict):
         from core.search import get_event_with_vector
         
         # 执行搜索
-        results = get_event_with_vector(keyword, owner_id, limit)
+        results = get_event_with_vector(keyword, owner_id, limit, bot_id)
         
         # 将中文键名转换为英文键名，以便与前端保持一致
         converted_results = []
@@ -858,6 +869,7 @@ async def handle_node_click(request: Request):
         actor_id: 用户ID（可选）
         owner_id: 事件拥有者ID（可选）
         max_eyes: 望远镜功率/事件视界半径（可选）
+        bot_id: 机器人ID（可选），提供则并入该 bot 跨场的 [chat] 记忆节点（过往）
     请求方式：
         - POST: 参数通过 JSON body 传递（原有方式，供 Agent/前端 JS 调用）
         - GET: 参数通过 URL query string 传递（便于直接用浏览器/curl 访问）
@@ -887,6 +899,7 @@ async def handle_node_click(request: Request):
 
         serial_id = click_data.get('serial_id')
         actor_id = click_data.get('actor_id')
+        bot_id = click_data.get('bot_id')
         if serial_id is None:
             return {"status": "error", "message": "缺少序列ID"}
         
@@ -918,10 +931,13 @@ async def handle_node_click(request: Request):
         if not owner_id:
             owner_id = node.get('owner_id', 'default')
         
-        # 视界扫描必须使用焦点节点自身的 owner_id，防止跨 owner 污染
+        # focal_owner_id：焦点节点自身的场，用于异场接触面（防止跨 owner 污染）
+        # 注意：事件视界扫描（get_event_horizon）改用 owner_id（当前视角场），
+        # 与 /history 页面初始化保持一致——否则点击异场节点时视界会落在焦点自身场，
+        # 导致当前视角场的节点永远不在视界内、max_eyes 滑杆失效。
         focal_owner_id = node.get('owner_id', owner_id)
             
-        print(f"[点击事件] 开始处理 serial_id: {serial_id}, actor_id: {actor_id}, owner_id: {owner_id}, focal_owner_id: {focal_owner_id}")
+        print(f"[点击事件] 开始处理 serial_id: {serial_id}, actor_id: {actor_id}, bot_id: {bot_id}, owner_id: {owner_id}, focal_owner_id: {focal_owner_id}")
         print(f"[点击事件] 找到节点: {node_id} (serial_id: {serial_id})")
         
         # 2. 从地宫恢复内容（如果存在）
@@ -954,19 +970,40 @@ async def handle_node_click(request: Request):
             
         horizon_show_links = env_config.get("HORIZON_DETAIL", "0") == "1"
         
-        event_horizon_nodes = db.get_event_horizon(node_id, max_eyes, focal_owner_id, show_links=horizon_show_links)
+        event_horizon_nodes = db.get_event_horizon(node_id, max_eyes, owner_id, show_links=horizon_show_links)
         
-        # 增加异场接触面
+        # 增加异场接触面（并计算到焦点节点的真实距离）
+        extra_nodes = []
         if actor_id:
-            cross_nodes = db.get_cross_field_contact_surface(owner_id=focal_owner_id, actor_id=actor_id)
+            cross_nodes = db.get_cross_field_contact_surface(owner_id=focal_owner_id, actor_id=actor_id, focal_node_id=node_id)
             existing_horizon_ids = {n['node_id'] for n in event_horizon_nodes}
             for cn in cross_nodes:
                 if cn['node_id'] not in existing_horizon_ids:
-                    cn['distance'] = 0.0 # 将接触面视为紧贴视界
                     event_horizon_nodes.append(cn)
+                    extra_nodes.append(cn)
+
+        # 增加 bot 专属 chat 节点（跨 owner_id 场，过往：记忆）
+        if bot_id:
+            # 注意：用 owner_id（当前视角场）而非 focal_owner_id（焦点节点自身场）排除。
+            # 否则点击异场节点时，它所在场的其它 bot chat 节点会被一并排除、无法参与权重重排。
+            bot_nodes = db.get_bot_chat_nodes_cross_field(bot_id, exclude_owner_id=owner_id, focal_node_id=node_id, max_eyes=max_eyes)
+            existing_horizon_ids = {n['node_id'] for n in event_horizon_nodes}
+            for n in bot_nodes:
+                n['last_accessed'] = str(n['last_accessed'])
+                n['created_at'] = str(n['created_at'])
+                n['survival_weight'] = float(n['survival_weight'])
+                # 所有异场 bot chat 节点都要参与权重重排（即使它们已在视界显示集合里）
+                extra_nodes.append(n)
+                # 显示集合只追加尚未出现的节点，避免重复
+                if n['node_id'] not in existing_horizon_ids:
+                    event_horizon_nodes.append(n)
+                    existing_horizon_ids.add(n['node_id'])
+            print(f"[点击事件] 纳入 bot({bot_id}) 的异场 chat 节点 {len(bot_nodes)} 个（参与重排）")
                     
         event_horizon_ids = [n['node_id'] for n in event_horizon_nodes]
-        print(f"[点击事件] 视界扫描完成，半径: {max_eyes}，视界内节点数: {len(event_horizon_ids)}")
+        print(f"[点击事件] 视界扫描完成，半径: {max_eyes}，视界内节点数: {len(event_horizon_ids)}，extra_nodes(异场并入重排): {len(extra_nodes)}")
+        for en in extra_nodes:
+            print(f"[点击事件]   extra_node: node_id={en.get('node_id')}, owner_id={en.get('owner_id')}, serial_id={en.get('serial_id')}, weight={en.get('survival_weight')}")
         
         # 打印视界内节点的实际距离，帮助调试
         if event_horizon_nodes:
@@ -979,7 +1016,8 @@ async def handle_node_click(request: Request):
             node_id=node_id,
             actor_id=actor_id,
             owner_id=owner_id,
-            set_as_boss=True  # 设置为大股东模式
+            set_as_boss=True,  # 设置为大股东模式
+            extra_nodes=extra_nodes
         )
         
         if not updated_nodes:
@@ -1102,6 +1140,7 @@ async def get_current_event_horizon(request: Request):
         actor_id: 用户ID（可选），用于个性化权重更新
         owner_id: 事件拥有者ID（可选，默认 'default'）
         max_eyes: 望远镜功率/事件视界半径（可选）
+        bot_id: 机器人ID（可选），提供则并入该 bot 跨场的 [chat] 记忆节点（当下）
 
     请求方式：
         - POST: 参数通过 JSON body 传递（供 Agent/前端 JS 调用）
@@ -1145,6 +1184,7 @@ async def get_current_event_horizon(request: Request):
         actor_id = req_data.get('actor_id')
         owner_id = req_data.get('owner_id', 'default')
         req_max_eyes = req_data.get('max_eyes')
+        bot_id = req_data.get('bot_id')
 
         # 1. 获取指定 owner_id 的活跃事件（复用 history 逻辑）
         active_nodes = db.get_all_active(owner_id)
@@ -1236,7 +1276,22 @@ async def get_current_event_horizon(request: Request):
 
         # 7. 计算事件视界
         horizon_show_links = env_config.get("HORIZON_DETAIL", "0") == "1"
-        event_horizon_nodes = db.get_event_horizon(node_id, max_eyes, focal_owner_id, show_links=horizon_show_links)
+        event_horizon_nodes = db.get_event_horizon(node_id, max_eyes, owner_id, show_links=horizon_show_links)
+
+        # 7.1 追加合并 bot 专属 chat 节点（跨 owner_id 场，当下：记忆）
+        extra_nodes = []
+        if bot_id:
+            bot_nodes = db.get_bot_chat_nodes_cross_field(bot_id, exclude_owner_id=focal_owner_id, focal_node_id=node_id, max_eyes=max_eyes)
+            existing_horizon_ids = {n['node_id'] for n in event_horizon_nodes}
+            for n in bot_nodes:
+                if n['node_id'] not in existing_horizon_ids:
+                    n['last_accessed'] = str(n['last_accessed'])
+                    n['created_at'] = str(n['created_at'])
+                    n['survival_weight'] = float(n['survival_weight'])
+                    event_horizon_nodes.append(n)
+                    extra_nodes.append(n)
+            print(f"[事件视界] 纳入 bot({bot_id}) 的异场 chat 节点 {len(bot_nodes)} 个")
+
         event_horizon_ids = [n['node_id'] for n in event_horizon_nodes]
         print(f"[事件视界] 扫描完成，半径: {max_eyes}，视界内节点数: {len(event_horizon_ids)}")
 
@@ -1245,7 +1300,8 @@ async def get_current_event_horizon(request: Request):
             node_id=node_id,
             actor_id=actor_id,
             owner_id=owner_id,
-            set_as_boss=True
+            set_as_boss=True,
+            extra_nodes=extra_nodes
         )
 
         # 9. 从更新节点中找到当前节点
@@ -1676,10 +1732,13 @@ async def owner_create(data: dict):
     actor_id = (data.get("actor_id") or "").strip()
     if not owner_id or not name or not actor_id:
         return {"status": "error", "message": "owner_id、name、actor_id 均必填"}
+    # 一套房子只能有一个产权人：先查该场是否已有主人
+    if db.owner_exists(owner_id):
+        return {"status": "error", "message": "该场已经有了主人，请另外填写新场名"}
     try:
         db.create_owner(owner_id, name, actor_id)
     except Exception as e:
-        return {"status": "error", "message": "创建失败（owner_id 可能已存在）: " + str(e)}
+        return {"status": "error", "message": "创建失败: " + str(e)}
     return {"status": "success", "message": "创建成功", "data": {"owner_id": owner_id, "name": name}}
 
 
@@ -1704,6 +1763,33 @@ async def owner_delete(data: dict):
         return {"status": "error", "message": "owner_id、actor_id 均必填"}
     db.delete_owner(owner_id, actor_id)
     return {"status": "success", "message": "已删除（节点数据未删除）"}
+
+
+@app.post("/api/v1/owner/delete_all")
+async def owner_delete_all(data: dict):
+    """彻底删除场：活跃表 + 地宫表 + 用户权重表 + 场注册，并清除他场接触面爹引用。"""
+    owner_id = (data.get("owner_id") or "").strip()
+    actor_id = (data.get("actor_id") or "").strip()
+    if not owner_id or not actor_id:
+        return {"status": "error", "message": "owner_id、actor_id 均必填"}
+    try:
+        result = db.delete_owner_all(owner_id)
+    except Exception as e:
+        print(f"[API 错误] 删除全部失败: {e}")
+        return {"status": "error", "message": str(e)}
+
+    # 广播 field_deleted（全局广播，前端按 owner_id/actor_id 隔离）
+    await sm.emit('field_deleted', {
+        "deleted_owner_id": owner_id,
+        "affected_nodes": result.get("affected_nodes", []),
+        "message": f"场 {owner_id} 已被删除，相关节点失去了与它的因果连线"
+    })
+
+    return {
+        "status": "success",
+        "message": f"已彻底删除场 {owner_id} 的全部事件节点",
+        "data": result
+    }
 
 
 # --- 账号中心：钥匙 Token 管理 ---

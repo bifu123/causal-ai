@@ -295,6 +295,57 @@ class CausalDatabase:
                     node['previous_node'] = node.pop('parent_id')
             return nodes
 
+    def get_bot_chat_nodes_cross_field(self, bot_id: str, exclude_owner_id: str = None, focal_node_id: str = None, max_eyes: float = None):
+        """获取异场（owner_id != exclude_owner_id）中属于某 bot 的 [chat] 节点。
+        若提供 focal_node_id，则同时计算到焦点节点的语义距离 distance（并剥离大向量）。
+        若提供 max_eyes 且有 focal_node_id，则在数据库层级过滤 distance <= max_eyes 的节点。"""
+        if focal_node_id:
+            sql = """
+                SELECT n.*,
+                       (n.semantic_vector <=> (
+                           SELECT semantic_vector FROM ains_active_nodes WHERE node_id = %s
+                       )) * 100 AS distance
+                FROM ains_active_nodes n
+                WHERE n.event_tuple LIKE %s
+                  AND n.event_tuple LIKE %s
+                  AND n.semantic_vector IS NOT NULL
+            """
+            params = [focal_node_id, f"%{bot_id}%", "%[chat]%"]
+            
+            if max_eyes is not None:
+                sql += """
+                  AND (n.semantic_vector <=> (
+                      SELECT semantic_vector FROM ains_active_nodes WHERE node_id = %s
+                  )) * 100 <= %s
+                """
+                params.extend([focal_node_id, max_eyes])
+        else:
+            sql = """
+                SELECT * FROM ains_active_nodes
+                WHERE event_tuple LIKE %s
+                  AND event_tuple LIKE %s
+            """
+            params = [f"%{bot_id}%", "%[chat]%"]
+        if exclude_owner_id:
+            sql += " AND owner_id != %s"
+            params.append(exclude_owner_id)
+        sql += " ORDER BY created_at ASC"
+
+        with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(sql, params)
+            nodes = cur.fetchall()
+        # 与 get_all_active 一致：解析前事件列表
+        for node in nodes:
+            if 'parent_id' in node:
+                node['previous_ids'] = self._string_to_previous(node.get('parent_id'))
+                node['previous_node'] = node.pop('parent_id')
+            if 'distance' in node and node['distance'] is not None:
+                node['distance'] = float(node['distance'])
+            if focal_node_id:
+                node.pop('semantic_vector', None)
+                node.pop('visual_vector', None)
+        return nodes
+
     def delete_node(self, node_id: str):
         with self.conn.cursor() as cur:
             cur.execute("DELETE FROM ains_active_nodes WHERE node_id = %s", (node_id,))
@@ -1196,15 +1247,20 @@ class CausalDatabase:
                     
             return nodes
 
-    def get_cross_field_contact_surface(self, owner_id: str, actor_id: str = None):
+    def get_cross_field_contact_surface(self, owner_id: str, actor_id: str = None, focal_node_id: str = None):
         """
         职责：获取本场与异场之间的交集接触面连线。
         如果异场节点被设置为不可分享（is_share=False），则将其内容打码。
+        若提供 focal_node_id，则同时计算到焦点节点的语义距离 distance（并剥离大向量）。
         """
+        distance_col = ""
+        if focal_node_id:
+            distance_col = ", (n.semantic_vector <=> (SELECT semantic_vector FROM ains_active_nodes WHERE node_id = %s)) * 100 AS distance"
+
         # 第一步：查找由于 parent_id 关联产生的接触面
         # 提取当前 owner_id 下的所有 node_id，或者指向当前 owner_id 的异场节点
-        sql = """
-            SELECT DISTINCT n.*, w.parent_id as user_parent_id, w.survival_weight as user_weight
+        sql = f"""
+            SELECT DISTINCT n.*, w.parent_id as user_parent_id, w.survival_weight as user_weight{distance_col}
             FROM ains_active_nodes n
             LEFT JOIN ains_user_weights w ON n.serial_id = w.serial_id AND w.actor_id = %s
             WHERE n.owner_id != %s
@@ -1226,8 +1282,12 @@ class CausalDatabase:
               )
         """
         
+        params = [actor_id, owner_id, owner_id, actor_id, owner_id]
+        if focal_node_id:
+            params.insert(0, focal_node_id)
+
         with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute(sql, (actor_id, owner_id, owner_id, actor_id, owner_id))
+            cur.execute(sql, params)
             nodes = cur.fetchall()
             
             for node in nodes:
@@ -1246,6 +1306,13 @@ class CausalDatabase:
                 if 'parent_id' in node:
                     node['previous_ids'] = self._string_to_previous(node.get('parent_id'))
                     node['previous_node'] = node.pop('parent_id')
+
+                if 'distance' in node and node['distance'] is not None:
+                    node['distance'] = float(node['distance'])
+
+                if focal_node_id:
+                    node.pop('semantic_vector', None)
+                    node.pop('visual_vector', None)
                     
             return nodes
 
@@ -1299,13 +1366,31 @@ class CausalDatabase:
                     node['previous_node'] = node.pop('parent_id')
             return nodes
     
-    def promote_all_weights(self, node_id: str, actor_id=None, owner_id=None, set_as_boss=True):
+    def get_zero_weight_xiang_nodes(self, threshold=0.0):
+        """
+        职责：查询"全员遗忘"的"相"事件（候选删除名单）
+        判据：block_tag='相' 且所有用户权重都 <= threshold（即没有任何用户还记得它）
+        """
+        sql = """
+            SELECT b.serial_id, b.node_id
+            FROM ains_user_weights a
+            INNER JOIN ains_active_nodes b ON a.serial_id = b.serial_id
+            WHERE b.block_tag = '相'
+            GROUP BY b.serial_id, b.node_id
+            HAVING MAX(a.survival_weight) <= %s
+        """
+        with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(sql, (threshold,))
+            return cur.fetchall()
+
+    def promote_all_weights(self, node_id: str, actor_id=None, owner_id=None, set_as_boss=True, extra_nodes=None):
         """
         职责：提升节点权重到所有节点总权重的60%。
         如果指定actor_id，更新用户权重表；否则更新全局权重。
         如果指定owner_id，只处理属于该owner_id的节点。
         如果set_as_boss为True，将点击的节点设置为大股东（权重60%），
         所有其他节点按现有权重比例分配剩余的40%。
+        extra_nodes: 额外并入参与重排的节点（如异场 bot 节点、接触面节点）。
         返回：更新后的节点列表
         """
         if actor_id:
@@ -1320,6 +1405,25 @@ class CausalDatabase:
         
         # 2. 获取节点的当前权重（根据owner_id过滤）
         all_nodes = self.get_all_active(owner_id)
+
+        # 2.1 并入额外的异场节点（参与距离/权重重排），按 node_id 去重
+        if extra_nodes:
+            seen = {n['node_id'] for n in all_nodes}
+            for n in extra_nodes:
+                if n.get('node_id') and n['node_id'] not in seen:
+                    seen.add(n['node_id'])
+                    # 确保跨场节点一定带有 serial_id，否则无法存入用户权重
+                    if not n.get('serial_id'):
+                        node_full = self.get_node_by_id(n['node_id'])
+                        if node_full and node_full.get('serial_id'):
+                            n['serial_id'] = node_full['serial_id']
+                    all_nodes.append(n)
+
+        # 2.2 确保大股东（被点击节点）一定参与重排，即使它属于异场（不在本场基础集里）
+        if node_id and not any(n.get('node_id') == node_id for n in all_nodes):
+            boss_node = self.get_node_by_id(node_id)
+            if boss_node:
+                all_nodes.append(boss_node)
         
         # 如果指定了actor_id，需要获取用户权重
         if actor_id:
@@ -1490,6 +1594,13 @@ class CausalDatabase:
             cur.execute(sql, (actor_id,))
             return cur.fetchall()
 
+    def owner_exists(self, owner_id: str) -> bool:
+        """判断场（owner_id）是否已有人创建（是否已有主人）。"""
+        sql = "SELECT 1 FROM ains_owner_masters WHERE owner_id = %s"
+        with self.conn.cursor() as cur:
+            cur.execute(sql, (owner_id,))
+            return cur.fetchone() is not None
+
     def create_owner(self, owner_id: str, name: str, actor_id: str):
         sql = "INSERT INTO ains_owner_masters (owner_id, name, actor_id) VALUES (%s, %s, %s)"
         with self.conn.cursor() as cur:
@@ -1504,6 +1615,79 @@ class CausalDatabase:
         sql = "DELETE FROM ains_owner_masters WHERE owner_id = %s AND actor_id = %s"
         with self.conn.cursor() as cur:
             cur.execute(sql, (owner_id, actor_id))
+
+    def delete_owner_all(self, owner_id: str):
+        """
+        职责：彻底删除一个场。
+        删除：活跃表(owner_id)、地宫表、用户权重表(靠外键级联)、场注册(ains_owner_masters)。
+        并清除他场节点指向本场节点的 parent_id 引用（全局 + 用户私有两处）。
+        返回：{"deleted_node_ids": [...], "affected_nodes": [{"node_id":.., "owner_id":..}, ...]}
+        """
+        # 1. 收集本场所有节点
+        with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("SELECT node_id, serial_id FROM ains_active_nodes WHERE owner_id = %s", (owner_id,))
+            nodes = cur.fetchall()
+        node_ids = [n['node_id'] for n in nodes]
+        serial_ids = [n['serial_id'] for n in nodes if n.get('serial_id') is not None]
+
+        affected = {}  # node_id -> owner_id
+
+        # 2. 清除跨场接触面：他场节点的 parent_id 引用了本场 node_id
+        if node_ids:
+            for nid in node_ids:
+                like_pat = '%|' + nid + '|%'
+                # 2a. 全局 ains_active_nodes.parent_id
+                with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    cur.execute(
+                        "SELECT node_id, owner_id, parent_id FROM ains_active_nodes "
+                        "WHERE owner_id != %s AND ('|' || COALESCE(parent_id,'') || '|') LIKE %s",
+                        (owner_id, like_pat)
+                    )
+                    for row in cur.fetchall():
+                        new_prev = [p for p in self._string_to_previous(row['parent_id']) if p != nid]
+                        new_parent = self._previous_to_string(new_prev)
+                        with self.conn.cursor() as cur2:
+                            cur2.execute("UPDATE ains_active_nodes SET parent_id = %s WHERE node_id = %s", (new_parent, row['node_id']))
+                        affected[row['node_id']] = row['owner_id']
+
+                # 2b. 用户私有 ains_user_weights.parent_id
+                with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    cur.execute(
+                        "SELECT w.actor_id, w.serial_id, w.parent_id, n.node_id, n.owner_id "
+                        "FROM ains_user_weights w JOIN ains_active_nodes n ON n.serial_id = w.serial_id "
+                        "WHERE n.owner_id != %s AND ('|' || COALESCE(w.parent_id,'') || '|') LIKE %s",
+                        (owner_id, like_pat)
+                    )
+                    for row in cur.fetchall():
+                        new_prev = [p for p in self._string_to_previous(row['parent_id']) if p != nid]
+                        new_parent = self._previous_to_string(new_prev)
+                        with self.conn.cursor() as cur2:
+                            cur2.execute(
+                                "UPDATE ains_user_weights SET parent_id = %s WHERE actor_id = %s AND serial_id = %s",
+                                (new_parent, row['actor_id'], row['serial_id'])
+                            )
+                        affected[row['node_id']] = row['owner_id']
+
+        # 3. 删地宫表（按 serial_id 与 node_id 双保险）
+        if serial_ids:
+            with self.conn.cursor() as cur:
+                cur.execute("DELETE FROM ains_archive_necropolis WHERE serial_id = ANY(%s)", (serial_ids,))
+        if node_ids:
+            with self.conn.cursor() as cur:
+                cur.execute("DELETE FROM ains_archive_necropolis WHERE node_id = ANY(%s)", (node_ids,))
+
+        # 4. 删活跃表（用户权重表靠外键 ON DELETE CASCADE 自动删）
+        with self.conn.cursor() as cur:
+            cur.execute("DELETE FROM ains_active_nodes WHERE owner_id = %s", (owner_id,))
+
+        # 5. 删场注册
+        with self.conn.cursor() as cur:
+            cur.execute("DELETE FROM ains_owner_masters WHERE owner_id = %s", (owner_id,))
+
+        return {
+            "deleted_node_ids": node_ids,
+            "affected_nodes": [{"node_id": k, "owner_id": v} for k, v in affected.items()],
+        }
 
 # 实例化单例
 db = CausalDatabase()

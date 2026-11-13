@@ -3983,7 +3983,7 @@ window.addEventListener('load', () => {
                         </div>
                     </div>
                     <div class="result-actions">
-                        <button class="result-action-btn" onclick="handleSearchResultClick(${serialId}, '${nodeId}')">
+                        <button class="result-action-btn" onclick="handleSearchResultClick(${serialId}, '${nodeId}', null, '${result.owner_id || ''}')">
                             瞄定此事件
                         </button>
                     </div>
@@ -4000,8 +4000,23 @@ window.addEventListener('load', () => {
     }
     
     // 处理搜索结果点击事件 - 定义为全局函数
-    window.handleSearchResultClick = async function(serialId, nodeId, maxEyes = null) {
-        console.log(`[搜索点击] 点击搜索结果: serial_id=${serialId}, node_id=${nodeId}, maxEyes=${maxEyes}`);
+    window.handleSearchResultClick = async function(serialId, nodeId, maxEyes = null, resultOwnerId = null) {
+        console.log(`[搜索点击] 点击搜索结果: serial_id=${serialId}, node_id=${nodeId}, maxEyes=${maxEyes}, owner_id=${resultOwnerId}`);
+        
+        // 异场节点统一跳转逻辑
+        const currentOwnerId = window.currentOwnerId || 'default';
+        if (resultOwnerId && resultOwnerId !== currentOwnerId) {
+            console.log(`[星空跳跃] 搜索结果点击，即将前往异场 ${resultOwnerId}，目标焦点 ${nodeId}`);
+            const url = new URL(window.location.href);
+            url.searchParams.set('owner_id', resultOwnerId);
+            url.searchParams.set('serial_id', serialId || nodeId);
+            if (window.currentActorId) {
+                url.searchParams.set('actor_id', window.currentActorId);
+            }
+            window.location.href = url.toString();
+            return;
+        }
+
         console.log(`[搜索点击] is_change=${is_change}, activeParentIdField=`, activeParentIdField);
         // 兜底：如果失焦导致 activeParentIdField 为 null，重新获取它
         if (!is_change && !activeParentIdField) {

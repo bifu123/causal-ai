@@ -80,6 +80,7 @@ class MetabolismEngine:
         self.is_running = False
         self.event_max = int(os.getenv("EVENT_MAX", 4000))
         self.event_loss = int(os.getenv("EVENT_LOSS", 3000))  # 距上次访问时间（秒）大于此值，且权重为0，event_tuple为NULL
+        self.xiang_forget_threshold = Decimal(os.getenv("XIANG_FORGET_THRESHOLD", "0.0"))  # "相"事件遗忘阈值
 
     async def run(self):
         """
@@ -103,6 +104,31 @@ class MetabolismEngine:
         2. 检查是否需要根据权重分配字符长度
         3. 根据 EVENT_LOSS 决定是否将 event_tuple 设置为 null
         """
+        # 0. 清理"全员遗忘"的"相"事件（所有用户权重 <= 阈值即彻底删除并重组连线）
+        candidates = db.get_zero_weight_xiang_nodes(self.xiang_forget_threshold)
+        for cand in candidates:
+            node_id = cand.get('node_id')
+            if not node_id:
+                continue
+            node = db.get_node_by_id(node_id)
+            if not node:
+                continue
+            previous_ids = node.get('previous_ids', [])
+            print(f"[代谢] 删除全员遗忘的'相'事件: {node_id} (serial_id={cand.get('serial_id')}, 阈值={self.xiang_forget_threshold})")
+            # 删除事件（活跃表+地宫表显式删，权重表靠外键级联自动删）
+            db.delete_node_with_necropolis(node_id)
+            # 更新子事件的前事件ID（孙子给爷爷养）
+            if previous_ids:
+                db.update_children_to_new_previous(node_id, previous_ids)
+            else:
+                db.update_children_to_null_previous(node_id)
+            # 广播删除事件（带上 owner_id/actor_id，供前端跨场隔离）
+            await self.sm.emit('node_deleted', {
+                "node_id": node_id,
+                "owner_id": node.get('owner_id'),
+                "actor_id": node.get('actor_id'),
+            })
+
         # 1. 获取所有非初创节点（有连接关系的节点）
         # 初创节点定义：parent_id为NULL且没有子节点
         active_nodes = db.get_non_startup_nodes()

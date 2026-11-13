@@ -110,6 +110,33 @@
             animation: pulse 2s infinite;
         }
 
+        /* 退出登录按钮 */
+        .logout-btn {
+            margin-left: 6px;
+            padding: 2px 12px;
+            background: rgba(239, 68, 68, 0.16);
+            border: 1px solid rgba(239, 68, 68, 0.55);
+            border-radius: 12px;
+            color: #f87171;
+            font-size: 0.72rem;
+            font-family: 'Noto Sans SC', system-ui, sans-serif;
+            letter-spacing: 0.05em;
+            cursor: pointer;
+            display: none;
+            transition: all 0.2s ease;
+        }
+
+        .logout-btn:hover {
+            background: rgba(239, 68, 68, 0.4);
+            color: #ffffff;
+            border-color: #ef4444;
+            box-shadow: 0 0 12px rgba(239, 68, 68, 0.4);
+        }
+
+        .status-bar.online .logout-btn {
+            display: inline-block;
+        }
+
         @keyframes pulse {
             0%, 100% { opacity: 1; transform: scale(1); }
             50% { opacity: 0.3; transform: scale(0.8); }
@@ -252,7 +279,7 @@
         /* 卡片主体内容 */
         .card-body {
             padding: 22px;
-            max-height: 1200px;
+            max-height: 10000px;
             transition: max-height 0.4s cubic-bezier(0.4, 0, 0.2, 1), padding 0.4s ease, opacity 0.3s ease;
             opacity: 1;
         }
@@ -456,6 +483,22 @@
             border-color: #c084fc;
             color: #ffffff;
             box-shadow: 0 0 20px rgba(192, 132, 252, 0.45);
+            transform: translateY(-2px);
+        }
+
+        /* Memory 按钮（琥珀金光，象征记忆 / Agent 专用场） */
+        .btn.memory {
+            border: 1px solid rgba(251, 191, 36, 0.55);
+            background: rgba(251, 191, 36, 0.15);
+            color: #fde68a;
+            box-shadow: 0 0 10px rgba(251, 191, 36, 0.18);
+        }
+
+        .btn.memory:hover {
+            background: rgba(251, 191, 36, 0.35);
+            border-color: #fbbf24;
+            color: #ffffff;
+            box-shadow: 0 0 20px rgba(251, 191, 36, 0.45);
             transform: translateY(-2px);
         }
 
@@ -786,6 +829,7 @@
             <div class="status-bar" id="status-bar">
                 <span class="status-dot"></span>
                 <span id="status-text">未登录</span>
+                <button id="logout-btn" class="logout-btn" type="button">退出</button>
             </div>
         </header>
 

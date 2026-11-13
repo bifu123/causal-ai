@@ -6,8 +6,9 @@ const horizonNodes = new Set();
 let currentBossNodeId = null;
 
 document.addEventListener('DOMContentLoaded', () => {
-    currentActorId = localStorage.getItem('causal_actor_id');
     const params = new URLSearchParams(window.location.search);
+    // 身份优先级：URL 显式参数 > localStorage 记住的登录身份（localStorage 仅作 /auth 免登录）
+    currentActorId = params.get('actor_id') || localStorage.getItem('causal_actor_id');
     currentOwnerId = params.get('owner_id') || 'default';
 });
 
@@ -1383,6 +1384,10 @@ socket.on('node_updated', (data) => {
 socket.on('node_deleted', (data) => {
     const nodeId = data.node_id;
     
+    // 跨场隔离：只处理同 owner_id / actor_id 的删除广播
+    if (data.owner_id && data.owner_id !== currentOwnerId) return;
+    if (data.actor_id && currentActorId && data.actor_id !== currentActorId) return;
+    
     // 从缓存中移除
     delete nodeCache[nodeId];
     
@@ -1401,6 +1406,17 @@ socket.on('node_deleted', (data) => {
     }
     
     console.log(`[司南] 事件 "${nodeId}" 已从图中移除。`);
+});
+
+// 场删除广播：本场被删则跳回 auth，他场受影响则重绘
+socket.on('field_deleted', (data) => {
+    if (data.deleted_owner_id && data.deleted_owner_id === currentOwnerId) {
+        alert('本场已被删除');
+        window.location.href = '/auth';
+        return;
+    }
+    // 他场：接触面爹已被清除，重绘反映最新连线
+    initCausalGraph();
 });
 
 // 巡航视觉同步：接收3D端巡航跳跃广播
@@ -2467,7 +2483,7 @@ function displaySearchResults(results, searchType = 'keyword') {
                     </div>
                 </div>
                 <div class="result-actions">
-                    <button class="result-action-btn" onclick="handleSearchResultClick(${serialId}, '${nodeId}')">
+                    <button class="result-action-btn" onclick="handleSearchResultClick(${serialId}, '${nodeId}', '${result.owner_id || ''}')">
                         瞄定此事件
                     </button>
                 </div>
@@ -2484,8 +2500,23 @@ function displaySearchResults(results, searchType = 'keyword') {
 }
 
 // 处理搜索结果点击事件 - 定义为全局函数
-window.handleSearchResultClick = async function(serialId, nodeId) {
-    console.log(`[搜索点击] 点击搜索结果: serial_id=${serialId}, node_id=${nodeId}`);
+window.handleSearchResultClick = async function(serialId, nodeId, resultOwnerId = null) {
+    console.log(`[搜索点击] 点击搜索结果: serial_id=${serialId}, node_id=${nodeId}, owner_id=${resultOwnerId}`);
+    
+    // 异场节点统一跳转逻辑
+    const currentOwnerId = window.currentOwnerId || 'default';
+    if (resultOwnerId && resultOwnerId !== currentOwnerId) {
+        console.log(`[星空跳跃] 搜索结果点击，即将前往异场 ${resultOwnerId}，目标焦点 ${nodeId}`);
+        const url = new URL(window.location.href);
+        url.searchParams.set('owner_id', resultOwnerId);
+        url.searchParams.set('serial_id', serialId || nodeId);
+        if (window.currentActorId) {
+            url.searchParams.set('actor_id', window.currentActorId);
+        }
+        window.location.href = url.toString();
+        return;
+    }
+
     console.log(`[搜索点击] is_change=${is_change}, activeParentIdField=`, activeParentIdField);
     // 兜底：如果失焦导致 activeParentIdField 为 null，重新获取它
     if (!is_change && !activeParentIdField) {

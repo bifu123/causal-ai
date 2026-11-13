@@ -236,7 +236,7 @@ v5 = V5Relev()
 
 
 
-def get_event_with_params(keyword: str, owner_id: str = None, limit: int = None) -> List[Dict[str, Any]]:
+def get_event_with_params(keyword: str, owner_id: str = None, limit: int = None, bot_id: str = None) -> List[Dict[str, Any]]:
     """
     用关键字搜索瞄定事件节点，支持跨层（活跃/地宫）全息搜索。
     """
@@ -244,10 +244,15 @@ def get_event_with_params(keyword: str, owner_id: str = None, limit: int = None)
     if not keyword:
         return []
     
-    # 构建owner_id过滤条件
-    owner_filter = ""
+    owner_conditions = []
     if owner_id:
-        owner_filter = f" AND root.owner_id = '{owner_id}'"
+        owner_conditions.append(f"root.owner_id = '{owner_id}'")
+    if bot_id:
+        owner_conditions.append(f"(root.event_tuple LIKE '%{bot_id}%' AND root.event_tuple LIKE '%[chat]%')")
+        
+    owner_filter = ""
+    if owner_conditions:
+        owner_filter = f" AND ({' OR '.join(owner_conditions)})"
     
     # 核心优化逻辑：
     # 1. 使用 plainto_tsquery 代替手动 REPLACE，自动处理空格并提高分词容错。
@@ -391,7 +396,7 @@ ORDER BY root.survival_weight DESC
 
 
 
-def get_event_with_vector(keyword: str, owner_id: str = None, limit: int = None) -> List[Dict[str, Any]]:
+def get_event_with_vector(keyword: str, owner_id: str = None, limit: int = None, bot_id: str = None) -> List[Dict[str, Any]]:
     """
     用语义向量搜索瞄定事件节点。
     """
@@ -405,12 +410,17 @@ def get_event_with_vector(keyword: str, owner_id: str = None, limit: int = None)
         print(f"[搜索警告] 无法获取关键字 '{keyword}' 的向量")
         return []
     
-    # 构建owner_id过滤条件
-    owner_filter = ""
     params = []
+    owner_conditions = []
     if owner_id:
-        owner_filter = " AND root.owner_id = %s"
+        owner_conditions.append("root.owner_id = %s")
         params.append(owner_id)
+    if bot_id:
+        owner_conditions.append(f"(root.event_tuple LIKE '%%{bot_id}%%' AND root.event_tuple LIKE '%%[chat]%%')")
+        
+    owner_filter = ""
+    if owner_conditions:
+        owner_filter = f" AND ({' OR '.join(owner_conditions)})"
         
     params.append(json.dumps(query_vector))
     
