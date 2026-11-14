@@ -1,0 +1,834 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>开始页-因果星空</title>
+    <!-- Three.js 驱动底层 3D 粒子与透视经纬线 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- Google Fonts 科技与人文字体 -->
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Noto+Sans+SC:wght@300;400;700;900&display=swap" rel="stylesheet">
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body, html {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #010206;
+            color: #f1f5f9;
+            font-family: 'Noto Sans SC', system-ui, -apple-system, sans-serif;
+        }
+
+        /* 全屏 3D 宇宙 Canvas */
+        #canvas-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 1;
+            pointer-events: none;
+        }
+
+        /* 全屏经纬线近端满屏淡化与沉浸感光晕遮罩 */
+        .screen-vignette {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 2;
+            pointer-events: none;
+            background: radial-gradient(circle at 50% 50%, rgba(1, 2, 6, 0.1) 0%, rgba(1, 2, 6, 0.78) 78%, rgba(1, 2, 6, 0.98) 100%);
+        }
+
+        /* 顶部科技 HUD 导航 */
+        .hud-header {
+            position: fixed;
+            top: 24px;
+            left: 36px;
+            right: 36px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 30;
+            font-family: 'Orbitron', monospace;
+            font-size: 0.75rem;
+            letter-spacing: 0.25em;
+            color: #475569;
+            pointer-events: none;
+        }
+
+        .hud-status {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .status-dot {
+            width: 6px;
+            height: 6px;
+            background-color: #38bdf8;
+            border-radius: 50%;
+            box-shadow: 0 0 10px #38bdf8;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.3; transform: scale(0.8); }
+        }
+
+        /* 顶端满屏横幅标题区块 */
+        .fullwidth-header-banner {
+            position: fixed;
+            top: 60px;
+            left: -5px;
+            width: calc(100vw + 10px);
+            z-index: 20;
+            text-align: center;
+            pointer-events: none;
+            padding: 0;
+        }
+
+        .hero-banner-title {
+            font-size: min(1.6vw, 22px);
+            font-weight: 700;
+            letter-spacing: 0.4em;
+            width: 100%;
+            white-space: nowrap;
+            background: linear-gradient(180deg, #ffffff 0%, #38bdf8 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            text-shadow: 0 0 15px rgba(56, 189, 248, 0.5);
+            line-height: 1.2;
+        }
+
+        .hero-banner-sub {
+            font-family: 'Orbitron', monospace;
+            font-size: min(1.2vw, 16px);
+            color: #94a3b8;
+            letter-spacing: 0.6em;
+            margin-top: 6px;
+            text-transform: uppercase;
+            text-shadow: 0 0 10px rgba(148, 163, 184, 0.4);
+        }
+
+        /* 中央深远景深透视公式 - 聚光 + 远距离经纬奇点 */
+        .central-deep-focal {
+            position: absolute;
+            top: 52%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 25;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            pointer-events: none;
+            text-align: center;
+        }
+
+        /* 中心聚光灯强光晕效应 */
+        .spotlight-beam {
+            position: absolute;
+            width: 1050px;
+            height: 1050px;
+            background: radial-gradient(circle, rgba(56, 189, 248, 0.35) 0%, rgba(192, 132, 252, 0.18) 45%, rgba(56, 189, 248, 0.04) 75%, transparent 100%);
+            border-radius: 50%;
+            pointer-events: none;
+            filter: blur(45px);
+            animation: beamPulse 5s ease-in-out infinite alternate;
+        }
+
+        @keyframes beamPulse {
+            0% { transform: scale(0.85); opacity: 0.6; }
+            100% { transform: scale(1.25); opacity: 1; }
+        }
+
+        .focal-formula {
+            font-family: 'Orbitron', monospace;
+            font-size: min(8.5vw, 120px);
+            font-weight: 900;
+            letter-spacing: 0.12em;
+            background: linear-gradient(180deg, #ffffff 0%, #38bdf8 50%, rgba(192, 132, 252, 0.95) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            text-shadow: 
+                0 0 50px rgba(56, 189, 248, 0.9),
+                0 0 110px rgba(56, 189, 248, 0.6),
+                0 0 200px rgba(192, 132, 252, 0.5);
+            white-space: nowrap;
+            filter: drop-shadow(0 0 35px rgba(56, 189, 248, 0.8));
+            animation: deepPerspective 8s ease-in-out infinite alternate;
+            margin-bottom: 20px;
+        }
+
+        @keyframes deepPerspective {
+            0% {
+                transform: scale(0.92);
+                letter-spacing: 0.1em;
+                filter: blur(0.5px) drop-shadow(0 0 25px rgba(56, 189, 248, 0.6));
+            }
+            100% {
+                transform: scale(1.05);
+                letter-spacing: 0.15em;
+                filter: blur(0px) drop-shadow(0 0 55px rgba(192, 132, 252, 0.95));
+            }
+        }
+
+        /* 居中精简按钮组 */
+        .center-btn-group {
+            pointer-events: auto;
+            display: flex;
+            gap: 14px;
+            margin-top: 5px;
+            opacity: 0.95;
+            transition: opacity 0.3s ease;
+        }
+
+        .center-btn-group:hover {
+            opacity: 1;
+        }
+
+        .btn-glow {
+            padding: 10px 22px;
+            border-radius: 24px;
+            font-size: 0.82rem;
+            font-weight: 500;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            border: 1px solid rgba(56, 189, 248, 0.4);
+            background: rgba(15, 23, 42, 0.75);
+            color: #38bdf8;
+            box-shadow: 0 0 15px rgba(56, 189, 248, 0.15);
+            backdrop-filter: blur(8px);
+        }
+
+        .btn-glow:hover {
+            background: rgba(56, 189, 248, 0.25);
+            border-color: #38bdf8;
+            color: #ffffff;
+            box-shadow: 0 0 25px rgba(56, 189, 248, 0.4);
+            transform: translateY(-2px);
+        }
+
+        .btn-ghost {
+            padding: 10px 22px;
+            border-radius: 24px;
+            font-size: 0.82rem;
+            font-weight: 500;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            background: rgba(2, 4, 10, 0.65);
+            color: #cbd5e1;
+            backdrop-filter: blur(8px);
+        }
+
+        .btn-ghost:hover {
+            background: rgba(255, 255, 255, 0.12);
+            border-color: rgba(255, 255, 255, 0.3);
+            color: #ffffff;
+            transform: translateY(-2px);
+        }
+
+        /* 布局网格：PC端样式 */
+        .frameless-hud-grid {
+            position: relative;
+            z-index: 20;
+            width: 100vw;
+            height: 100vh;
+            display: grid;
+            grid-template-columns: 380px 1fr 380px;
+            grid-template-rows: 1fr 1fr;
+            padding: 180px 45px 45px 45px;
+            gap: 20px;
+            pointer-events: none;
+        }
+
+        .text-block {
+            pointer-events: auto;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* 1. 左上：哲学名言引言 */
+        .block-top-left {
+            grid-column: 1;
+            grid-row: 1;
+            justify-content: flex-start;
+        }
+
+        .quote-lines {
+            padding-left: 0;
+            background: linear-gradient(90deg, rgba(56, 189, 248, 0.06) 0%, transparent 100%);
+            padding: 12px 16px;
+            border-left: 2px solid rgba(56, 189, 248, 0.5);
+            backdrop-filter: blur(6px);
+        }
+
+        .quote-lines p {
+            font-size: 0.92rem;
+            line-height: 1.8;
+            color: #9ea2a8;
+            font-style: italic;
+            text-shadow: 0 2px 8px rgba(0, 0, 0, 0.9);
+        }
+
+        .quote-author {
+            margin-top: 10px;
+            font-size: 0.78rem;
+            color: #64748b;
+            font-family: 'Orbitron', monospace;
+        }
+
+        /* 2. 左下：维度矩阵定义 */
+        .block-bottom-left {
+            grid-column: 1;
+            grid-row: 2;
+            justify-content: flex-end;
+        }
+
+        .dim-matrix {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            padding: 14px 16px;
+            background: linear-gradient(90deg, rgba(15, 23, 42, 0.5) 0%, transparent 100%);
+            border-left: 2px solid rgba(192, 132, 252, 0.5);
+            backdrop-filter: blur(6px);
+        }
+
+        .dim-row {
+            display: flex;
+            align-items: center;
+            font-size: 0.82rem;
+            text-shadow: 0 2px 8px rgba(0, 0, 0, 0.9);
+        }
+
+        .dim-label {
+            color: #38bdf8;
+            font-weight: 600;
+            width: 70px;
+        }
+
+        .dim-math {
+            font-family: 'Orbitron', monospace;
+            color: #c084fc;
+            width: 110px;
+            font-size: 0.78rem;
+        }
+
+        .dim-desc {
+            color: #94a3b8;
+        }
+
+        /* 3. 右下角 bottom-note 科技 HUD 挂轨卡片 */
+        .block-bottom-right {
+            grid-column: 3;
+            grid-row: 2;
+            justify-content: flex-end;
+            pointer-events: auto;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .bottom-note-card {
+            position: relative;
+            background: linear-gradient(135deg, rgba(15, 23, 42, 0.65) 0%, rgba(2, 4, 10, 0.45) 100%);
+            border-left: 3px solid #38bdf8;
+            padding: 16px 20px;
+            clip-path: polygon(
+                0% 0%, calc(100% - 10px) 0%, 
+                100% 10px, 100% 100%, 
+                0% 100%
+            );
+            backdrop-filter: blur(12px);
+            box-shadow: -5px 10px 25px rgba(0, 0, 0, 0.5), inset 0 1px 1px rgba(255, 255, 255, 0.08);
+            transition: all 0.3s ease;
+        }
+
+        .bottom-note-card:hover {
+            border-left-color: #c084fc;
+            box-shadow: -5px 10px 30px rgba(56, 189, 248, 0.2);
+        }
+
+        .note-card-tag {
+            font-family: 'Orbitron', monospace;
+            font-size: 0.68rem;
+            letter-spacing: 0.2em;
+            color: #38bdf8;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            text-transform: uppercase;
+        }
+
+        .note-card-tag::before {
+            content: '';
+            display: inline-block;
+            width: 5px;
+            height: 5px;
+            background: #38bdf8;
+            border-radius: 50%;
+            box-shadow: 0 0 6px #38bdf8;
+        }
+
+        .bottom-note-text {
+            font-size: 0.82rem;
+            color: #cbd5e1;
+            line-height: 1.75;
+            text-align: left;
+            text-shadow: 0 2px 6px rgba(0, 0, 0, 0.8);
+        }
+
+        .bottom-note-text .highlight-cyan {
+            color: #38bdf8;
+            font-weight: 600;
+        }
+
+        .bottom-note-text .highlight-purple {
+            color: #c084fc;
+            font-weight: 600;
+        }
+
+        /* ================= 页面右下角 ICP 备案号样式 ================= */
+        .icp-footer {
+            position: fixed;
+            bottom: 20px;
+            right: 30px;
+            z-index: 40;
+            font-family: 'Orbitron', 'Noto Sans SC', sans-serif;
+            font-size: 0.72rem;
+            letter-spacing: 0.1em;
+            pointer-events: auto;
+        }
+
+        .icp-footer a {
+            color: #64748b;
+            text-decoration: none;
+            transition: all 0.3s ease;
+            text-shadow: 0 2px 6px rgba(0, 0, 0, 0.9);
+        }
+
+        .icp-footer a:hover {
+            color: #38bdf8;
+            text-shadow: 0 0 10px rgba(56, 189, 248, 0.6);
+        }
+
+        /* ================= 移动端响应式优化 ================= */
+        @media (max-width: 768px) {
+            body, html {
+                overflow-y: auto;
+                overflow-x: hidden;
+            }
+
+            .hud-header {
+                display: none;
+            }
+
+            .frameless-hud-grid {
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100vw;
+                height: 100vh;
+                display: flex;
+                flex-direction: column;
+                justify-content: space-between;
+                padding: 24px 20px 50px 20px; /* 底部预留空间给 ICP 备案号 */
+                z-index: 20;
+                pointer-events: none;
+            }
+
+            .text-block {
+                pointer-events: auto;
+            }
+
+            .mobile-top-section {
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                text-align: center;
+                width: 100%;
+                margin-top: 10px;
+            }
+
+            .fullwidth-header-banner {
+                position: relative;
+                top: auto;
+                left: auto;
+                width: 100%;
+                padding: 0;
+                margin-bottom: 16px;
+            }
+
+            .hero-banner-title {
+                font-size: 1.15rem;
+                letter-spacing: 0.25em;
+            }
+
+            .hero-banner-sub {
+                font-size: 0.7rem;
+                letter-spacing: 0.3em;
+                margin-top: 4px;
+            }
+
+            .block-top-left {
+                width: 100%;
+                text-align: left;
+            }
+
+            .quote-lines {
+                background: rgba(1, 2, 6, 0.45);
+                padding: 10px 14px;
+            }
+
+            .quote-lines p {
+                font-size: 0.85rem;
+                line-height: 1.6;
+            }
+
+            .quote-author {
+                margin-top: 6px;
+                font-size: 0.72rem;
+            }
+
+            .central-deep-focal {
+                position: absolute;
+                top: 48%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                width: 100%;
+                margin: 0;
+                z-index: 25;
+            }
+
+            .spotlight-beam {
+                width: 340px;
+                height: 340px;
+                filter: blur(35px);
+            }
+
+            .focal-formula {
+                font-size: 2.1rem;
+                letter-spacing: 0.08em;
+                margin-bottom: 16px;
+            }
+
+            .center-btn-group {
+                flex-direction: row;
+                justify-content: center;
+                gap: 10px;
+            }
+
+            .btn-glow, .btn-ghost {
+                padding: 8px 16px;
+                font-size: 0.78rem;
+                border-radius: 20px;
+                white-space: nowrap;
+            }
+
+            .mobile-bottom-section {
+                display: flex;
+                flex-direction: column;
+                gap: 12px;
+                width: 100%;
+            }
+
+            .block-bottom-left, .block-bottom-right {
+                width: 100%;
+            }
+
+            .dim-matrix {
+                background: rgba(1, 2, 6, 0.45);
+                padding: 12px 14px;
+                gap: 6px;
+            }
+
+            .dim-row {
+                font-size: 0.78rem;
+            }
+
+            .dim-label {
+                width: 65px;
+            }
+
+            .dim-math {
+                width: 100px;
+                font-size: 0.72rem;
+            }
+
+            .dim-desc {
+                font-size: 0.75rem;
+            }
+
+            .bottom-note-card {
+                padding: 12px 16px;
+            }
+
+            .bottom-note-text {
+                font-size: 0.78rem;
+                line-height: 1.65;
+            }
+
+            /* 移动端 ICP 备案号微调，居中沉底 */
+            .icp-footer {
+                right: 0;
+                left: 0;
+                text-align: center;
+                bottom: 15px;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- 3D 宇宙与经纬线透视 Canvas -->
+    <div id="canvas-container"></div>
+    
+    <!-- 近端满屏淡化遮罩层 -->
+    <div class="screen-vignette"></div>
+
+    <!-- 顶部 HUD 状态显示 -->
+    <header class="hud-header">
+        <div class="hud-status">
+            <span class="status-dot"></span>
+            <span>OBSERVER CORE: w-AXIS SINGULARITY</span>
+        </div>
+        <div>EVENT CAUSAL MATRIX TUNNEL</div>
+    </header>
+
+    <!-- 中央透视深景深高亮公式：聚光 + 按钮组 -->
+    <div class="central-deep-focal">
+        <div class="spotlight-beam"></div>
+        <div class="focal-formula">(x, y, z, t, w)</div>
+        <div class="center-btn-group">
+            <a href="/auth" target="_blank" class="btn-glow">
+                <span>👨‍🚀 从这里进入</span>
+            </a>
+            <a href="https://www.aicity.wang/3d?serial_id=702&owner_id=222302526&actor_id=415135222&max_eyes=40" target="_blank" class="btn-ghost">
+                <span>📖 亲证与说明</span>
+            </a>
+        </div>
+    </div>
+
+    <!-- 上下分散的浮动网格布局 -->
+    <main class="frameless-hud-grid">
+        
+        <!-- 【顶部区域】：标题 + 哲学名言 -->
+        <div class="mobile-top-section">
+            <div class="fullwidth-header-banner">
+                <h1 class="hero-banner-title">从三维空间到因果链</h1>
+                <div class="hero-banner-sub">事件 / 因果 / 因果链</div>
+            </div>
+
+            <section class="text-block block-top-left">
+                <div class="quote-lines">
+                    <p>在原子、光、声、热量……的世界中，你将它们分形/组合出了“它”(概念体O0)，你看着它从四维时空(t0,s0)到(t1,s1)，事件就产生了——很简单吧；如果它的状态改变了，而你还坚持那还是“它”，那就需要因果解释。</p>
+                    <div class="quote-author">—— 陈碧甫 · 2026-10-20</div>
+                </div>
+            </section>
+        </div>
+
+        <!-- 【底部区域】：左侧维度矩阵 + 右侧重构后的哲理 HUD 卡片 -->
+        <div class="mobile-bottom-section">
+            <section class="text-block block-bottom-left">
+                <div class="dim-matrix">
+                    <div class="dim-row">
+                        <span class="dim-label">三维空间</span>
+                        <span class="dim-math">(x, y, z)</span>
+                        <span class="dim-desc">某地有某物</span>
+                    </div>
+                    <div class="dim-row">
+                        <span class="dim-label">四维时空</span>
+                        <span class="dim-math">(x, y, z, t)</span>
+                        <span class="dim-desc">某时某地有某物</span>
+                    </div>
+                    <div class="dim-row">
+                        <span class="dim-label">五维本体</span>
+                        <span class="dim-math">(x, y, z, t, w)</span>
+                        <span class="dim-desc">谁观测到某时某地有某物</span>
+                    </div>
+                    <div class="dim-row">
+                        <span class="dim-label">六维心识</span>
+                        <span class="dim-math">(x, y, z, t, w, h)</span>
+                        <span class="dim-desc">谁以什么主观观测到某时某地有某物</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 右下角重构的 HUD 科技总结卡片 -->
+            <section class="text-block block-bottom-right">
+                <div class="bottom-note-card">
+                    <div class="note-card-tag">// Causal Field Theory</div>
+                    <p class="bottom-note-text">
+                        事件源于 <span class="highlight-cyan">w 的放不下</span>，因果则是 <span class="highlight-purple">w 的执念</span>。<br>
+                        当它们组织起来，便构成了因果链：<b>因果链是多意志主体影响下多因多果的引力场</b>。
+                    </p>
+                </div>
+            </section>
+        </div>
+
+    </main>
+
+    <!-- 底部右下角 ICP 备案号 -->
+    <div class="icp-footer">
+        <a href="https://beian.aliyun.com/" target="_blank">黔ICP备2025052204号-1</a>
+    </div>
+
+    <!-- Three.js 驱动背景动画 -->
+    <script>
+        const container = document.getElementById('canvas-container');
+        
+        const scene = new THREE.Scene();
+        scene.fog = new THREE.FogExp2(0x010206, 0.0012);
+
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
+        camera.position.z = 400;
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        container.appendChild(renderer.domElement);
+
+        const tunnelGroup = new THREE.Group();
+
+        const ringCount = 24;
+        for (let i = 0; i < ringCount; i++) {
+            const zPos = -i * 55;
+            const radius = 90 + i * 28;
+            const ringGeometry = new THREE.BufferGeometry();
+            const points = [];
+            const segments = 36;
+
+            for (let j = 0; j <= segments; j++) {
+                const theta = (j / segments) * Math.PI * 2;
+                points.push(new THREE.Vector3(Math.cos(theta) * radius, Math.sin(theta) * radius, zPos));
+            }
+
+            ringGeometry.setFromPoints(points);
+            const opacityVal = i < 3 ? (i * 0.15) : Math.max(0.04, 0.65 - i * 0.022);
+            const ringMaterial = new THREE.LineBasicMaterial({
+                color: i % 2 === 0 ? 0x38bdf8 : 0xc084fc,
+                transparent: true,
+                opacity: opacityVal
+            });
+
+            const ring = new THREE.Line(ringGeometry, ringMaterial);
+            tunnelGroup.add(ring);
+        }
+
+        const lineCount = 20;
+        for (let k = 0; k < lineCount; k++) {
+            const angle = (k / lineCount) * Math.PI * 2;
+            const lineGeometry = new THREE.BufferGeometry();
+            const startPt = new THREE.Vector3(Math.cos(angle) * 90, Math.sin(angle) * 90, 0);
+            const endPt = new THREE.Vector3(Math.cos(angle) * 700, Math.sin(angle) * 700, -1400);
+
+            lineGeometry.setFromPoints([startPt, endPt]);
+            const lineMaterial = new THREE.LineBasicMaterial({
+                color: 0x38bdf8,
+                transparent: true,
+                opacity: 0.2
+            });
+
+            const line = new THREE.Line(lineGeometry, lineMaterial);
+            tunnelGroup.add(line);
+        }
+
+        scene.add(tunnelGroup);
+
+        const particleCount = 1500;
+        const particleGeo = new THREE.BufferGeometry();
+        const positions = new Float32Array(particleCount * 3);
+        const colors = new Float32Array(particleCount * 3);
+
+        const color1 = new THREE.Color(0x38bdf8);
+        const color2 = new THREE.Color(0xc084fc);
+
+        for (let i = 0; i < particleCount * 3; i += 3) {
+            positions[i] = (Math.random() - 0.5) * 1400;
+            positions[i + 1] = (Math.random() - 0.5) * 1400;
+            positions[i + 2] = (Math.random() - 0.5) * 1400 - 200;
+
+            const c = Math.random() > 0.4 ? color1 : color2;
+            colors[i] = c.r;
+            colors[i + 1] = c.g;
+            colors[i + 2] = c.b;
+        }
+
+        particleGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        particleGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+        const particleMat = new THREE.PointsMaterial({
+            size: 2.8,
+            vertexColors: true,
+            transparent: true,
+            opacity: 0.65,
+            blending: THREE.AdditiveBlending
+        });
+
+        const particles = new THREE.Points(particleGeo, particleMat);
+        scene.add(particles);
+
+        let mouseX = 0;
+        let mouseY = 0;
+        let targetX = 0;
+        let targetY = 0;
+
+        const windowHalfX = window.innerWidth / 2;
+        const windowHalfY = window.innerHeight / 2;
+
+        document.addEventListener('mousemove', (event) => {
+            mouseX = (event.clientX - windowHalfX) * 0.05;
+            mouseY = (event.clientY - windowHalfY) * 0.05;
+        });
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        const clock = new THREE.Clock();
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const elapsedTime = clock.getElapsedTime();
+
+            tunnelGroup.rotation.z = elapsedTime * 0.025;
+            particles.rotation.z = -elapsedTime * 0.012;
+
+            targetX += (mouseX - targetX) * 0.05;
+            targetY += (mouseY - targetY) * 0.05;
+
+            camera.position.x += (targetX - camera.position.x) * 0.05;
+            camera.position.y += (-targetY - camera.position.y) * 0.05;
+            camera.lookAt(scene.position);
+
+            renderer.render(scene, camera);
+        }
+
+        animate();
+    </script>
+</body>
+</html>

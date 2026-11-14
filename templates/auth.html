@@ -50,11 +50,12 @@
             background: radial-gradient(circle at 50% 50%, rgba(1, 2, 6, 0.15) 0%, rgba(1, 2, 6, 0.8) 80%, rgba(1, 2, 6, 0.98) 100%);
         }
 
-        /* 主容器 */
+        /* 主容器：定宽 1320（内容 1280），水平居中。所有面板共用这个宽度，
+           所以「我的场」卡片与「场主管理」卡片天然同宽 */
         .container {
             position: relative;
             z-index: 10;
-            max-width: 680px;
+            max-width: 1320px;
             margin: 0 auto;
             padding: 40px 20px;
         }
@@ -187,6 +188,52 @@
             display: flex;
         }
 
+        /* 除「场主管理」外的面板保持居中窄列，场主管理吃满宽屏 */
+        .panel:not(#panel-admin) {
+            max-width: 720px;
+            margin: 0 auto;
+        }
+
+        /* 「场」面板：整块吃满容器（注意 .panel:not(#panel-admin) 的特异性是 1-1-0，
+           必须用同特异性的 .panel#panel-owner 才能覆盖，单写 #panel-owner 会被 720px 压住） */
+        .panel#panel-owner {
+            max-width: none;
+        }
+
+        /* 两张卡都与「场主管理」卡片同宽（100% 容器内容宽），不再各自定宽 */
+        #panel-owner > .card {
+            width: 100%;
+            max-width: none;
+            margin: 0 auto;
+        }
+
+        /* 创建场表单横向排开，配合 1280 的宽卡片，不再挤成竖排窄条 */
+        #panel-owner #owner-form {
+            flex-direction: row;
+            align-items: flex-end;
+            gap: 14px;
+            flex-wrap: wrap;
+        }
+
+        #panel-owner #owner-form label {
+            flex: 1 1 240px;
+            min-width: 0;
+        }
+
+        #panel-owner #owner-form .btn {
+            flex: 0 0 auto;
+        }
+
+        #panel-owner > .card#owner-list-card {
+            width: 100%;
+            max-width: none;
+            margin: 0 auto;
+        }
+
+        /* 我的场卡片不受 .card-body 的 max-height:1200px 限制（场多时不再被裁切，与 #panel-admin 同策） */
+        #panel-owner #owner-list-card .card-body { max-height: none; }
+        #panel-owner #owner-list-card.collapsed .card-body { max-height: 0; }
+
         /* ================= 科技 HUD 切角卡片设计 ================= */
         .card {
             position: relative;
@@ -279,7 +326,7 @@
         /* 卡片主体内容 */
         .card-body {
             padding: 22px;
-            max-height: 10000px;
+            max-height: 1200px;
             transition: max-height 0.4s cubic-bezier(0.4, 0, 0.2, 1), padding 0.4s ease, opacity 0.3s ease;
             opacity: 1;
         }
@@ -310,7 +357,8 @@
         }
 
         input[type="text"],
-        input[type="password"] {
+        input[type="password"],
+        input[type="search"] {
             width: 100%;
             padding: 12px 16px;
             background: rgba(2, 4, 10, 0.7);
@@ -329,7 +377,8 @@
         }
 
         input[type="text"]:focus,
-        input[type="password"]:focus {
+        input[type="password"]:focus,
+        input[type="search"]:focus {
             border-color: #38bdf8;
             background: rgba(15, 23, 42, 0.9);
             box-shadow: 0 0 15px rgba(56, 189, 248, 0.25);
@@ -442,17 +491,303 @@
             margin-top: 4px;
         }
 
+        /* ===== 「我的场」列表：网格平铺 + 搜索工具栏 + 操作分组 ===== */
+        #owner-list {
+            display: grid;
+            /* 固定 3 列；minmax(0,1fr) 防止超长 owner_id 把格子撑破 */
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 14px;
+            align-items: start;
+        }
+
+        /* 列数按容器可用宽度降级：>=1320 三列（单卡 403，按钮 4+4 两行）
+           901~1319 两列（单卡 ~590），<=900 单列 */
+        @media (max-width: 1319px) {
+            #owner-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        }
+
+        @media (max-width: 900px) {
+            #owner-list { grid-template-columns: minmax(0, 1fr); }
+        }
+
+        #owner-list > .item {
+            min-width: 0;
+        }
+
+        #owner-list > .empty {
+            grid-column: 1 / -1;
+        }
+
+        .owner-toolbar {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 14px;
+            flex-wrap: wrap;
+        }
+
+        .owner-toolbar #owner-search {
+            flex: 0 0 340px;
+            max-width: 340px;
+            min-width: 0;
+        }
+
+        .owner-toolbar .owner-count {
+            color: #94a3b8;
+            font-size: 0.78rem;
+            font-family: 'Orbitron', monospace;
+            white-space: nowrap;
+            margin-right: auto;   /* 计数紧跟搜索框，右侧留白 */
+        }
+
+        /* 所有操作直接铺开（不再有「更多」折叠），按钮自然换行即可 */
+        #owner-list .item .meta {
+            /* 场名与 owner_id 挨在一起（左对齐），不再一个在左、一个飘到最右 */
+            flex-direction: row;
+            align-items: baseline;
+            justify-content: flex-start;
+            gap: 4px 10px;
+            flex-wrap: wrap;
+        }
+
+        #owner-list .item .meta .id {
+            min-width: 0;
+            word-break: break-all;
+        }
+
+        /* 卡片内按钮略微收紧，让一行能容纳更多操作 */
+        #owner-list .item .actions .btn {
+            padding-left: 10px;
+            padding-right: 10px;
+        }
+
         /* 小尺寸按钮 */
         .btn.small {
             padding: 7px 14px;
             font-size: 0.78rem;
             clip-path: polygon(
                 6px 0%, calc(100% - 6px) 0%, 
-                100% 6px, 100% calc(100% - 10px), 
+                100% 6px, 100% calc(100% - 6px), 
                 calc(100% - 6px) 100%, 6px 100%, 
                 0% calc(100% - 6px), 0% 6px
             );
         }
+
+        /* ===== 管理员视角横幅 ===== */
+        .act-as-bar {
+            display: none;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin: 0 0 14px;
+            padding: 10px 14px;
+            border: 1px solid rgba(251, 191, 36, 0.45);
+            background: rgba(251, 191, 36, 0.12);
+            color: #fde68a;
+            font-size: 0.85rem;
+            clip-path: polygon(8px 0%, 100% 0%, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0% 100%, 0% 8px);
+        }
+        .act-as-bar.show { display: flex; }
+        .act-as-bar b { color: #fbbf24; }
+        .act-as-exit {
+            flex: 0 0 auto;
+            cursor: pointer;
+            padding: 6px 12px;
+            font-size: 0.78rem;
+            color: #111827;
+            background: #fbbf24;
+            border: none;
+            border-radius: 2px;
+            font-weight: 600;
+        }
+        .act-as-exit:hover { background: #fcd34d; }
+
+        /* ===== 场主管理（宽屏左右分栏仪表盘） ===== */
+        .admin-toolbar {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin: 10px 0 14px;
+            flex-wrap: wrap;
+        }
+        .admin-summary { color: #94a3b8; font-size: 0.8rem; }
+
+        /* 场主管理卡片不受 .card-body 的 max-height:1200px 限制，完整铺开（否则右侧网格会被裁掉） */
+        #panel-admin .card-body { max-height: none; }
+        #panel-admin .card.collapsed .card-body { max-height: 0; }
+
+        .admin-split {
+            display: grid;
+            grid-template-columns: 340px 1fr;
+            gap: 16px;
+            align-items: start;
+        }
+
+        /* 左栏：场主列表 */
+        .admin-owner-nav {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            min-width: 0;
+        }
+        .admin-owner-item {
+            border: 1px solid rgba(56, 189, 248, 0.22);
+            background: rgba(15, 23, 42, 0.55);
+            padding: 10px 12px;
+            cursor: pointer;
+            clip-path: polygon(10px 0%, 100% 0%, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0% 100%, 0% 10px);
+            transition: border-color 0.15s ease, background 0.15s ease;
+        }
+        .admin-owner-item:hover { border-color: rgba(56, 189, 248, 0.55); background: rgba(15, 23, 42, 0.85); }
+        .admin-owner-item.active {
+            border-color: #38bdf8;
+            background: rgba(56, 189, 248, 0.10);
+            box-shadow: 0 0 18px rgba(56, 189, 248, 0.25);
+        }
+        .admin-owner-item-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+        .admin-owner-actor {
+            color: #e2e8f0;
+            font-size: 0.92rem;
+            font-family: 'Orbitron', monospace;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            min-width: 0;
+            flex: 1 1 auto;
+        }
+        .badge-admin, .badge-self {
+            font-size: 0.66rem;
+            padding: 1px 7px;
+            border-radius: 8px;
+            flex: 0 0 auto;
+        }
+        .badge-admin { background: rgba(251, 191, 36, 0.18); color: #fbbf24; border: 1px solid rgba(251, 191, 36, 0.45); }
+        .badge-self { background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.4); }
+        .admin-owner-item-stats { color: #94a3b8; font-size: 0.75rem; margin: 6px 0 8px; }
+        .admin-owner-item-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+        .admin-owner-item-actions .btn[disabled] { opacity: 0.4; cursor: not-allowed; }
+        /* 右上角 admin 升降级小开关（不属于三件基本操作） */
+        .admin-toggle {
+            margin-left: auto;
+            flex: 0 0 auto;
+            cursor: pointer;
+            padding: 1px 7px;
+            font-size: 0.64rem;
+            line-height: 1.5;
+            color: #94a3b8;
+            background: transparent;
+            border: 1px solid rgba(148, 163, 184, 0.35);
+            border-radius: 8px;
+            transition: color 0.15s ease, border-color 0.15s ease;
+        }
+        .admin-toggle:hover { color: #fbbf24; border-color: rgba(251, 191, 36, 0.55); }
+
+        .btn.tiny { padding: 5px 9px; font-size: 0.72rem; border-radius: 2px; }
+
+        /* 右栏：选中场主的名下场（磁贴网格，铺满宽屏） */
+        .admin-owner-detail { min-width: 0; }
+        .admin-detail-head {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 12px;
+            color: #e2e8f0;
+            font-size: 0.85rem;
+        }
+        .admin-detail-head b { color: #38bdf8; font-family: 'Orbitron', monospace; }
+        .admin-detail-hint { color: #64748b; font-size: 0.72rem; }
+        .detail-empty { color: #64748b; font-size: 0.85rem; padding: 20px; text-align: center; }
+
+        .field-tile-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 10px;
+        }
+        .field-tile {
+            min-width: 0;
+            border: 1px solid rgba(56, 189, 248, 0.22);
+            background: rgba(15, 23, 42, 0.55);
+            padding: 12px 14px;
+            cursor: pointer;
+            clip-path: polygon(10px 0%, 100% 0%, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0% 100%, 0% 10px);
+            transition: border-color 0.15s ease, background 0.15s ease;
+        }
+        .field-tile:hover { border-color: rgba(56, 189, 248, 0.55); background: rgba(15, 23, 42, 0.85); }
+        .field-tile-name {
+            color: #e2e8f0;
+            font-size: 0.86rem;
+            font-weight: 600;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .field-tile:hover .field-tile-name { color: #38bdf8; }
+        .field-tile-meta {
+            color: #64748b;
+            font-size: 0.72rem;
+            margin-top: 6px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .field-tile-foot { display: flex; justify-content: flex-end; margin-top: 8px; }
+        .field-star {
+            cursor: pointer;
+            padding: 4px 10px;
+            font-size: 0.72rem;
+            color: #38bdf8;
+            background: rgba(56, 189, 248, 0.10);
+            border: 1px solid rgba(56, 189, 248, 0.35);
+            border-radius: 2px;
+            opacity: 0.85;
+            transition: opacity 0.15s ease, background 0.15s ease;
+        }
+        .field-star:hover { opacity: 1; background: rgba(56, 189, 248, 0.22); }
+
+        /* 代管后跳转到「场」tab 时的高亮 */
+        .owner-row-flash {
+            animation: ownerRowFlash 2.4s ease-out;
+        }
+        @keyframes ownerRowFlash {
+            0%   { background: rgba(251, 191, 36, 0.28); box-shadow: 0 0 0 1px rgba(251, 191, 36, 0.55); }
+            60%  { background: rgba(251, 191, 36, 0.12); box-shadow: 0 0 0 1px rgba(251, 191, 36, 0.25); }
+            100% { background: transparent; box-shadow: none; }
+        }
+
+        /* ===== 重置钥匙弹窗 ===== */
+        #token-modal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            z-index: 200;
+            background: rgba(2, 6, 23, 0.78);
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        #token-modal.show { display: flex; }
+        .token-modal-dialog {
+            width: min(560px, 100%);
+            border: 1px solid rgba(251, 191, 36, 0.4);
+            background: #0b1220;
+            padding: 20px;
+            clip-path: polygon(14px 0%, 100% 0%, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0% 100%, 0% 14px);
+        }
+        .token-modal-dialog h3 { margin: 0 0 10px; color: #fbbf24; font-size: 1rem; }
+        .token-modal-hint { color: #94a3b8; font-size: 0.8rem; margin: 0 0 12px; }
+        .token-modal-value {
+            display: block;
+            padding: 12px;
+            margin-bottom: 14px;
+            background: rgba(2, 6, 23, 0.8);
+            border: 1px dashed rgba(56, 189, 248, 0.4);
+            color: #38bdf8;
+            font-size: 0.82rem;
+            word-break: break-all;
+        }
+        .token-modal-actions { display: flex; gap: 10px; justify-content: flex-end; }
 
         /* 危险操作按钮（科技红光风格） */
         .btn.danger {
@@ -807,6 +1142,26 @@
                 flex-shrink: 0;
             }
         }
+
+        /* ===== 移动端：场主管理改为单栏 + 横向滑动场主胶囊 ===== */
+        @media (max-width: 768px) {
+            .container { padding: 24px 12px; }
+            .admin-split { grid-template-columns: 1fr; }
+            .admin-owner-nav {
+                flex-direction: row;
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+                padding-bottom: 6px;
+                gap: 8px;
+            }
+            .admin-owner-item { flex: 0 0 auto; width: 80vw; max-width: 300px; }
+            .field-tile-grid { grid-template-columns: 1fr; }
+            .admin-owner-item-actions .btn { min-height: 34px; }
+
+            /* 「我的场」：所有操作直接铺开，按钮自然换行（列数由 #owner-list 的断点统一控制） */
+            #owner-list .item .actions { gap: 6px; }
+            #owner-list .item .actions .btn { flex: 0 1 auto; }
+        }
     <!-- KaTeX for formula rendering -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.21/dist/katex.min.css">
     <script src="https://cdn.jsdelivr.net/npm/marked@4.3.0/marked.min.js"></script>
@@ -833,14 +1188,41 @@
             </div>
         </header>
 
+        <!-- 管理员视角横幅：以某个场主身份操作时显示 -->
+        <div class="act-as-bar" id="act-as-bar">
+            <span>👑 管理员视角：正在以 <b id="act-as-name">-</b> 的身份操作</span>
+            <button id="act-as-exit" class="act-as-exit" type="button">退出管理员视角</button>
+        </div>
+
         <nav class="tabs" id="tabs">
             <button class="tab active" data-tab="actor">🧑 身份</button>
             <button class="tab" data-tab="key">🔑 钥匙</button>
             <button class="tab" data-tab="owner">🏠 场</button>
+            <button class="tab" data-tab="admin" id="tab-admin" style="display:none">👑 场主管理</button>
         </nav>
 
         <!-- ① actor 注册 / 登录 -->
         <section class="panel active" id="panel-actor">
+            <!-- 用钥匙快速进入 -->
+            <div class="card">
+                <div class="card-header" onclick="toggleCard(this)">
+                    <h2>🔑 用钥匙快速进入</h2>
+                    <span class="collapse-icon">▼</span>
+                </div>
+                <div class="card-body">
+                    <p class="hint">粘贴一把钥匙 token，验证通过后自动缓存身份（actor_id 可留空，系统会用钥匙反查）。</p>
+                    <form id="quick-token-form" class="form">
+                        <label>钥匙 token
+                            <input type="text" id="quick-token" placeholder="例如 3f2a1b9c8d7e|9a8b7c6d..." autocomplete="one-time-code" required>
+                        </label>
+                        <label>actor_id（可选）
+                            <input type="text" id="quick-token-actor" placeholder="留空则按钥匙自动识别" autocomplete="off">
+                        </label>
+                        <button type="submit" class="btn primary">验证并进入</button>
+                    </form>
+                </div>
+            </div>
+
             <!-- 为登录卡片增加 id="login-card" -->
             <div class="card" id="login-card">
                 <div class="card-header" onclick="toggleCard(this)">
@@ -969,14 +1351,47 @@
                 </div>
             </div>
 
-            <div class="card">
+            <div class="card" id="owner-list-card">
                 <div class="card-header" onclick="toggleCard(this)">
                     <h2>我的场</h2>
                     <span class="collapse-icon">▼</span>
                 </div>
                 <div class="card-body">
+                    <div class="owner-toolbar">
+                        <input type="search" id="owner-search" placeholder="搜索场名 / 场 ID" autocomplete="off">
+                        <span class="owner-count" id="owner-count"></span>
+                    </div>
                     <div id="owner-list" class="list">
                         <p class="empty">请先登录后查看名下场</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ④ 场主管理（仅 admin 可见） -->
+        <section class="panel" id="panel-admin">
+            <div class="card">
+                <div class="card-header" onclick="toggleCard(this)">
+                    <h2>👑 场主管理</h2>
+                    <span class="collapse-icon">▼</span>
+                </div>
+                <div class="card-body">
+                    <p class="hint">
+                        每位场主三件基本操作：<b>进入他的星空</b> · <b>重置token</b> · <b>删除全部</b>（右上角小开关可升降 admin）。
+                        <br>
+                        需要更多操作就点「进入他的星空」；右侧<b>点场名</b> = 进入他的账号中心并高亮这座场，「进入星空 ↗」= 直接打开该场可写 3D。
+                    </p>
+                    <div class="admin-toolbar">
+                        <button id="admin-refresh" class="btn ghost">刷新</button>
+                        <span id="admin-owner-summary" class="admin-summary"></span>
+                    </div>
+                    <div class="admin-split">
+                        <div class="admin-owner-nav" id="admin-owner-nav">
+                            <p class="empty">加载中…</p>
+                        </div>
+                        <div class="admin-owner-detail" id="admin-owner-detail">
+                            <p class="detail-empty">请选择左侧场主</p>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -989,6 +1404,21 @@
     </div>
 
     <!-- API / SKILL 模态框 -->
+    <!-- 重置钥匙结果弹窗（新钥匙仅显示一次） -->
+    <div id="token-modal">
+        <div class="token-modal-dialog">
+            <h3>🔑 钥匙已重置 · <span id="token-modal-actor">-</span></h3>
+            <p class="token-modal-hint">
+                已吊销 <b id="token-modal-revoked">0</b> 把旧钥匙（立即失效）。下面是新钥匙，<b>仅显示这一次</b>，请立刻复制并交给该场主。
+            </p>
+            <code class="token-modal-value mono" id="token-modal-value">-</code>
+            <div class="token-modal-actions">
+                <button class="btn small ghost" id="token-modal-close" type="button">关闭</button>
+                <button class="btn small primary" id="token-modal-copy" type="button">复制新钥匙</button>
+            </div>
+        </div>
+    </div>
+
     <div class="api-modal" id="api-modal">
         <div class="api-modal-mask" data-close></div>
         <div class="api-modal-dialog">
@@ -1226,6 +1656,6 @@
         animate();
     </script>
 
-    <script src="/static/js/auth.js?v=20261021"></script>
+    <script src="/static/js/auth.js?v=20261113b"></script>
 </body>
 </html>

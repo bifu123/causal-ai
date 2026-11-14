@@ -5,35 +5,115 @@ let currentOwnerId = null;
 const horizonNodes = new Set();
 let currentBossNodeId = null;
 
+// --- [鉴权上下文] 服务端裁决的角色矩阵（anonymous / observer / owner / admin）---
+const ACCESS = {
+    role: 'anonymous',
+    actor_id: null,
+    owner_id: 'default',
+    has_token: false,
+    can_read_private: false,
+    can_write_copy: false,
+    can_write_master: false,
+    is_admin: false
+};
+
+function applyAccess(data) {
+    if (data && typeof data === 'object') {
+        Object.assign(ACCESS, data);
+        ACCESS.can_write_master = !!ACCESS.can_write_master;
+        ACCESS.can_write_copy = !!ACCESS.can_write_copy;
+        ACCESS.can_read_private = !!ACCESS.can_read_private;
+    }
+    return ACCESS;
+}
+
+/**
+ * 2D 页面同样只认 URL 参数（与 /3d 保持一致，见方案 §8.2）：
+ *   身份凭证 = URL 的 token；URL 没带就视为「无 token」，不回退 localStorage。
+ */
+function resolvePageToken() {
+    return (new URLSearchParams(window.location.search).get('token') || '').trim();
+}
+
+/** 渲染权限 UI：主副本写操作（发起首贞 / 删除 / 派生）只给场主与 admin */
+function renderAccessUI() {
+    const canEditMaster = is_edit_mode && ACCESS.can_write_master;
+    const canEditCopy = is_edit_mode && ACCESS.can_write_copy;
+    document.querySelectorAll('.owner-edit-only').forEach(el => {
+        el.style.display = canEditMaster ? '' : 'none';
+    });
+    document.querySelectorAll('.copy-edit-only').forEach(el => {
+        el.style.display = canEditCopy ? '' : 'none';
+    });
+    console.log('[鉴权] 当前角色:', ACCESS);
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     const params = new URLSearchParams(window.location.search);
-    // 身份优先级：URL 显式参数 > localStorage 记住的登录身份（localStorage 仅作 /auth 免登录）
-    currentActorId = params.get('actor_id') || localStorage.getItem('causal_actor_id');
+    // 只认 URL 参数（宪法）：不做 localStorage 兜底
+    currentActorId = params.get('actor_id') || '';
     currentOwnerId = params.get('owner_id') || 'default';
+    renderAccessUI();
 });
 
+// 向服务端确认角色（token 身份优先于 URL actor_id）
+(async function initAccessContext() {
+    try {
+        const params = new URLSearchParams(window.location.search);
+        const ownerId = params.get('owner_id') || 'default';
+        const actorId = currentActorId || '';
+        const token = resolvePageToken();
+        const url = `/api/v1/auth/context?owner_id=${encodeURIComponent(ownerId)}` +
+            (actorId ? `&actor_id=${encodeURIComponent(actorId)}` : '') +
+            (token ? `&token=${encodeURIComponent(token)}` : '');
+        const res = await fetch(url, { referrerPolicy: 'no-referrer' });
+        const json = await res.json();
+        if (json.status === 'success' && json.data) {
+            applyAccess(json.data);
+            if (ACCESS.actor_id) {
+                currentActorId = ACCESS.actor_id;
+            }
+            renderAccessUI();
+            if (typeof socket !== 'undefined' && socket) {
+                socket.emit('auth_join', {
+                    owner_id: ownerId,
+                    actor_id: ACCESS.actor_id,
+                    role: ACCESS.role
+                });
+            }
+        }
+    } catch (e) {
+        console.warn('[鉴权] 获取访问上下文失败，按匿名浏览处理:', e);
+        renderAccessUI();
+    }
+})();
+
 function appendAuthParams(url) {
-    const token = localStorage.getItem('causal_token');
+    const token = resolvePageToken();
     if (!token) return url;
     const separator = url.includes('?') ? '&' : '?';
-    return `${url}${separator}token=${encodeURIComponent(token)}`;
+    return `${url}${separator}token=${encodeURIComponent(token)}&auth_token=${encodeURIComponent(token)}`;
 }
 
 function appendAuthBody(payload) {
-    const token = localStorage.getItem('causal_token');
-    if (token) payload.token = token;
+    const token = resolvePageToken();
+    if (token) { payload.token = token; payload.auth_token = token; }
     if (currentActorId) payload.actor_id = currentActorId;
     if (currentOwnerId && currentOwnerId !== 'default') payload.owner_id = currentOwnerId;
     return payload;
 }
 
-// 配置Socket.IO连接，确保与服务器兼容
+// 配置Socket.IO连接，确保与服务器兼容（带上 owner_id/actor_id 用于房间隔离）
 const socket = io({
     path: '/socket.io',
     transports: ['websocket', 'polling'],
     reconnection: true,
     reconnectionAttempts: 5,
-    reconnectionDelay: 1000
+    reconnectionDelay: 1000,
+    query: {
+        owner_id: new URLSearchParams(window.location.search).get('owner_id') || 'default',
+        actor_id: new URLSearchParams(window.location.search).get('actor_id') || ''
+    }
 });
 
 // Socket.IO连接状态监听
@@ -53,17 +133,19 @@ let currentSelectedNode = null;
 const nodeCache = {}; // 存储完整数据
 
 // 根据 edit 参数控制编辑相关按钮的可见性
-// 根据 edit 参数和 token 控制编辑相关按钮的可见性
+// edit 只决定“是否显示编辑入口”；能否写主副本由服务端裁决的 ACCESS.can_write_master 决定
 const urlEdit = new URLSearchParams(window.location.search).get("edit") === "true";
-const hasToken = !!localStorage.getItem("causal_token");
-const is_edit_mode = urlEdit && hasToken;
+const hasToken = !!resolvePageToken();
+const is_edit_mode = urlEdit;
 
 
 (function initEditModeUI() {
     const editElements = document.querySelectorAll('.edit-only');
     if (is_edit_mode) {
-        editElements.forEach(el => el.style.display = '');
-        console.log('[编辑模式] edit=true，编辑按钮已显示');
+        // 先按服务端权限渲染（未拿到角色前不显示可写按钮）
+        editElements.forEach(el => { el.style.display = ''; });
+        renderAccessUI();
+        console.log('[编辑模式] edit=true，编辑按钮已按权限显示');
     } else {
         editElements.forEach(el => el.style.display = 'none');
         console.log('[只读模式] edit 参数缺失或不为 true，编辑按钮已隐藏');
@@ -430,8 +512,8 @@ async function postNode(payload) {
 }
 
 function openCreateModal() {
-    if (!is_edit_mode) {
-        console.log('[发起首贞] 非编辑模式，拒绝打开创建模态框');
+    if (!is_edit_mode || !ACCESS.can_write_master) {
+        console.log('[发起首贞] 非场主/非编辑模式，拒绝打开创建模态框');
         return;
     }
     // 创建自定义模态框
@@ -611,6 +693,10 @@ async function submitCreateNode() {
 
 function deriveNode(tag) {
     if (!currentSelectedNode) return;
+    if (!ACCESS.can_write_master) {
+        alert('只有场主或 admin 可以发起又贞 / 对贞');
+        return;
+    }
     
     // 创建子节点模态框（基于单个父节点）
     const modalHtml = `
@@ -838,6 +924,10 @@ async function uploadImageForNode() {
 // 删除当前事件
 async function deleteCurrentNode() {
     if (!currentSelectedNode) return;
+    if (!ACCESS.can_write_master) {
+        alert('只有场主或 admin 可以删除事件');
+        return;
+    }
     
     if (!confirm(`确定要删除事件 "${currentSelectedNode}" 吗？\n\n删除操作将：\n1. 删除数据库中本条记录\n2. 删除地宫表中对应记录\n3. 将其子事件的父ID更新为本事件的父ID`)) {
         return;
@@ -869,6 +959,10 @@ async function saveNodeChanges() {
     
     if (!currentSelectedNode) {
         alert('请先选择一个事件节点！');
+        return;
+    }
+    if (!ACCESS.can_write_copy) {
+        alert('匿名访客无权保存，请先登录');
         return;
     }
     

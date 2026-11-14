@@ -3,6 +3,7 @@
 <head>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
     <meta charset="UTF-8">
+    <meta name="referrer" content="no-referrer">
     <title>因果星空</title>
     <script src="/static/js/socket.io.min.js"></script>
     
@@ -86,7 +87,7 @@
             <div class="control-icon" id="btn-dragon-cruise" data-tooltip="因果寻龙">
                 <div class="icon-compass">➤</div>
             </div>
-            <div class="control-icon hidden" id="btn-create-node" data-tooltip="发起首贞">
+            <div class="control-icon owner-edit-only hidden" id="btn-create-node" data-tooltip="发起首贞">
                 <div class="icon-plus">贞</div>
             </div>
         </div>
@@ -210,7 +211,7 @@
                 </select>
             </section>
 
-            <section>
+            <section class="copy-edit-only">
                 <label class="drawer-label">父节点 ID (Parent IDs)</label>
                 <div class="relative">
                     <input id="d-parent-ids" type="text" class="drawer-input" placeholder="点击节点图标自动填充，多个ID用|分隔">
@@ -262,13 +263,13 @@
             </section>
 
             <div class="drawer-actions">
-                <button id="btn-save-node" class="btn-save edit-only hidden">保存修改</button>
-                <button id="btn-delete-node" class="btn-delete edit-only hidden">删除事件</button>
+                <button id="btn-save-node" class="btn-save copy-edit-only hidden">保存修改</button>
+                <button id="btn-delete-node" class="btn-delete owner-edit-only hidden">删除事件</button>
             </div>
 
             <div class="drawer-derive">
-                <button id="btn-derive-youzhen" class="btn-derive edit-only hidden">又贞</button>
-                <button id="btn-derive-duizhen" class="btn-derive edit-only hidden">对贞</button>
+                <button id="btn-derive-youzhen" class="btn-derive owner-edit-only hidden">又贞</button>
+                <button id="btn-derive-duizhen" class="btn-derive owner-edit-only hidden">对贞</button>
             </div>
         </div>
     </div>
@@ -430,43 +431,58 @@
         }
         
         // 设置全局用户ID和拥有者ID变量
-        window.currentActorId = getActorIdFromURL();
-        window.currentOwnerId = getOwnerIdFromURL();
+        // 服务端已依据 token 裁决身份：优先使用服务端解析出的 actor_id（防冒名）
+        window.currentActorId = {{ (resolved_actor_id or '') | tojson }};
+        window.currentOwnerId = {{ (resolved_owner_id or getOwnerIdFromURL()) | tojson }};
         window.currentBotId = getBotIdFromURL();
+        // 服务端裁决的角色矩阵（anonymous / observer / owner / admin）
+        window.ACCESS_SEED = {{ (access or {}) | tojson }};
+
+        // 身份漂移：URL 中的 actor_id 与服务端裁决结果不一致时提示（token 身份优先）
+        const urlActorId = getActorIdFromURL();
+        if (urlActorId && window.currentActorId && urlActorId !== window.currentActorId) {
+            console.warn(`[鉴权] URL actor_id="${urlActorId}" 与钥匙身份 "${window.currentActorId}" 不一致，以钥匙身份为准`);
+        }
         
-        // 配置Socket.IO连接，确保与服务器兼容
+        // 配置Socket.IO连接，确保与服务器兼容（带上 owner_id/actor_id 用于房间隔离）
         const socket = io({
             path: '/socket.io',
             transports: ['websocket', 'polling'],
             reconnection: true,
             reconnectionAttempts: 5,
-            reconnectionDelay: 1000
+            reconnectionDelay: 1000,
+            query: {
+                owner_id: window.currentOwnerId,
+                actor_id: window.currentActorId || '',
+                role: (window.ACCESS_SEED && window.ACCESS_SEED.role) || ''
+            }
         });
         
         // 设置全局socket变量供其他脚本使用
         window.socket = socket;
         
         // 初始化用户ID和拥有者ID显示
+        const accessSeed = window.ACCESS_SEED || {};
         if (window.currentActorId || window.currentOwnerId !== 'default') {
-            console.log(`[用户初始化] 从URL参数获取到: actor_id=${window.currentActorId}, owner_id=${window.currentOwnerId}`);
+            console.log(`[用户初始化] 服务端裁决: actor_id=${window.currentActorId}, owner_id=${window.currentOwnerId}, role=${accessSeed.role}`);
             // 可以在页面上显示当前用户ID和拥有者ID
             const header = document.querySelector('#header h1');
             if (header) {
-                let infoHtml = '';
+                let infoHtml = ` <span id="access-badge" style="font-size: 13px; padding: 2px 8px; border-radius: 10px; background: #1f2937; color: #10b981;">${accessSeed.role || 'anonymous'}</span>`;
                 if (window.currentActorId) {
                     infoHtml += ` <span style="font-size: 14px;">观察者: <font color="#10b981">${window.currentActorId}</font></span>`;
                 }
                 if (window.currentOwnerId !== 'default') {
-                    infoHtml += ` <span style="font-size: 14px;">拥有者: <font color="#10b981">${window.currentOwnerId}</font></span>`;
+                    infoHtml += ` <span style="font-size: 14px;">场主: <font color="#10b981">${window.currentOwnerId}</font></span>`;
                 }
                 header.innerHTML += infoHtml;
             }
         } else {
-            console.log(`[用户初始化] 未指定用户ID和拥有者ID，使用默认视图`);
+            console.log(`[用户初始化] 未指定用户ID和拥有者ID，使用默认视图（匿名浏览）`);
         }
     </script>
 
     <script src="/static/js/3d_editor.js"></script>
-    <script src="/static/js/3d_main.js"></script>
+    <script src="/static/js/3d_main.js?v=20261113b"></script>
 </body>
 </html>

@@ -1,0 +1,134 @@
+# 人名和地名
+元龙居士 3 nr
+元龙驿 5 nt
+张三 3 nr
+李四 3 nr
+北京 3 ns
+上海 3 ns
+深圳 3 ns
+杭州 3 ns
+中国 3 ns
+
+# 专业术语
+LLM 5 n
+API_KEY 5 n
+BASE_URL 5 n
+MySQL 5 n
+SQLite 5 n
+MSSQL 5 n
+全文搜索 4 n
+jieba 5 n
+langchain 5 n
+langgraph 5 n
+embedding 5 n
+vectorstore 5 n
+RAG 5 n
+token 5 n
+prompt 4 n
+context 4 n
+pipeline 4 n
+session 4 n
+agent 4 n
+document 4 n
+schema 4 n
+node 4 n
+graph 4 n
+workflow 4 n
+MCP 4 n
+
+# 自定义开发
+lmcp 5 n
+元龙记事本 5 n
+文件探索问答 5 n
+文件检索问答 5 n
+
+# 常用缩写
+AI 5 n
+API 5 n
+URL 5 n
+HTTP 5 n
+HTTPS 5 n
+UI 4 n
+UX 4 n
+DB 4 n
+SQL 4 n
+CLI 4 n
+SDK 4 n
+GPU 4 n
+CPU 4 n
+RAM 4 n
+JSON 4 n
+YAML 4 n
+XML 4 n
+
+# 技术名词
+OpenAI 5 n
+DeepSeek 5 n
+Ollama 5 n
+ChatGPT 5 n
+GPT 5 n
+Python 5 n
+JavaScript 5 n
+TypeScript 5 n
+HTML 5 n
+CSS 5 n
+C# 5 n
+C++ 5 n
+Java 5 n
+Linux 5 n
+Ubuntu 5 n
+Windows 5 n
+Docker 5 n
+Kubernetes 5 n
+VSCode 5 n
+GitHub 5 n
+GitLab 5 n
+Flask 5 n
+FastAPI 5 n
+Django 5 n
+Pandas 5 n
+NumPy 5 n
+TensorFlow 5 n
+PyTorch 5 n
+requests 4 n
+asyncio 4 n
+threading 4 n
+multiprocessing 4 n
+subprocess 4 n
+sys 4 n
+os 4 n
+pathlib 4 n
+re 4 n
+json 4 n
+logging 4 n
+
+# 时间相关
+今天 2 t
+明天 2 t
+昨天 2 t
+上午 2 t
+下午 2 t
+晚上 2 t
+本周 2 t
+下周 2 t
+本月 2 t
+去年 2 t
+今年 2 t
+明年 2 t
+
+# 常见问题关键词
+天气 2 n
+时间 2 n
+日期 2 n
+帮助 2 n
+配置 2 n
+注册 2 n
+登录 2 n
+教程 2 n
+示例 2 n
+错误 2 n
+更新 2 n
+版本 2 n
+安装 2 n
+卸载 2 n
+权限 2 n

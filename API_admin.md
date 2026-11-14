@@ -362,14 +362,14 @@ curl -X POST "https://www.aicity.wang/api/v1/causal/search/keyword" \
 | `owner_id` | String | 否 | 事件拥有者ID |
 | `bot_id` | String | 否 | 机器人ID。提供后，系统会跨场检索该 bot 所有带 `[chat]` 标记的记忆节点并汇入搜索结果 |
 | `limit` | Integer | 否 | 返回结果数量限制，默认 `100` |
-| `threshold` | Float | 否 | 余弦相似度阈值（0-1），默认 `0.0`（不过滤）。建议设 `≥0.7` 过滤噪声 |
+| `threshold` | Float | 否 | 余弦相似度阈值（0-1）。**不传则沿用「望远镜」口径**：`threshold = 1 - MAX_EYES/100`（`.env` 中 `MAX_EYES=40` → `0.6`，`30` → `0.7`）；显式传 `0` 表示不过滤。建议设 `≥0.7` 过滤噪声 |
 | `token` | String | 否 | 私密场域的钥匙 token（"防盗门"鉴权）。访问私密场（is_share=false）时需携带，登录/注册/签发钥匙后获得，默认 `null` |
 
 **返回说明**:
 - `status`: `"success"` 或 `"error"`
 - `data`: 搜索结果列表，每条包含 `serial_id`, `node_id`, `event_tuple`, `vector_similarity`（原始余弦相似度 0-1）, `relevance_score`（余弦相似度×100）, `search_mode="vector"` 等
 - `count`: 结果总数
-- `threshold`: 过滤阈值
+- `threshold`: 本次生效的过滤阈值（显式传入，或未传时由 `MAX_EYES` 推导）
 
 **调用示例**:
 ```bash
@@ -972,10 +972,154 @@ curl -X POST "https://www.aicity.wang/api/v1/key/revoke" \
 | `event_tuple` | String | 事件二元组内容描述（叙事文本） |
 | `full_image_url` | String | 全息图片 URL，通常以 `uploads/raw/` 开头 |
 | `owner_id` | String | 事件拥有者ID，用于多用户因果场隔离 |
-| `actor_id` | String | 观测者/用户ID，用于个性化权重管理 |
+| `actor_id` | String | 观测者/用户ID，用于个性化权重与用户副本 |
 | `survival_weight` | Float | 事件权重（0-1），大股东约 0.6，其他节点按比例分配 |
 | `max_eyes` | Float | 望远镜功率/事件视界半径，建议范围 30-60 |
-| `token` | String | 私密场域的钥匙 token（"防盗门"鉴权）。访问私密场（is_share=false）时需携带，登录/注册/签发钥匙后获得 |
+| `token` | String | 钥匙 token（也可用 `Authorization: Bearer {token}`）。**位置**决定权威：`token` 只用于判定身份与角色 |
+
+---
+
+### 27. 访问上下文（角色矩阵）
+
+**功能**: 解析当前请求的身份与权限，返回匿名 / 观测者 / 场主 / admin 四种角色及能力位。
+前端据此决定：是否显示抽屉、是否允许编辑、是否显示私有节点。
+
+**请求**:
+- **URL**: `/api/v1/auth/context`
+- **Method**: `GET`
+
+**参数说明**:
+
+| 字段 | 类型 | 必填 | 说明 |
+| :--- | :--- | :--- | :--- |
+| `owner_id` | String | 否 | 当前视角场，默认 `default` |
+| `actor_id` | String | 否 | URL 中的观测者身份（无 token 时生效） |
+| `token` | String | 否 | 钥匙 token（有效时其身份优先于 `actor_id`） |
+
+**返回说明**:
+- `data.role`: `anonymous` / `observer` / `owner` / `admin`
+- `data.can_read_private`: 是否可读本场私有（`is_share=false`）节点
+- `data.can_write_copy`: 是否可写自己的用户副本（权重 / 因果连线）
+- `data.can_write_master`: 是否可写主副本（正文、标签、`is_share`、删除、创世）
+
+**调用示例**:
+```bash
+curl -G "https://www.aicity.wang/api/v1/auth/context" \
+     --data-urlencode "owner_id=cbf" \
+     --data-urlencode "actor_id=415135222" \
+     --data-urlencode "token=abc123|def456"
+```
+
+---
+
+### 28. 校验钥匙
+
+**功能**: 校验一把 token 是否有效，并返回其 actor 身份、是否为指定场主、是否 admin。
+
+**请求**:
+- **URL**: `/api/v1/auth/token/verify`
+- **Method**: `GET` / `POST`
+
+**参数说明**:
+
+| 字段 | 类型 | 必填 | 说明 |
+| :--- | :--- | :--- | :--- |
+| `token` | String | 是 | 待校验的钥匙 |
+| `owner_id` | String | 否 | 用于判断是否该场场主，默认 `default` |
+
+**返回说明**:
+- `data.valid`: `true` / `false`
+- `data.actor_id`: 钥匙归属的 actor
+- `data.is_owner` / `data.is_admin`: 是否该场场主 / 是否管理员
+
+**调用示例**:
+```bash
+curl -X POST "https://www.aicity.wang/api/v1/auth/token/verify" \
+     -H "Content-Type: application/json" \
+     -d '{"token":"abc123|def456","owner_id":"cbf"}'
+```
+
+---
+
+### 29. 我的身份（`/api/v1/auth/me`）
+
+**功能**: 返回当前 token 对应的 actor 及其名下所有场，用于账号中心。
+
+**调用示例**:
+```bash
+curl -G "https://www.aicity.wang/api/v1/auth/me" --data-urlencode "token=abc123|def456"
+```
+
+---
+
+### 30. 管理接口（仅 admin）
+
+> **admin 的职责是「场主管理」**：看有哪些场主 → 进入其账号中心（以他身份操作）→ 重置 token → 注销并删除其全部场。
+> admin 判定（三者之一，**都必须携带有效 token**）：
+> 1. **内置写死**：`actor_id == 'admin'`（`core/access.py::BUILTIN_ADMIN_ACTORS`，不可降权、不可注销）；
+> 2. `ains_users.is_admin = TRUE`；
+> 3. `.env` 的 `ADMIN_ACTOR_IDS`（逗号分隔，改后需重启）。
+>
+> URL `actor_id` 不再授予 admin / 场主，只用于建立用户副本。
+
+| 接口 | 方法 | 说明 |
+| :--- | :--- | :--- |
+| `/api/v1/admin/owners` | GET | **场主聚合列表**：场主 actor、名下场（含节点数）、场数、节点总数、钥匙数、是否 admin |
+| `/api/v1/admin/actors` | GET | 全部账号列表（含无场的观察者，不含密码） |
+| `/api/v1/admin/actors/{actor_id}` | GET | 单个 actor 详情：名下场、`token_count`、`first_token`（用于「以该场主身份进入」） |
+| `/api/v1/admin/actors/{actor_id}/token/reset` | POST | **重置钥匙**：吊销该 actor 全部旧钥匙，签发一把新钥匙，返回明文（仅此一次） |
+| `/api/v1/admin/actors/{actor_id}/admin` | POST | 设/取消 admin，body `{"is_admin": true}` |
+| `/api/v1/admin/actors/{actor_id}/delete` | POST | **注销场主**：逐场删除（活跃节点 + 地宫 + 用户副本 + 场注册 + 跨场父子引用）+ 删账号 |
+| `/api/v1/admin/fields` | GET | 全部场及节点数（平铺视图） |
+
+**保护**：不能删除自己；不能删除最后一个 admin。
+
+**「进入场主账号中心」的实现**：前端取该场主的 `first_token`（若其无钥匙则先用 `/api/v1/key/generate` 代签一把），
+在**内存中**切换为该 token 调用所有接口，不写 `localStorage`；刷新页面即回到 admin 身份。
+
+操作入口（`/auth` → 👑 场主管理，宽屏左右分栏：左侧场主列表 + 右侧其名下的场磁贴网格；移动端自动变单栏 + 横向滑动胶囊）：
+
+| 操作 | 效果 |
+|---|---|
+| 左侧场主三件基本操作 | **进入他的星空**（单场直接开可写 3D；多场进他的账号中心「场」列表挑选）· **重置token** · **删除全部**（注销场主并删其全部场） |
+| 左侧右上角小开关 | 设为admin / 取消admin（不属于三件基本操作） |
+| 右侧点选某场主 | 该栏展开他的全部场（磁贴网格铺满宽屏） |
+| **点击右侧任意场名磁贴** | 以该场主身份进入他的账号中心（切到「场」tab 并高亮这座场） |
+| 磁贴内「进入星空 ↗」 | 以该场主身份打开该场的可写 3D 星空（`edit=true`） |
+| 更多操作 | 点「进入他的星空」，进入后可对名下场做全部操作 |
+
+> 代管期间，管理面板仍可继续使用（管理接口始终用 admin 自己的钥匙，不受代管影响）。
+
+```bash
+# 场主聚合列表
+curl -G "https://www.aicity.wang/api/v1/admin/owners" --data-urlencode "token=abc123|def456"
+
+# 重置某场主的钥匙
+curl -X POST "https://www.aicity.wang/api/v1/admin/actors/415135222/token/reset" \
+     -H "Authorization: Bearer abc123|def456" \
+     -H "Content-Type: application/json" -d '{}'
+```
+
+---
+
+### 鉴权语义速查（角色 × 能力）
+
+| 能力 | 匿名 | 观测者（URL `actor_id` 或非场主 token） | 场主 | admin |
+| :--- | :--- | :--- | :--- | :--- |
+| 读共享节点（`is_share=true`） | ✅ | ✅ | ✅ | ✅ |
+| 读私有节点（`is_share=false`） | ❌ | ❌ | ✅ | ✅ |
+| 写自己的用户副本（权重 / `previous_ids`） | ❌ | ✅ | ✅ | ✅ |
+| 写主副本（正文 / 标签 / `is_share` / 删除 / 创世 / 地宫恢复） | ❌ | ❌ | ✅ | ✅ |
+| 上传图片 | ❌ | ❌ | ✅ | ✅ |
+| 场主管理（列表 / 代管 / 重置钥匙 / 注销） | ❌ | ❌ | ❌ | ✅ |
+
+> **只有 token 能证明场主 / admin 身份**：仅带 `owner_id + actor_id`（无 token）最高为 observer。
+> 该 observer 仍可建立/写入自己的用户副本（点击提权、改自己的 `parent_id`），但读不到私有节点、不能改主副本。
+>
+> **前端 `/3d`、`/ui` 只认 URL 参数**：页面身份凭证只取 URL 的 `token` 参数，**不读也不写 `localStorage`**；URL 未带 token 即按“无 token”处理。要编辑请在 URL 上追加 `&token={token}`（账号中心「进入他的星空」会自动带上），否则页面为只读。
+
+**副本为宗**：`ains_user_weights.parent_id` 为 `NULL` 时回退主副本连线；为 `''` 时表示“该观测者副本中明确无父节点”。
+首次访问（`/history` / `/horizon`）时，系统自动把主副本的权重与 `parent_id` 复制进该 actor 的副本。
 
 ---
 
@@ -996,4 +1140,4 @@ curl -X POST "https://www.aicity.wang/api/v1/key/revoke" \
 
 ### 本体论和认知推理
 - [Agnet](http://aicity.wang:8094/api/v1/causal/click?serial_id=702&owner_id=454652835&actor_id=415135222&max_eyes=30)
-- [人类](http://aicity.wang:8094/3d?serial_id=702&owner_id=454652835&actor_id=415135222&max_eyes=30)
+- [人类](http://aicity.wang:8094/3d?serial_id=702&owner_id=454652835&actor_id=415135222&max_eyes=30)（未带 token，只读浏览；编辑请在 URL 追加 `&token={token}&edit=true`）

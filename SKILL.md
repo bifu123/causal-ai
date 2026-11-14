@@ -56,6 +56,8 @@ https://www.aicity.wang/api/v1/causal/click?serial_id={前后事件ID}&owner_id=
 * actor_id 观测者ID
 * max_eyes 望远镜探测半径（光年）
 
+> 该分享 URL 未带 `token`，人类打开为**只读浏览**；需要编辑时追加 `&token={token}&edit=true`（星空只认 URL 参数，不读浏览器缓存）。
+
 - 获取事件视界
 访问`https://www.aicity.wang/api/v1/causal/horizon?owner_id={owner_id}&actor_id={actor_id}&max_eyes=30&token={token}`取得包含焦点事件视界内容。
 

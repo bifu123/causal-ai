@@ -377,14 +377,14 @@ curl -X POST "{base_url}/api/v1/causal/search/keyword" \
 | `owner_id` | String | 否 | 事件拥有者ID |
 | `bot_id` | String | 否 | 机器人ID。提供后，系统会跨场检索该 bot 所有带 `[chat]` 标记的记忆节点并汇入搜索结果 |
 | `limit` | Integer | 否 | 返回结果数量限制，默认 `100` |
-| `threshold` | Float | 否 | 余弦相似度阈值（0-1），默认 `0.0`（不过滤）。建议设 `≥0.7` 过滤噪声 |
+| `threshold` | Float | 否 | 余弦相似度阈值（0-1）。**不传则沿用「望远镜」口径**：`threshold = 1 - MAX_EYES/100`（`.env` 中 `MAX_EYES=40` → `0.6`，`30` → `0.7`）；显式传 `0` 表示不过滤。建议设 `≥0.7` 过滤噪声 |
 | `token` | String | 否 | 私密场域的钥匙 token（"防盗门"鉴权）。访问私密场（is_share=false）时需携带，登录/注册/签发钥匙后获得，默认 `null` |
 
 **返回说明**:
 - `status`: `"success"` 或 `"error"`
 - `data`: 搜索结果列表，每条包含 `serial_id`, `node_id`, `event_tuple`, `vector_similarity`（原始余弦相似度 0-1）, `relevance_score`（余弦相似度×100）, `search_mode="vector"` 等
 - `count`: 结果总数
-- `threshold`: 过滤阈值
+- `threshold`: 本次生效的过滤阈值（显式传入，或未传时由 `MAX_EYES` 推导）
 
 **调用示例**:
 ```bash
@@ -916,10 +916,44 @@ curl -X POST "{base_url}/api/v1/key/revoke" \
 | `event_tuple` | String | 事件二元组内容描述（叙事文本） |
 | `full_image_url` | String | 全息图片 URL，通常以 `uploads/raw/` 开头 |
 | `owner_id` | String | 事件拥有者ID，用于多用户因果场隔离 |
-| `actor_id` | String | 观测者/用户ID，用于个性化权重管理 |
+| `actor_id` | String | 观测者/用户ID，用于个性化权重与用户副本 |
 | `survival_weight` | Float | 事件权重（0-1），大股东约 0.6，其他节点按比例分配 |
 | `max_eyes` | Float | 望远镜功率/事件视界半径，建议范围 30-60 |
-| `token` | String | 私密场域的钥匙 token（"防盗门"鉴权）。访问私密场（is_share=false）时需携带，登录/注册/签发钥匙后获得 |
+| `token` | String | 钥匙 token（也可用 `Authorization: Bearer {token}`）。token 只用于判定身份与角色，不能提升权限 |
+
+---
+
+### 10.0 访问上下文（角色矩阵，必读）
+
+**功能**: 解析当前请求的身份与权限。角色一经确定，后续所有读写接口都按同一套规则裁决。
+
+**请求**: `GET {base_url}/api/v1/auth/context?owner_id={owner_id}&actor_id={actor_id}&token={token}`
+
+**返回**:
+- `data.role`: `anonymous`（无 token 且无 actor_id）/ `observer`（URL 带 actor_id 或非场主 token）/ `owner`（该场主人）/ `admin`
+- `data.can_read_private` / `data.can_write_copy` / `data.can_write_master`: 三项能力位
+
+| 能力 | 匿名 | 观测者 | 场主 | admin |
+| :--- | :--- | :--- | :--- | :--- |
+| 读共享节点（`is_share=true`） | ✅ | ✅ | ✅ | ✅ |
+| 读私有节点（`is_share=false`） | ❌ | ❌ | ✅ | ✅ |
+| 写自己的用户副本（权重 / `previous_ids`） | ❌ | ✅ | ✅ | ✅ |
+| 写主副本（正文 / 标签 / `is_share` / 删除 / 创世 / 地宫恢复） | ❌ | ❌ | ✅ | ✅ |
+
+> **只有 token 能证明场主 / admin 身份**：仅带 `owner_id + actor_id`（无 token）最高为 observer。
+> observer 仍可写自己的用户副本，但读不到私有节点、不能改主副本。
+>
+> **前端 `/3d`、`/ui` 只认 URL 参数**：页面身份凭证只取 URL 的 `token` 参数，**不读也不写 `localStorage`**；URL 未带 token 即按“无 token”处理。要编辑请在 URL 上追加 `&token={token}`（账号中心「进入他的星空」会自动带上），否则页面为只读。
+
+**副本为宗**: 读接口（`/history`、`/click`、`/horizon`、`/skeleton`、`serial search`）以观测者自己的 `parent_id` 为用户副本连线；
+副本为 `NULL` 时回退主副本，副本为 `""` 时表示“该观测者视角下无父节点”。观测者调用 `/update` 只写自己的副本连线。
+
+```bash
+curl -G "{base_url}/api/v1/auth/context" \
+     --data-urlencode "owner_id={owner_id}" \
+     --data-urlencode "actor_id={actor_id}" \
+     --data-urlencode "token={token}"
+```
 
 ---
 
@@ -940,5 +974,5 @@ curl -X POST "{base_url}/api/v1/key/revoke" \
 
 ### 因果链专用推理方法
 - [Agnet]({base_url}/api/v1/causal/click?serial_id=702&owner_id={owner_id}&actor_id={actor_id}&max_eyes=30&token={token})
-- [人类]({base_url}/3d?serial_id=702&owner_id={owner_id}&actor_id={actor_id}&max_eyes=30)
+- [人类]({base_url}/3d?serial_id=702&owner_id={owner_id}&actor_id={actor_id}&max_eyes=30)（未带 token，只读浏览；编辑请在 URL 追加 `&token={token}&edit=true`）
 

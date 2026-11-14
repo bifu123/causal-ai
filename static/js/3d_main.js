@@ -13,27 +13,96 @@ const CONFIG_ENHANCE_HORIZON_NODES = false; // 是否提亮事件视界内的普
 let currentActorId = null;
 let currentOwnerId = null;
 
+// --- [鉴权上下文] 服务端裁决的角色矩阵（/api/v1/auth/context 或模板注入）---
+// role: anonymous | observer | owner | admin
+const ACCESS = {
+    role: 'anonymous',
+    actor_id: null,
+    owner_id: 'default',
+    has_token: false,
+    can_read_private: false,
+    can_write_copy: false,
+    can_write_master: false,
+    is_admin: false
+};
+
+function applyAccess(data) {
+    if (!data || typeof data !== 'object') return ACCESS;
+    Object.assign(ACCESS, data);
+    ACCESS.can_write_master = !!ACCESS.can_write_master;
+    ACCESS.can_write_copy = !!ACCESS.can_write_copy;
+    ACCESS.can_read_private = !!ACCESS.can_read_private;
+    return ACCESS;
+}
+
+/**
+ * 星空只认 URL 参数（宪法）：
+ *   身份凭证 = URL 的 token 参数；URL 没带就视为「无 token」。
+ *   不回退 localStorage，避免 URL 没带钥匙却继承浏览器里某次旧登录，
+ *   导致 edit=true 下抽屉被误判为场主（越权）。
+ */
+function resolvePageToken() {
+    return (new URLSearchParams(window.location.search).get('token') || '').trim();
+}
+
+// 服务端已按 URL token 裁决角色：先套用 seed，等 /auth/context 返回后再校准
+if (window.ACCESS_SEED) applyAccess(window.ACCESS_SEED);
+
+/** URL 显式开关：edit=true 才允许“点击即打开抽屉” */
+function urlEditFlag() {
+    return new URLSearchParams(window.location.search).get("edit") === "true";
+}
+
+/** 渲染权限 UI：编辑按钮（写主副本）与抽屉（点击即开）分别由不同权限控制 */
+function renderAccessUI() {
+    // 1. 写主副本相关按钮：需要 edit=true 且身份为场主 / admin
+    const canEditMaster = urlEditFlag() && ACCESS.can_write_master;
+    document.querySelectorAll('.owner-edit-only').forEach(el => {
+        el.classList.toggle('hidden', !canEditMaster);
+    });
+    // 2. 写自己副本相关控件（连线等）：需要 edit=true 且有身份
+    const canEditCopy = urlEditFlag() && ACCESS.can_write_copy;
+    document.querySelectorAll('.copy-edit-only').forEach(el => {
+        el.classList.toggle('hidden', !canEditCopy);
+    });
+    // 3. 只读提示
+    const badge = document.getElementById('access-badge');
+    if (badge) {
+        const label = {
+            anonymous: '匿名浏览',
+            observer: `观察者 ${ACCESS.actor_id || ''}`,
+            owner: `场主 ${ACCESS.actor_id || ''}`,
+            admin: `管理员 ${ACCESS.actor_id || ''}`
+        }[ACCESS.role] || ACCESS.role;
+        badge.textContent = label;
+        badge.dataset.role = ACCESS.role;
+    }
+    console.log('[鉴权] 当前角色:', ACCESS);
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     const params = new URLSearchParams(window.location.search);
-    // 身份优先级：URL 显式参数 > localStorage 记住的登录身份
-    currentActorId = params.get('actor_id') || localStorage.getItem('causal_actor_id');
+    // 星空只认 URL 参数（宪法）：不做 localStorage 兜底
+    currentActorId = params.get('actor_id') || '';
     currentOwnerId = params.get('owner_id') || 'default';
+    renderAccessUI();
 });
 
-// URL附带Token
+// URL附带Token（只认 URL 参数）
 function appendAuthParams(url) {
-    const token = localStorage.getItem('causal_token');
+    const token = resolvePageToken();
     if (!token) return url;
     
     const separator = url.includes('?') ? '&' : '?';
-    return `${url}${separator}token=${encodeURIComponent(token)}`;
+    return `${url}${separator}token=${encodeURIComponent(token)}&auth_token=${encodeURIComponent(token)}`;
 }
 
-// Body附带Token、actor、owner
+// Body附带Token、actor、owner（只认 URL 参数）
 function appendAuthBody(payload) {
-    const token = localStorage.getItem('causal_token');
+    const token = resolvePageToken();
     if (token) {
         payload.token = token;
+        payload.auth_token = token;
     }
     // 身份优先级：URL 显式参数（window.*）> localStorage 记住的登录身份
     const effectiveActorId = window.currentActorId || currentActorId;
@@ -65,9 +134,45 @@ let hoverNode = null;
 let hoverScaleNode = null; // 追踪当前悬浮绽放的节点（非大股东节点的悬浮放大效果）
 let currentSelectedNodeId = null; 
 let is_change = true; // true: 编辑模式, false: 链入父ID模式
-const urlEdit = new URLSearchParams(window.location.search).get("edit") === "true";
-const hasToken = !!localStorage.getItem("causal_token");
-const is_edit_mode = urlEdit && hasToken;
+const urlEdit = urlEditFlag();
+const hasToken = !!resolvePageToken();
+// edit 只控制“点击是否打开抽屉”；是否可写主副本由 ACCESS.can_write_master 决定
+const is_edit_mode = urlEdit;
+const hasEditPerm = () => urlEdit && ACCESS.can_write_master;
+
+// 页面加载时向服务端确认角色（token 身份优先于 URL actor_id）
+(async function initAccessContext() {
+    try {
+        const params = new URLSearchParams(window.location.search);
+        const ownerId = params.get('owner_id') || 'default';
+        const actorId = window.currentActorId || params.get('actor_id') || '';
+        const token = resolvePageToken();
+        const url = `/api/v1/auth/context?owner_id=${encodeURIComponent(ownerId)}` +
+            (actorId ? `&actor_id=${encodeURIComponent(actorId)}` : '') +
+            (token ? `&token=${encodeURIComponent(token)}` : '');
+        const res = await fetch(url, { referrerPolicy: 'no-referrer' });
+        const json = await res.json();
+        if (json.status === 'success' && json.data) {
+            applyAccess(json.data);
+            if (ACCESS.actor_id) {
+                window.currentActorId = ACCESS.actor_id;
+                currentActorId = ACCESS.actor_id;
+            }
+            renderAccessUI();
+            // 告知服务端角色，加入私密房间（仅 owner/admin 会进）
+            if (window.socket) {
+                window.socket.emit('auth_join', {
+                    owner_id: ownerId,
+                    actor_id: ACCESS.actor_id,
+                    role: ACCESS.role
+                });
+            }
+        }
+    } catch (e) {
+        console.warn('[鉴权] 获取访问上下文失败，按匿名浏览处理:', e);
+        renderAccessUI();
+    }
+})();
 
 let nodeCache = {};
 
@@ -183,13 +288,15 @@ function installMobileLongPress() {
 }
 
 // 根据 edit 参数控制编辑相关按钮的可见性
+// 抽屉内的写操作（保存 / 删除 / 又贞 / 对贞）还需要服务端角色为场主或 admin
 (function initEditModeUI() {
-    const editElements = document.querySelectorAll('.edit-only, #btn-create-node');
-    if (is_edit_mode) {
-        editElements.forEach(el => el.classList.remove('hidden'));
-        console.log('[编辑模式] edit=true，编辑按钮已显示');
+    renderAccessUI();
+    if (urlEdit && !ACCESS.can_write_master) {
+        // 服务端权限回来之前先按只读处理，避免闪现可写按钮
+        console.log('[只读模式] edit=true 但当前身份无法写主副本，编辑按钮保持隐藏');
+    } else if (urlEdit) {
+        console.log('[编辑模式] edit=true，编辑按钮已按权限显示');
     } else {
-        editElements.forEach(el => el.classList.add('hidden'));
         console.log('[只读模式] edit 参数缺失或不为 true，编辑按钮已隐藏');
     }
 })();
@@ -635,9 +742,16 @@ function updateHighlight() {
     updateEventHorizonVisibility();
 }
 
-/** 更新事件视界可见性（虚化湮灭效果） */
-function updateEventHorizonVisibility() {
+/**
+ * 更新事件视界可见性（虚化湮灭效果）
+ * @param {Object} [options] 可选配置
+ * @param {boolean} [options.skipLabels=false] 跳过标签纹理重建（供定时监控的轻量重绘使用）
+ */
+function updateEventHorizonVisibility(options) {
     if (!Graph) return;
+
+    const opts = options || {};
+    const skipLabels = !!opts.skipLabels;
     
     const { nodes } = Graph.graphData();
     const hasHorizon = horizonNodes.size > 0;
@@ -661,6 +775,12 @@ function updateEventHorizonVisibility() {
         if (node.__threeObj) {
             const sphere = node.__threeObj.children[0];
             const sprite = node.__threeObj.children[1];
+
+            // 悬浮 / 增量动画中的节点：其 opacity 由悬浮绽放或权重 Tween 负责，
+            // 周期重绘不得覆盖，否则会出现“悬浮明度被压回视界虚化值”的闪烁。
+            const isHovered = (hoverNode === node);
+            const isTweening = !!(node.__threeObj.__currentMainTween || node.__threeObj.__isAnimatingOpacity);
+            const skipOpacity = isHovered || isTweening;
             
             const weight = getVisualWeight(node.survival_weight);
             const baseOpacity = 0.4 + weight * 0.6;
@@ -684,14 +804,14 @@ function updateEventHorizonVisibility() {
                     dimmedOpacity = 0.05;
                 }
 
-                if (sphere && sphere.material) {
+                if (!skipOpacity && sphere && sphere.material) {
                     sphere.material.transparent = true;
                     sphere.material.opacity = dimmedOpacity;
                     sphere.material.needsUpdate = true;
                     // 如果透明度为0，直接隐藏
                     if (dimmedOpacity === 0) sphere.visible = false;
                 }
-                if (sprite && sprite.material) {
+                if (!skipOpacity && sprite && sprite.material) {
                     sprite.material.opacity = dimmedOpacity * 0.8;
                     sprite.material.needsUpdate = true;
                     if (dimmedOpacity === 0) sprite.visible = false;
@@ -752,7 +872,8 @@ function updateEventHorizonVisibility() {
                     // 由于力导向图的坐标是动态的，距离判断不能太死，可以设为： 物理距离 > (maxEyes * 20)
                     const physicalThreshold = Math.max(800, maxEyes * 15);
                     
-                    if (isForeign && distance > physicalThreshold) {
+                    // 悬浮中的节点不参与物理距离强制剔除，避免“指哪亮哪”被瞬间压回
+                    if (!isHovered && isForeign && distance > physicalThreshold) {
                         forcedHideByDistance = true;
                         console.log(`[Debug] 节点 ${node.id} 物理距离过远(${distance.toFixed(1)} > ${physicalThreshold})，强制剔除可视`);
                     }
@@ -820,7 +941,7 @@ function updateEventHorizonVisibility() {
                     }
                 }
 
-                if (sphere && sphere.material) {
+                if (!skipOpacity && sphere && sphere.material) {
                     sphere.material.transparent = true;
                     const duty = node.action_tag;
                     if (duty === '又贞') {
@@ -830,7 +951,7 @@ function updateEventHorizonVisibility() {
                     }
                     sphere.material.needsUpdate = true;
                 }
-                if (sprite && sprite.material) {
+                if (!skipOpacity && sprite && sprite.material) {
                     sprite.material.opacity = finalOpacity * 0.8; // 降低文字标签的亮度使其稍弱于节点本体
                     sprite.material.needsUpdate = true;
                 }
@@ -838,7 +959,8 @@ function updateEventHorizonVisibility() {
             
             // 每次更新事件视界时，检查并重置标签截断状态
             // 如果是大股东节点在事件视界中，必须保持非截断显示；其他则恢复截断
-            if (sprite && sprite.material) {
+            // 轻量重绘（skipLabels）跳过纹理重建，避免定时监控每秒重建全图标签纹理
+            if (!skipLabels && sprite && sprite.material) {
                 const isBossNode = (currentBossNodeId === node.id || currentBossNodeId === node.node_id);
                 const isBossInHorizon = hasHorizon && isBossNode;
                 // 注意：如果该节点此时恰好被 hover（即 hoverNode === node），即使不是大股东，也应保持非截断。
@@ -857,7 +979,8 @@ function updateEventHorizonVisibility() {
                 const actualPhysicalRadius = targetRadius * 7; // REL_SIZE
                 sprite.position.y = actualPhysicalRadius + spriteHeight + 4;
                 
-                if (!node.__threeObj.__isAnimatingScale) {
+                // 动画中或悬浮中的标签尺寸由悬浮 Tween 负责，重绘不得写回基准值
+                if (!node.__threeObj.__isAnimatingScale && !isHovered) {
                     sprite.scale.set(newTexture.baseWidth * baseScale, spriteHeight, 1);
                 }
             }
@@ -947,10 +1070,13 @@ function hoverScaleNodeBloom(node) {
     // Sprite 同步绽放
     if (sprite) {
         const orig = node._origScale.sprite;
+        // 标记缩放动画中，避免周期重绘把标签尺寸写回基准值
+        node.__threeObj.__isAnimatingScale = true;
         new TWEEN.Tween({ x: orig.x, y: orig.y, z: orig.z })
             .to({ x: orig.x * BLOOM_SCALE, y: orig.y * BLOOM_SCALE, z: orig.z * BLOOM_SCALE }, DURATION)
             .easing(TWEEN.Easing.Back.Out)
             .onUpdate(obj => { sprite.scale.set(obj.x, obj.y, obj.z); })
+            .onComplete(() => { node.__threeObj.__isAnimatingScale = false; })
             .start();
     }
 }
@@ -1020,11 +1146,14 @@ function hoverScaleNodeRebound(node) {
         
         const target = new THREE.Vector3(reboundTexture.baseWidth * baseScale, spriteHeight, 1);
         
+        // 标记缩放动画中，避免周期重绘把标签尺寸写回基准值
+        node.__threeObj.__isAnimatingScale = true;
         new TWEEN.Tween({ x: sprite.scale.x, y: sprite.scale.y, z: sprite.scale.z })
             .to({ x: target.x, y: target.y, z: target.z }, DURATION)
             .easing(TWEEN.Easing.Quadratic.Out)
             .onUpdate(obj => { sprite.scale.set(obj.x, obj.y, obj.z); })
             .onComplete(() => {
+                node.__threeObj.__isAnimatingScale = false;
                 // 清理缓存的 scale，为下次 hover 准备
                 delete node._origScale;
             })
@@ -1330,7 +1459,92 @@ async function promoteNodeWeight(node, maxEyes = null) {
 }
 
 // --- [3. 数据交互与 Socket 逻辑] ---
-async function loadInitialData() {
+
+/**
+ * 全量重载的并发合并器。
+ * 高频广播（批量 node_updated / Socket 重连 / 连续表单保存）时只保留最后一次请求，
+ * 防止 N 个 reload 同时改写 Graph.graphData，导致坐标 NaN、相机抖动与"重绘不断"。
+ */
+const __loadState = {
+    inFlight: false,     // 是否正在请求 / 渲染
+    queued: false,       // 期间是否又有新的重载请求
+    timer: null,         // 防抖定时器
+    waiters: [],         // 本批次所有调用方的 resolve，批次结束时统一唤醒
+    hasLoadedOnce: false,// 是否已完成过首帧
+    hasAutoFitted: false // 是否已做过一次自动取景（后台重载不再抢镜头）
+};
+
+function loadInitialData(options) {
+    const opts = options || {};
+    const delay = (opts.immediate || !__loadState.hasLoadedOnce) ? 0 : 250;
+
+    return new Promise((resolve) => {
+        // 合流：本轮所有调用共享同一次请求，批次结束时统一 resolve
+        __loadState.waiters.push(resolve);
+
+        if (__loadState.inFlight) {
+            __loadState.queued = true;
+            return;
+        }
+        if (__loadState.timer) {
+            return; // 已有待执行批次，等它跑完即可
+        }
+
+        __loadState.timer = setTimeout(async () => {
+            __loadState.timer = null;
+
+            if (__loadState.inFlight) {
+                __loadState.queued = true;
+                return;
+            }
+
+            __loadState.inFlight = true;
+            try {
+                await fetchAndRenderGraph(opts);
+            } finally {
+                __loadState.inFlight = false;
+                // 唤醒本轮全部等待者，避免调用方 await 悬挂
+                const waiters = __loadState.waiters.splice(0);
+                waiters.forEach(fn => fn());
+                if (__loadState.queued) {
+                    __loadState.queued = false;
+                    // 合并期间又有新数据：再跑一次（后台模式，不再动相机）
+                    loadInitialData({ background: true });
+                }
+            }
+        }, delay);
+    });
+}
+
+/**
+ * 为缺少有效坐标的节点播种（黄金角球面分布）。
+ * 3d-force-graph 在数据整体替换后，新 node 对象要等首帧 tick 才有坐标，
+ * 期间读取 x/y/z 会得到 NaN，进而触发"大股东节点坐标无效"与 NaN 自检风暴。
+ */
+function seedNodePositions(nodes) {
+    if (!nodes || !nodes.length) return;
+    const golden = Math.PI * (3 - Math.sqrt(5));
+    const R = 320;
+    const total = nodes.length;
+    let idx = 0;
+    nodes.forEach(node => {
+        const ok = Number.isFinite(node.x) && Number.isFinite(node.y) && Number.isFinite(node.z);
+        if (ok) return;
+        const i = idx++;
+        const y = total > 1 ? 1 - (i / (total - 1)) * 2 : 0;
+        const ring = Math.sqrt(Math.max(0, 1 - y * y));
+        const theta = golden * i;
+        node.x = Math.cos(theta) * ring * R;
+        node.y = y * R;
+        node.z = Math.sin(theta) * ring * R;
+        if (!Number.isFinite(node.vx)) node.vx = 0;
+        if (!Number.isFinite(node.vy)) node.vy = 0;
+        if (!Number.isFinite(node.vz)) node.vz = 0;
+    });
+}
+
+async function fetchAndRenderGraph(options) {
+    const opts = options || {};
     try {
         const actorId = window.currentActorId || '';
         const ownerId = window.currentOwnerId || 'default';
@@ -1357,16 +1571,41 @@ async function loadInitialData() {
         if (res.status === 'success' && Array.isArray(res.data)) {
             console.log(`[数据加载] 成功加载 ${res.data.length} 个节点，owner_id: ${ownerId}`);
             
-            // 构建节点列表：如果节点正处于选中/观察状态，保留其物理锁定坐标
+            // 【平滑重载】沿用上一帧的坐标 / 速度 / 锁定，避免每次重载都从 NaN 重新布局
+            const prevById = new Map();
+            if (Graph) {
+                Graph.graphData().nodes.forEach(prev => {
+                    if (prev && prev.id !== undefined) prevById.set(prev.id, prev);
+                });
+            }
+
+            // 构建节点列表：优先继承旧坐标；被选中的节点保留物理锁定坐标
             const nodes = res.data.map(node => {
+                const prev = prevById.get(node.node_id);
                 const isSelected = selectedNodeObj && selectedNodeObj.id === node.node_id;
-                return {
+                const merged = {
                     id: node.node_id,
-                    ...node,
-                    fx: isSelected ? selectedNodeObj.fx : null,
-                    fy: isSelected ? selectedNodeObj.fy : null,
-                    fz: isSelected ? selectedNodeObj.fz : null
+                    ...node
                 };
+                if (prev) {
+                    ['x', 'y', 'z', 'vx', 'vy', 'vz', 'fx', 'fy', 'fz'].forEach(k => {
+                        const v = prev[k];
+                        if (v !== undefined && v !== null && !Number.isNaN(v)) merged[k] = v;
+                    });
+                }
+                if (isSelected) {
+                    merged.fx = selectedNodeObj.fx;
+                    merged.fy = selectedNodeObj.fy;
+                    merged.fz = selectedNodeObj.fz;
+                } else {
+                    // 非选中节点一律释放物理锁定，避免上一轮的 pin 残留
+                    merged.fx = null;
+                    merged.fy = null;
+                    merged.fz = null;
+                }
+                // 同步写入增量缓存，让后续 node_updated 命中缓存走增量路径而非全量重载
+                nodeCache[node.node_id] = merged;
+                return merged;
             });
 
             // 建立快速索引，用于严格校验连线关系
@@ -1407,31 +1646,23 @@ async function loadInitialData() {
 
             console.log(`[3D星空] 最终图谱数据: nodes=${nodes.length}, links=${links.length}`);
             Graph.graphData({ nodes, links });
-            
+            // 【初值播种】为新节点赋予确定性球面初值，杜绝整图 NaN
+            seedNodePositions(Graph.graphData().nodes);
+            __loadState.hasLoadedOnce = true;
+
             // 解决刷新后大股东变量丢失的问题：如果后端返回了大股东，在此处初始化
             if (res.boss_node_id && res.event_horizon && res.event_horizon.length > 0) {
                 currentBossNodeId = res.boss_node_id;
             }
             
-            // 检查是否有 NaN 坐标
+            // 坐标自检（只做补救，不再重灌数据，避免重新引爆仿真）
             setTimeout(() => {
                 const currentNodes = Graph.graphData().nodes;
-                const nanNodes = currentNodes.filter(n => isNaN(n.x) || isNaN(n.y) || isNaN(n.z));
+                const nanNodes = currentNodes.filter(n => !Number.isFinite(n.x) || !Number.isFinite(n.y) || !Number.isFinite(n.z));
                 if (nanNodes.length > 0) {
-                    console.error(`[3D星空] 发现 ${nanNodes.length} 个节点坐标为 NaN!`, nanNodes.slice(0, 5));
-                    // 修复 NaN 坐标
-                    nanNodes.forEach(n => {
-                        n.x = Math.random() * 100 - 50;
-                        n.y = Math.random() * 100 - 50;
-                        n.z = Math.random() * 100 - 50;
-                        n.vx = 0;
-                        n.vy = 0;
-                        n.vz = 0;
-                    });
-                    // 重新应用数据以触发引擎更新
-                    Graph.graphData(Graph.graphData());
-                } else {
-                    console.log(`[3D星空] 坐标检查正常，无 NaN 节点。`);
+                    console.warn(`[3D星空] 补齐 ${nanNodes.length} 个畸形坐标节点（不再触发全图重绘）`);
+                    seedNodePositions(currentNodes);
+                    if (Graph.refresh) Graph.refresh();
                 }
             }, 2000);
             
@@ -1500,26 +1731,34 @@ async function loadInitialData() {
                         }
 
                         
-                        // 聚焦到大股东节点
-                        // 确保坐标有效
-                        if (!isNaN(bossNode.x) && !isNaN(bossNode.y) && !isNaN(bossNode.z)) {
-                            const { camPos, lookAt } = calculateOffsetView(bossNode, 500);
-                            Graph.cameraPosition(camPos, lookAt, 1500);
-                            console.log(`[事件视界] 已进入事件视界模式，以 ${res.boss_node_id} 为中心`);
-                        } else {
-                            console.warn(`[事件视界] 大股东节点坐标无效，降级为全局适应`);
-                            Graph.cameraPosition({ x: 0, y: 0, z: 900 }, { x: 0, y: 0, z: 0 }, 1200);
+                        // 聚焦到大股东节点（仅首帧 / 主动刷新时执行，后台重载不再抢镜头）
+                        const shouldAutoFrame = !opts.background && !__loadState.hasAutoFitted;
+                        if (shouldAutoFrame) {
+                            if (!isNaN(bossNode.x) && !isNaN(bossNode.y) && !isNaN(bossNode.z)) {
+                                const { camPos, lookAt } = calculateOffsetView(bossNode, 500);
+                                Graph.cameraPosition(camPos, lookAt, 1500);
+                                __loadState.hasAutoFitted = true;
+                                console.log(`[事件视界] 已进入事件视界模式，以 ${res.boss_node_id} 为中心`);
+                            } else {
+                                console.warn(`[事件视界] 大股东节点坐标无效，降级为全局适应`);
+                                Graph.cameraPosition({ x: 0, y: 0, z: 900 }, { x: 0, y: 0, z: 0 }, 1200);
+                                __loadState.hasAutoFitted = true;
+                            }
                         }
                     } else {
                         console.warn(`[事件视界] 未找到大股东节点 ${res.boss_node_id} 在渲染数据中`);
-                        // 降级：仅做适应视图
-                        Graph.cameraPosition({ x: 0, y: 0, z: 900 }, { x: 0, y: 0, z: 0 }, 1200);
+                        // 降级：仅做适应视图（同样只在首帧）
+                        if (!opts.background && !__loadState.hasAutoFitted) {
+                            Graph.cameraPosition({ x: 0, y: 0, z: 900 }, { x: 0, y: 0, z: 0 }, 1200);
+                            __loadState.hasAutoFitted = true;
+                        }
                     }
                 }, 800);
-            } else if (!selectedNodeObj) {
-                // 防跳跃逻辑：如果没有选中任何节点，才执行全局缩放适应
+            } else if (!selectedNodeObj && !opts.background && !__loadState.hasAutoFitted) {
+                // 防跳跃逻辑：如果没有选中任何节点，才执行一次全局缩放适应
                 setTimeout(() => {
                     Graph.cameraPosition({ x: 0, y: 0, z: 900 }, { x: 0, y: 0, z: 0 }, 1200);
+                    __loadState.hasAutoFitted = true;
                 }, 600);
             }
 
@@ -1556,6 +1795,11 @@ function updateNodeIncremental(data) {
         graphNodes = Graph.graphData().nodes;
     }
     
+    // 收集本轮广播中"图里还没有"的节点与连线，循环结束后统一并入一次，
+    // 避免逐条 node_updated 都重灌 Graph.graphData 造成仿真重启与重绘抖动。
+    const pendingNewNodes = [];
+    const pendingNewLinks = [];
+
     list.forEach(uNode => {
         // 1. 首先尝试使用serial_id
         const sid = uNode.serial_id || uNode["本事件ID"];
@@ -1588,12 +1832,40 @@ function updateNodeIncremental(data) {
             if (uNode.action_tag) cacheNode.action_tag = uNode.action_tag;
             if (uNode.block_tag) cacheNode.block_tag = uNode.block_tag;
         } else {
-            console.warn(`[SocketIO] 警告：未找到缓存节点，serial_id: ${sid}, node_id: ${nid}`);
+            console.warn(`[SocketIO] 警告：未找到缓存节点，作为新节点增量并入缓存，serial_id: ${sid}, node_id: ${nid}`);
+            cacheNode = Object.assign({}, uNode);
+            cacheNode.id = nid;
+            nodeCache[nid] = cacheNode;
+            if (sid) nodeCache[sid] = cacheNode;
         }
-        
+
         // 【关键修复1】同步更新 Graph 内部的节点数据引用，否则引擎读取的永远是旧数据
-        if (graphNodes.length > 0) {
-            const gNode = graphNodes.find(n => n.serial_id === sid || n.id === nid || n.node_id === nid);
+        if (Graph && graphNodes) {
+            let gNode = graphNodes.find(n => n.serial_id === sid || n.id === nid || n.node_id === nid);
+            if (!gNode) {
+                gNode = Object.assign({ id: nid }, cacheNode);
+                // 贴着父节点出生，避免新节点从原点飞入
+                let rawParents = cacheNode.parent_ids || cacheNode.previous_ids
+                    || cacheNode.previous_node || cacheNode.parent_id || [];
+                if (typeof rawParents === 'string') rawParents = rawParents.split('|');
+                if (!Array.isArray(rawParents)) rawParents = [rawParents];
+                const parentRefs = rawParents
+                    .filter(Boolean)
+                    .map(p => graphNodes.find(n => n.id === p || n.node_id === p))
+                    .filter(Boolean);
+                const anchor = parentRefs.length ? parentRefs[0] : graphNodes[0];
+                if (anchor && Number.isFinite(anchor.x)) {
+                    const jitter = 24;
+                    gNode.x = anchor.x + (Math.random() - 0.5) * jitter;
+                    gNode.y = anchor.y + (Math.random() - 0.5) * jitter;
+                    gNode.z = anchor.z + (Math.random() - 0.5) * jitter;
+                    gNode.vx = 0; gNode.vy = 0; gNode.vz = 0;
+                }
+                parentRefs.forEach(p => {
+                    pendingNewLinks.push({ source: p.id, target: gNode.id, type: 'causal' });
+                });
+                pendingNewNodes.push(gNode);
+            }
             if (gNode) {
                 if (newWeight !== undefined) {
                     gNode.survival_weight = parseFloat(newWeight);
@@ -1831,6 +2103,18 @@ function updateNodeIncremental(data) {
             }
         }
     });
+
+    // 循环结束后：一次性把本轮新增的节点与连线并入图谱（只重灌一次，避免多轮仿真重启）
+    if (Graph && (pendingNewNodes.length > 0 || pendingNewLinks.length > 0)) {
+        const { nodes, links } = Graph.graphData();
+        const existIds = new Set(nodes.map(n => n.id));
+        const additions = pendingNewNodes.filter(n => n.id && !existIds.has(n.id));
+        if (additions.length > 0 || pendingNewLinks.length > 0) {
+            seedNodePositions(additions);
+            Graph.graphData({ nodes: [...nodes, ...additions], links: [...links, ...pendingNewLinks] });
+            console.log(`[SocketIO] 增量并入 ${additions.length} 个新节点、${pendingNewLinks.length} 条新连线（单次图谱更新）`);
+        }
+    }
 }
 
 function initSocketHandlers() {
@@ -1937,9 +2221,46 @@ function initSocketHandlers() {
         // 2. 隔离不同的 actor_id
         if (data.actor_id && currentActorId && data.actor_id !== currentActorId) return;
 
+        // 【关键】一律走增量路径，绝不调用 loadInitialData()。
+        // 全量重载会重建整份节点对象（坐标归零）并重启仿真，多节点广播时会形成重绘风暴。
+        const isKnown = !!nodeCache[data.node_id];
         nodeCache[data.node_id] = data;
-        window.pendingGenesisNodeId = data.node_id; // 标记待播发创世金光的节点
-        loadInitialData(); // 新节点增加需要拓扑刷新
+        updateNodeIncremental(data);
+
+        if (isKnown) return; // 已知节点只做权重/标签同步
+
+        // 新贞降临：播放创世金光（内联实现，替代原先 loadInitialData 里的全局重载）
+        const newId = data.node_id;
+        setTimeout(() => {
+            if (!Graph) return;
+            const gNode = Graph.graphData().nodes.find(n => n.id === newId || n.node_id === newId);
+            if (!gNode) return;
+
+            selectedNodeObj = gNode;
+            gNode.fx = Number.isFinite(gNode.x) ? gNode.x : null;
+            gNode.fy = Number.isFinite(gNode.y) ? gNode.y : null;
+            gNode.fz = Number.isFinite(gNode.z) ? gNode.z : null;
+
+            if (Number.isFinite(gNode.x)) {
+                const { camPos, lookAt } = calculateOffsetView(gNode, 350);
+                Graph.cameraPosition(camPos, lookAt, 1500);
+            }
+
+            showDivineBeam(gNode, 'golden');
+            highlightNodes.clear();
+            highlightNodes.add(gNode);
+            updateHighlight();
+
+            setTimeout(() => {
+                highlightNodes.clear();
+                updateHighlight();
+                gNode.fx = null;
+                gNode.fy = null;
+                gNode.fz = null;
+                selectedNodeObj = null;
+                __loadState.hasAutoFitted = true;
+            }, 2600);
+        }, 600);
     });
 
     window.socket.on('node_deleted', (data) => {
@@ -2095,6 +2416,12 @@ function openDrawer(nodeId) {
     
     // 打开抽屉
     document.getElementById('drawer').classList.remove('drawer-hidden');
+
+    // 按角色控制抽屉内表单可用性：
+    //   场主/admin：全部可编辑；
+    //   观测者：只允许改父节点（副本连线），其余字段只读；
+    //   匿名：全部只读。
+    applyDrawerPermissions();
     
     // 隐藏展开按钮
     const expandBtn = document.getElementById('btn-expand-drawer');
@@ -2129,6 +2456,52 @@ function openDrawer(nodeId) {
         previous_ids_count: pIds.length,
         has_image: !!(node.full_image_url || node.image_url)
     });
+}
+
+/**
+ * 按访问角色控制抽屉内表单元素的可用性。
+ * 场主/admin：全部可编辑；
+ * 观测者：仅父节点（副本连线）可编辑，其余字段只读；
+ * 匿名：全部只读。
+ */
+function applyDrawerPermissions() {
+    const masterOnlyFields = [
+        'd-node-id',            // 卜辞（node_id）
+        'd-action-tag',         // 动作标签
+        'd-block-tag',          // 因缘标签
+        'd-event-tuple',        // 事件叙述
+        'd-is-share',           // is_share 开关
+        'd-full-image-url',     // 图片 URL
+        'd-image-file',         // 图片文件
+        'btn-upload-image',     // 上传按钮
+        'expand-event-tuple-btn' // 事件叙述放大编辑
+    ];
+    const copyFields = ['d-parent-ids'];   // 观测者副本连线
+
+    const canMaster = ACCESS.can_write_master;
+    const canCopy = ACCESS.can_write_copy;
+
+    masterOnlyFields.forEach(id => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.disabled = !canMaster;
+        el.style.opacity = canMaster ? '' : '0.55';
+        el.title = canMaster ? '' : '仅场主或 admin 可修改';
+    });
+
+    copyFields.forEach(id => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.disabled = !canCopy;
+        el.style.opacity = canCopy ? '' : '0.55';
+        el.title = canCopy ? '' : '匿名访客只读';
+    });
+
+    // 保存按钮文字随角色变化（保存的内容范围不同）
+    const saveBtn = document.getElementById('btn-save-node');
+    if (saveBtn) {
+        saveBtn.textContent = canMaster ? '保存修改' : '保存我的连线';
+    }
 }
 
 function closeDrawer() {
@@ -2288,6 +2661,13 @@ async function handleUploadImage() {
 }
 
 async function handleSaveNode() {
+    // 鉴权：写主副本需要场主 / admin；有身份的观测者只能保存自己副本的连线
+    const scope = ACCESS.can_write_master ? 'master' : (ACCESS.can_write_copy ? 'copy' : null);
+    if (!scope) {
+        showSelectionHint('匿名访客无权保存，请先登录');
+        return;
+    }
+
     // 获取表单字段的值（使用HTML中实际存在的ID）
     const nodeId = document.getElementById('d-node-id').value.trim();
     const eventTupleField = document.getElementById('d-event-tuple');
@@ -2355,7 +2735,7 @@ async function handleSaveNode() {
     // 这样后端可以正确处理父ID为空的情况
     data.previous_ids = parentIds; // Map for backend API
 
-    console.log('[抽屉编辑] 发送更新数据:', data);
+    console.log('[抽屉编辑] 发送更新数据:', data, 'scope=', scope);
 
     try {
         const res = await fetch('/api/v1/causal/update', {
@@ -2366,7 +2746,9 @@ async function handleSaveNode() {
         const result = await res.json();
         console.log('API响应:', result);
         if (result.status === 'success') {
-            showSelectionHint('更新存证成功');
+            showSelectionHint(result.scope === 'user_copy'
+                ? '已保存你的私有因果连线'
+                : '更新存证成功');
             // 保存修改后，重置 is_change = true（与index.html一致）
             is_change = true;
             console.log('保存修改完成，重置 is_change = true');
@@ -2384,6 +2766,10 @@ async function handleSaveNode() {
 }
 
 async function handleDeleteNode() {
+    if (!ACCESS.can_write_master) {
+        showSelectionHint('只有场主或 admin 可以删除事件');
+        return;
+    }
     if (!confirm('确定要彻底抹除该节点及其因果关联吗？')) return;
     try {
         const res = await fetch('/api/v1/causal/delete', {
@@ -2743,6 +3129,7 @@ function handleNodeClick(node) {
     
     // 检查URL参数中是否有edit=true
     const urlParams = new URLSearchParams(window.location.search);
+    // 抽屉是否打开只取决于 URL 的 edit 参数（内容可写与否由抽屉内按钮权限控制）
     const isEditUrl = urlParams.get('edit') === 'true';
     
     // 如果是编辑模式或URL有edit=true参数，则打开抽屉
@@ -3919,10 +4306,11 @@ window.addEventListener('load', () => {
         console.warn('[因果巡航] 警告：未找到btn-dragon-cruise按钮元素');
     }
     
-    // 绑定发起首贞按钮
+    // 绑定发起首贞按钮（写主副本：仅场主 / admin；且需要 edit=true）
     const createNodeBtn = document.getElementById('btn-create-node');
     if (createNodeBtn) {
-        if (!is_edit_mode) {
+        if (!hasEditPerm()) {
+            createNodeBtn.classList.add('hidden');
             createNodeBtn.style.display = 'none';
         } else {
             createNodeBtn.onclick = openCreateModal;
@@ -4772,6 +5160,8 @@ setInterval(() => {
 
     let horizonNeedsRefresh = false;
     const hasHorizon = typeof horizonNodes !== 'undefined' && horizonNodes.size > 0 && typeof currentBossNodeId !== 'undefined' && currentBossNodeId;
+    // Memory 模式（?bot_id=）下视界外节点不透明度强制为 0，非 Memory 模式为 0.05
+    const isMemoryMode = !!new URLSearchParams(window.location.search).get('bot_id');
     let bossNode = null;
     
     if (hasHorizon) {
@@ -4782,27 +5172,29 @@ setInterval(() => {
 
     nodes.forEach(node => {
         if (!node.__threeObj) return;
+        // 悬浮或增量动画中的节点不参与异常判定：其透明度由悬浮绽放 / 权重 Tween 管理，
+        // 否则悬停视界外节点（0.65 > 阈值）会每秒都被判为异常并触发全图重绘。
+        if (hoverNode === node || node.__threeObj.__currentMainTween || node.__threeObj.__isAnimatingOpacity) return;
         const sphere = node.__threeObj.children[0];
         const sprite = node.__threeObj.children[1];
         if (!sphere || !sphere.material) return;
 
-        // 1. 对于大股东节点，强保透明度（最高权重）
-        if (node.survival_weight > 0.59) {
-            let needsUpdate = false;
-            if (sphere.material.opacity < 0.98) {
-                sphere.material.opacity = 0.98;
+        // 1. 对于视界内的大股东节点，强保透明度（统一使用 0.4 + w * 0.6 公式）
+        if (node.survival_weight > 0.59 && (!hasHorizon || horizonNodes.has(node.id))) {
+            const w = getVisualWeight(node.survival_weight);
+            const targetOp = 0.4 + w * 0.6;
+            if (sphere.material.opacity < targetOp - 0.02) {
+                sphere.material.opacity = targetOp;
                 sphere.material.needsUpdate = true;
-                needsUpdate = true;
             }
-            if (sprite && sprite.material && sprite.material.opacity < 0.98) {
-                sprite.material.opacity = 0.98 * 0.8;
+            if (sprite && sprite.material && sprite.material.opacity < targetOp * 0.8 - 0.02) {
+                sprite.material.opacity = targetOp * 0.8;
                 sprite.material.needsUpdate = true;
-                needsUpdate = true;
             }
         } 
         // 2. 对于普通节点，如果存在视界，检查视界外节点是否异常显示
         else if (hasHorizon && bossNode && !horizonNodes.has(node.id)) {
-            const expectedDimmedOpacity = 0.05;
+            const expectedDimmedOpacity = isMemoryMode ? 0 : 0.05;
             
             if (sphere.material.opacity > expectedDimmedOpacity + 0.1) {
                 horizonNeedsRefresh = true;
@@ -4839,10 +5231,11 @@ setInterval(() => {
         }
     });
 
-    if (horizonNeedsRefresh) {
+    if (horizonNeedsRefresh && !document.hidden) {
         console.log("[Monitor] 检测到视界外普通节点透明度异常，触发全局视界重绘");
+        // 轻量重绘：只修复 opacity / visible / 连线可见性，不重建全图标签纹理
         if (typeof updateEventHorizonVisibility === 'function') {
-            updateEventHorizonVisibility();
+            updateEventHorizonVisibility({ skipLabels: true });
         }
     }
 }, 1000);

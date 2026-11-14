@@ -130,8 +130,47 @@ class CausalDatabase:
                     ALTER TABLE ains_active_nodes 
                     ADD COLUMN IF NOT EXISTS semantic_vector vector(1024);
                 """)
+                # 节点分享标记（默认不分享，仅场主可见）
+                cur.execute("""
+                    ALTER TABLE ains_active_nodes 
+                    ADD COLUMN IF NOT EXISTS is_share BOOLEAN DEFAULT FALSE;
+                """)
+                # 用户副本因果连线（副本为宗：NULL 才回退主副本）
+                cur.execute("""
+                    ALTER TABLE ains_user_weights 
+                    ADD COLUMN IF NOT EXISTS parent_id VARCHAR(500);
+                """)
             except Exception as e:
                 print(f"[数据库警告] 添加表列时出错: {e}")
+
+            # 账号中心：用户表 / 场主表（鉴权升级所需，兼容旧库自动补建）
+            try:
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS ains_users (
+                        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                        actor_id VARCHAR(64) NOT NULL UNIQUE,
+                        token TEXT,
+                        password VARCHAR(255),
+                        is_admin BOOLEAN DEFAULT FALSE,
+                        created_at TIMESTAMPTZ DEFAULT now(),
+                        updated_at TIMESTAMPTZ DEFAULT now()
+                    );
+                """)
+                cur.execute("""
+                    ALTER TABLE ains_users 
+                    ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT FALSE;
+                """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS ains_owner_masters (
+                        owner_id VARCHAR(64) NOT NULL PRIMARY KEY,
+                        name VARCHAR(255) NOT NULL,
+                        actor_id VARCHAR(64) NOT NULL,
+                        created_at TIMESTAMPTZ DEFAULT now(),
+                        updated_at TIMESTAMPTZ DEFAULT now()
+                    );
+                """)
+            except Exception as e:
+                print(f"[数据库警告] 初始化账号表时出错: {e}")
 
     def get_node_by_id(self, node_id: str):
         """
@@ -153,62 +192,71 @@ class CausalDatabase:
                     node['previous_node'] = node.pop('parent_id')
             return node
 
-    def get_node_links(self, node_id: str):
+    def get_node_links(self, node_id: str, actor_id: str = None, owner_actor: str = None):
         """
         职责：获取节点的因果链 serial_id 列表（多因多果）
         参数：
             node_id: 当前节点的 node_id（标题）
-        返回：
-            dict: {
-                "previous_ids": [前事件 serial_id 整数列表]，无则为 []
-                "next_ids": [后事件 serial_id 整数列表]，无则为 []
-            }
-        说明：
-            - parent_id 字段在数据库中以 | 分隔的字符串存储，支持多前事件
-            - 查询子节点时使用 | 分隔符匹配，兼容多因多果
+            actor_id: 观察者ID（可选）。
+            owner_actor: 该场的场主 actor_id（可选）。
         """
-        # 1. 查询父节点 serial_id 列表
-        parent_sql = """
-            SELECT parent.serial_id
-            FROM ains_active_nodes parent
-            WHERE parent.node_id = ANY(string_to_array(%s, '|'))
-        """
-        # 2. 查询子节点 serial_id 列表（parent_id 字段以 | 分隔，需用 LIKE 匹配）
-        next_sql = """
-            SELECT sub.serial_id
-            FROM ains_active_nodes sub
-            WHERE ('|' || sub.parent_id || '|') LIKE '%%|' || %s || '|%%'
-        """
-
         result = {"previous_ids": [], "next_ids": []}
 
         try:
             with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
-                # 先获取当前节点的 parent_id 字符串
+                # 1) 取当前节点的 serial_id 与活跃表 parent_id
                 cur.execute(
-                    "SELECT parent_id FROM ains_active_nodes WHERE node_id = %s",
+                    "SELECT serial_id, parent_id FROM ains_active_nodes WHERE node_id = %s",
                     (node_id,),
                 )
                 row = cur.fetchone()
-                parent_id_str = row.get("parent_id") if row else None
+                serial_id = row.get("serial_id") if row else None
+                master_parent = row.get("parent_id") if row else None
 
-                # 查询前事件 serial_id
-                if parent_id_str:
-                    cur.execute(parent_sql, (parent_id_str,))
-                    parent_rows = cur.fetchall()
+                # 2) 确定有效连线：三级回退 (我的副本 -> 场主副本 -> 活跃表)
+                effective_parent = master_parent
+                if serial_id is not None:
+                    actors_to_fetch = []
+                    if actor_id: actors_to_fetch.append(actor_id)
+                    if owner_actor and owner_actor != actor_id: actors_to_fetch.append(owner_actor)
+                    
+                    if actors_to_fetch:
+                        ovs = self.get_user_overrides_multi(actors_to_fetch, [serial_id])
+                        my_ov = ovs.get(actor_id, {}).get(serial_id) if actor_id else None
+                        owner_ov = ovs.get(owner_actor, {}).get(serial_id) if owner_actor else None
+                        
+                        if my_ov and my_ov['has_parent']:
+                            effective_parent = my_ov['parent_id']
+                        elif owner_ov and owner_ov['has_parent']:
+                            effective_parent = owner_ov['parent_id']
+
+                # 3) 前事件 serial_id 列表
+                if effective_parent:
+                    cur.execute(
+                        "SELECT parent.serial_id FROM ains_active_nodes parent "
+                        "WHERE parent.node_id = ANY(string_to_array(%s, '|'))",
+                        (effective_parent,),
+                    )
                     result["previous_ids"] = [
-                        int(r["serial_id"])
-                        for r in parent_rows
-                        if r["serial_id"] is not None
+                        int(r["serial_id"]) for r in cur.fetchall() if r["serial_id"] is not None
                     ]
 
-                # 查询子节点 serial_id
-                cur.execute(next_sql, (node_id,))
-                next_rows = cur.fetchall()
+                # 4) 后事件 serial_id 列表（三级回退连线）
+                sql_next = """
+                    SELECT sub.serial_id FROM ains_active_nodes sub 
+                    LEFT JOIN ains_user_weights my ON my.serial_id = sub.serial_id AND my.actor_id = %s
+                    LEFT JOIN ains_user_weights owner ON owner.serial_id = sub.serial_id AND owner.actor_id = %s
+                    WHERE POSITION(chr(124) || %s || chr(124) IN chr(124) || 
+                        CASE 
+                            WHEN my.parent_id IS NOT NULL THEN my.parent_id
+                            WHEN owner.parent_id IS NOT NULL THEN owner.parent_id
+                            ELSE sub.parent_id 
+                        END
+                    || chr(124)) > 0
+                """
+                cur.execute(sql_next, (actor_id, owner_actor, node_id))
                 result["next_ids"] = [
-                    int(r["serial_id"])
-                    for r in next_rows
-                    if r["serial_id"] is not None
+                    int(r["serial_id"]) for r in cur.fetchall() if r["serial_id"] is not None
                 ]
 
         except Exception as e:
@@ -250,7 +298,7 @@ class CausalDatabase:
                 node_data.get('full_image_url'),
                 owner_id,
                 semantic_vector,
-                node_data.get('is_share', True)
+                node_data.get('is_share', False)
             ))
 
     def update_node_weight(self, node_id: str, new_weight: float):
@@ -978,12 +1026,276 @@ class CausalDatabase:
             result = cur.fetchone()
             return float(result[0]) if result else None
     
+    def get_user_parent_link(self, actor_id: str, serial_id: int):
+        """
+        职责：读取用户副本中的连线。
+        返回：(exists, parent_id)
+            exists=False 表示副本不存在；
+            parent_id 为 None 表示副本尚未初始化（需回退主副本）；
+            parent_id 为 '' 表示副本明确无父节点。
+        """
+        sql = "SELECT parent_id FROM ains_user_weights WHERE actor_id = %s AND serial_id = %s"
+        with self.conn.cursor() as cur:
+            cur.execute(sql, (actor_id, serial_id))
+            result = cur.fetchone()
+            if result is None:
+                return False, None
+            return True, result[0]
+
+    def set_user_parent_link(self, actor_id: str, serial_id: int, parent_id_str):
+        """
+        职责：明确写入用户副本的因果连线（不覆盖权重）。
+        约定（副本为宗）：
+            None → 副本未初始化（读时回退主副本）
+            ''   → 副本明确无父节点（读时不再回退）
+            其它 → 副本的父节点标题列表（| 分隔）
+        """
+        stored = "" if parent_id_str is not None else None
+        with self.conn.cursor() as cur:
+            cur.execute(
+                "SELECT survival_weight FROM ains_user_weights WHERE actor_id = %s AND serial_id = %s",
+                (actor_id, serial_id),
+            )
+            row = cur.fetchone()
+            if row is None:
+                cur.execute(
+                    "INSERT INTO ains_user_weights (actor_id, serial_id, survival_weight, parent_id) "
+                    "VALUES (%s, %s, 1.0, %s)",
+                    (actor_id, serial_id, stored),
+                )
+            else:
+                cur.execute(
+                    "UPDATE ains_user_weights SET parent_id = %s, last_accessed = CURRENT_TIMESTAMP "
+                    "WHERE actor_id = %s AND serial_id = %s",
+                    (stored, actor_id, serial_id),
+                )
+
+    def ensure_user_copy(self, actor_id: str, node: dict, owner_actor: str = None):
+        """
+        职责：访问时为该 actor 建立/补齐用户副本。
+        规则：
+            1. 场主自己（actor_id == owner_actor）不自动建副本（必须主动观测才建）。
+            2. 无副本记录 → 复制 COALESCE(场主副本, 活跃表) 的权重与 parent_id；
+            3. 有记录但 parent_id IS NULL（旧版本遗留）→ 用场主副本或活跃表回填；
+            4. 已有副本的权重和 parent_id 一律不覆盖。
+        参数：
+            node: 需包含 serial_id / survival_weight / previous_ids（node_id 标题列表）
+            owner_actor: 场主的 actor_id
+        """
+        if owner_actor and actor_id == owner_actor:
+            return
+
+        serial_id = node.get("serial_id")
+        if not serial_id:
+            return
+        try:
+            exists, user_parent = self.get_user_parent_link(actor_id, serial_id)
+
+            # 获取活跃表（兜底值）
+            master_parent = self._previous_to_string(node.get("previous_ids"))
+            master_weight = float(node.get("survival_weight", 1.0) or 1.0)
+
+            # 初始值 fallback：场主副本 -> 活跃表
+            seed_parent = master_parent
+            seed_weight = master_weight
+            if owner_actor:
+                owner_ov = self.get_user_overrides(owner_actor, [serial_id])
+                if owner_ov and serial_id in owner_ov:
+                    o = owner_ov[serial_id]
+                    if o['has_parent']:
+                        seed_parent = o['parent_id']
+                    if o['weight'] is not None:
+                        seed_weight = o['weight']
+
+            if not exists:
+                with self.conn.cursor() as cur:
+                    cur.execute(
+                        "INSERT INTO ains_user_weights (actor_id, serial_id, survival_weight, parent_id) "
+                        "VALUES (%s, %s, %s, %s) ON CONFLICT (actor_id, serial_id) DO NOTHING",
+                        (actor_id, serial_id, seed_weight, seed_parent),
+                    )
+            elif user_parent is None:
+                # 旧数据：副本连线未初始化，回填初始连线
+                with self.conn.cursor() as cur:
+                    cur.execute(
+                        "UPDATE ains_user_weights SET parent_id = %s, last_accessed = CURRENT_TIMESTAMP "
+                        "WHERE actor_id = %s AND serial_id = %s AND parent_id IS NULL",
+                        (seed_parent, actor_id, serial_id),
+                    )
+        except Exception as e:
+            print(f"[用户副本] 初始化失败 actor={actor_id}, serial_id={serial_id}: {e}")
+
+    def ensure_user_copies_bulk(self, actor_id: str, nodes: list, owner_actor: str = None):
+        """
+        职责：批量为某 actor 建立/补齐用户副本（一次 SELECT + 一次 executemany）。
+        规则与 ensure_user_copy 完全一致：
+            1. 场主自己（actor_id == owner_actor）不自动建副本（必须主动观测才建）；
+            2. 无副本记录 → 复制 COALESCE(场主副本, 活跃表) 的权重与 parent_id；
+            3. 有记录但 parent_id IS NULL（旧版本遗留）→ 用同一初始值回填；
+            4. 已有副本的权重和 parent_id 一律不覆盖。
+        参数：
+            nodes: [{serial_id, survival_weight, previous_ids, ...}, ...]
+        """
+        if not actor_id or not nodes:
+            return
+        if owner_actor and actor_id == owner_actor:
+            return
+
+        # 1) 归集待处理节点（必须有 serial_id）
+        node_map = {}
+        for node in nodes:
+            sid = node.get("serial_id")
+            if sid:
+                node_map[sid] = node
+        if not node_map:
+            return
+
+        serial_ids = list(node_map.keys())
+
+        # 2) 场主副本（第一兜底值）一次性取回
+        owner_ovs = self.get_user_overrides(owner_actor, serial_ids) if owner_actor else {}
+
+        try:
+            # 3) 已有的副本行（只为判断是否存在 / 是否需要回填）
+            with self.conn.cursor() as cur:
+                cur.execute(
+                    "SELECT serial_id, parent_id FROM ains_user_weights "
+                    "WHERE actor_id = %s AND serial_id = ANY(%s)",
+                    (actor_id, serial_ids),
+                )
+                existing = {row[0]: row[1] for row in cur.fetchall()}
+
+            inserts = []
+            backfills = []
+            for sid in serial_ids:
+                node = node_map[sid]
+                master_parent = self._previous_to_string(node.get("previous_ids"))
+                master_weight = float(node.get("survival_weight", 1.0) or 1.0)
+
+                # 初始值 fallback：场主副本 -> 活跃表
+                seed_parent = master_parent
+                seed_weight = master_weight
+                ov = owner_ovs.get(sid)
+                if ov:
+                    if ov.get("has_parent"):
+                        seed_parent = ov.get("parent_id")
+                    if ov.get("weight") is not None:
+                        seed_weight = ov.get("weight")
+
+                if sid not in existing:
+                    inserts.append((actor_id, sid, seed_weight, seed_parent))
+                elif existing[sid] is None and seed_parent is not None:
+                    # 旧数据：副本连线未初始化，回填初始连线（seed 为空时无需回填，继续按 NULL 回退）
+                    backfills.append((seed_parent, actor_id, sid))
+
+            if not inserts and not backfills:
+                return
+
+            # 4) 批量写入（autocommit 下 executemany 只走一次往返）
+            with self.conn.cursor() as cur:
+                if inserts:
+                    cur.executemany(
+                        "INSERT INTO ains_user_weights (actor_id, serial_id, survival_weight, parent_id) "
+                        "VALUES (%s, %s, %s, %s) ON CONFLICT (actor_id, serial_id) DO NOTHING",
+                        inserts,
+                    )
+                if backfills:
+                    cur.executemany(
+                        "UPDATE ains_user_weights SET parent_id = %s, last_accessed = CURRENT_TIMESTAMP "
+                        "WHERE actor_id = %s AND serial_id = %s AND parent_id IS NULL",
+                        backfills,
+                    )
+            print(f"[用户副本] 批量初始化完成 actor={actor_id}, 新增={len(inserts)}, 回填={len(backfills)}")
+        except Exception as e:
+            print(f"[用户副本] 批量初始化失败 actor={actor_id}, 节点数={len(serial_ids)}: {e}")
+
+    def clear_user_override(self, actor_id: str, serial_ids: list):
+        """
+        清空指定用户的副本（当场主/admin修改主事实时，清空遮蔽的个人副本）。
+        """
+        if not actor_id or not serial_ids:
+            return
+        sql = "DELETE FROM ains_user_weights WHERE actor_id = %s AND serial_id = ANY(%s)"
+        try:
+            with self.conn.cursor() as cur:
+                cur.execute(sql, (actor_id, serial_ids))
+            self.conn.commit()
+        except Exception as e:
+            self.conn.rollback()
+            print(f"[DB] clear_user_override 失败: {e}")
+
+    def get_user_overrides_multi(self, actor_ids: list, serial_ids=None):
+        """
+        批量获取多个用户的副本权重和连线。
+        返回格式: { actor_id: { serial_id: {'weight': float, 'parent_id': str, 'has_parent': bool} } }
+        """
+        if not actor_ids:
+            return {}
+        
+        # 过滤掉 None/空字符串
+        valid_actors = [a for a in actor_ids if a]
+        if not valid_actors:
+            return {}
+
+        query = """
+            SELECT actor_id, serial_id, survival_weight, parent_id
+            FROM ains_user_weights
+            WHERE actor_id = ANY(%s)
+        """
+        params = [valid_actors]
+        if serial_ids:
+            query += " AND serial_id = ANY(%s)"
+            params.append(serial_ids)
+
+        res = {a: {} for a in valid_actors}
+
+        try:
+            with self.conn.cursor() as cur:
+                cur.execute(query, tuple(params))
+                for row in cur.fetchall():
+                    a_id = row[0]
+                    s_id = row[1]
+                    w = float(row[2]) if row[2] is not None else None
+                    p = row[3]
+                    res[a_id][s_id] = {
+                        'weight': w,
+                        'parent_id': p,
+                        'has_parent': p is not None
+                    }
+        except Exception as e:
+            print(f"[DB] get_user_overrides_multi 失败: {e}")
+        return res
+
+    def get_user_overrides(self, actor_id: str, serial_ids=None):
+        """
+        职责：批量读取某 actor 的副本覆盖项（权重 + 连线）。
+        返回：{serial_id: {"weight": float|None, "parent_id": str|None, "has_parent": bool}}
+        """
+        result = {}
+        if not actor_id:
+            return result
+        sql = "SELECT serial_id, survival_weight, parent_id FROM ains_user_weights WHERE actor_id = %s"
+        params = [actor_id]
+        if serial_ids:
+            sql += " AND serial_id = ANY(%s)"
+            params.append(list(serial_ids))
+        with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(sql, tuple(params))
+            for row in cur.fetchall():
+                result[row["serial_id"]] = {
+                    "weight": float(row["survival_weight"]) if row["survival_weight"] is not None else None,
+                    "parent_id": row["parent_id"],
+                    "has_parent": row["parent_id"] is not None,
+                }
+        return result
+
     def set_user_weight(self, actor_id: str, serial_id: int, weight: float, parent_id: str = None):
         """
         职责：设置用户对特定事件的权重和主管连线(parent_id)
         如果记录不存在则插入，存在则更新
         """
         # 首先检查记录是否存在
+        # 约定：parent_id 为 None 表示“不改连线”；为 "" 表示“明确无父节点”（写入空串）
         check_sql = "SELECT 1 FROM ains_user_weights WHERE actor_id = %s AND serial_id = %s"
         with self.conn.cursor() as cur:
             cur.execute(check_sql, (actor_id, serial_id))
@@ -1159,130 +1471,185 @@ class CausalDatabase:
                     
             return nodes
 
-    def get_event_horizon(self, node_id: str, max_eyes: float, owner_id: str = None, show_links: bool = False):
+    def get_event_horizon(self, node_id: str, max_eyes: float, owner_id: str = None, show_links: bool = False, actor_id: str = None, owner_actor: str = None):
         """
         职责：获取事件视界内的节点（距离 <= MAX_EYES）
         参数：
-            node_id: 目标节点ID（大股东）
-            max_eyes: 视界半径（距离阈值）
-            owner_id: 事件拥有者ID，如果为None则不按owner过滤
-            show_links: 是否返回非焦点节点的 parent_ids/next_ids（默认 False，节省 Token）
-        返回：视界内的节点列表
+            ...
+            actor_id: 观察者ID（可选）。
+            owner_actor: 场主 actor_id（可选）。
         """
-        # 距离 D = (1 - 相似度) * 100
-        # 所以 相似度 = 1 - (D / 100)
-        # 余弦距离 = 1 - 相似度 = D / 100
-        
+        user_join = ""
+        child_user_join = ""
+        parent_expr = "n.parent_id"
+        child_parent_expr = "sub.parent_id"
+        join_params = []
+
+        if actor_id or owner_actor:
+            if actor_id:
+                user_join += "LEFT JOIN ains_user_weights my ON my.serial_id = n.serial_id AND my.actor_id = %s\n"
+                child_user_join += "LEFT JOIN ains_user_weights c_my ON c_my.serial_id = sub.serial_id AND c_my.actor_id = %s\n"
+                join_params.append(actor_id)
+            if owner_actor:
+                user_join += "LEFT JOIN ains_user_weights o_w ON o_w.serial_id = n.serial_id AND o_w.actor_id = %s\n"
+                child_user_join += "LEFT JOIN ains_user_weights c_o ON c_o.serial_id = sub.serial_id AND c_o.actor_id = %s\n"
+                join_params.append(owner_actor)
+
+            # my -> owner -> n
+            expr_parts = []
+            if actor_id: expr_parts.append("WHEN my.parent_id IS NOT NULL THEN my.parent_id")
+            if owner_actor: expr_parts.append("WHEN o_w.parent_id IS NOT NULL THEN o_w.parent_id")
+            parent_expr = f"CASE {' '.join(expr_parts)} ELSE n.parent_id END"
+
+            c_expr_parts = []
+            if actor_id: c_expr_parts.append("WHEN c_my.parent_id IS NOT NULL THEN c_my.parent_id")
+            if owner_actor: c_expr_parts.append("WHEN c_o.parent_id IS NOT NULL THEN c_o.parent_id")
+            child_parent_expr = f"CASE {' '.join(c_expr_parts)} ELSE sub.parent_id END"
+
         if owner_id:
-            sql = """
-                SELECT n.serial_id, n.node_id, n.parent_id, n.event_tuple, n.owner_id, n.is_share, n.full_image_url,
-                       (n.semantic_vector <=> (
-                           SELECT semantic_vector FROM ains_active_nodes WHERE node_id = %s
-                       )) * 100 as distance,
-                       COALESCE((
-                           SELECT STRING_AGG(sub.serial_id::text, '|')
-                           FROM ains_active_nodes sub
-                           WHERE ('|' || sub.parent_id || '|') LIKE '%%|' || n.node_id || '|%%'
-                             AND sub.owner_id = n.owner_id
-                       ), '') as next_ids_raw
-                FROM ains_active_nodes n
-                WHERE n.semantic_vector IS NOT NULL
-                  AND (
-                      SELECT semantic_vector FROM ains_active_nodes WHERE node_id = %s
-                  ) IS NOT NULL
-                  AND (n.semantic_vector <=> (
-                      SELECT semantic_vector FROM ains_active_nodes WHERE node_id = %s
-                  )) * 100 <= %s
-                  AND n.owner_id = %s
-                ORDER BY distance ASC
-            """
+            owner_sub = "AND sub.owner_id = n.owner_id"
+            owner_main = "AND n.owner_id = %s"
         else:
-            sql = """
-                SELECT n.serial_id, n.node_id, n.parent_id, n.event_tuple, n.owner_id, n.is_share, n.full_image_url,
-                       (n.semantic_vector <=> (
-                           SELECT semantic_vector FROM ains_active_nodes WHERE node_id = %s
-                       )) * 100 as distance,
-                       COALESCE((
-                           SELECT STRING_AGG(sub.serial_id::text, '|')
-                           FROM ains_active_nodes sub
-                           WHERE ('|' || sub.parent_id || '|') LIKE '%%|' || n.node_id || '|%%'
-                       ), '') as next_ids_raw
-                FROM ains_active_nodes n
-                WHERE n.semantic_vector IS NOT NULL
-                  AND (
-                      SELECT semantic_vector FROM ains_active_nodes WHERE node_id = %s
-                  ) IS NOT NULL
-                  AND (n.semantic_vector <=> (
-                      SELECT semantic_vector FROM ains_active_nodes WHERE node_id = %s
-                  )) * 100 <= %s
-                ORDER BY distance ASC
-            """
-        
+            owner_sub = ""
+            owner_main = ""
+
+        next_ids_expr = (
+            "COALESCE(("
+            "SELECT STRING_AGG(sub.serial_id::text, '|') "
+            "FROM ains_active_nodes sub \n"
+            f"{child_user_join}"
+            " WHERE POSITION(chr(124) || n.node_id || chr(124) "
+            f"IN chr(124) || {child_parent_expr} || chr(124)) > 0 "
+            f"{owner_sub}"
+            "), '')"
+        )
+
+        sql = (
+            f"SELECT n.serial_id, n.node_id, {parent_expr} AS parent_id, n.event_tuple,\n"
+            "       n.owner_id, n.is_share, n.full_image_url,\n"
+            "       (n.semantic_vector <=> (\n"
+            "           SELECT a.semantic_vector FROM ains_active_nodes a WHERE a.node_id = %s\n"
+            "       )) * 100 as distance,\n"
+            f"       {next_ids_expr} as next_ids_raw\n"
+            "FROM ains_active_nodes n\n"
+            f"{user_join}\n"
+            "WHERE n.semantic_vector IS NOT NULL\n"
+            "  AND (\n"
+            "      SELECT a.semantic_vector FROM ains_active_nodes a WHERE a.node_id = %s\n"
+            "  ) IS NOT NULL\n"
+            "  AND (n.semantic_vector <=> (\n"
+            "      SELECT a.semantic_vector FROM ains_active_nodes a WHERE a.node_id = %s\n"
+            "  )) * 100 <= %s\n"
+            f"  {owner_main}\n"
+            "ORDER BY distance ASC\n"
+        )
+
+        params = [node_id]
+        params.extend(join_params) # child_user_join (next_ids_expr in SELECT)
+        params.extend([node_id, node_id, max_eyes])
+        params.extend(join_params) # user_join (FROM)
+        if owner_id:
+            params.append(owner_id)
+
+        # Fix params order: The second `join_params` should be right after `FROM` join which is actually *after* the `SELECT` is fully constructed.
+        # Let's trace %s in the literal string:
+        # 1. SELECT distance: node_id
+        # 2. next_ids_expr -> child_user_join: join_params
+        # 3. WHERE ... node_id IS NOT NULL: node_id
+        # 4. WHERE ... <=> node_id <= max_eyes: node_id, max_eyes
+        # Wait, the `user_join` is in the `FROM` which appears *after* the `SELECT` clause (where `next_ids_expr` and its `child_user_join` sits).
+        # So actual order: [node_id] (for distance), join_params (for child_user_join), join_params (for user_join), [node_id, node_id, max_eyes], [owner_id]
+        final_params = [node_id]
+        final_params.extend(join_params) # for child_user_join in SELECT
+        final_params.extend(join_params) # for user_join in FROM
+        final_params.extend([node_id, node_id, max_eyes]) # for WHERE distance ...
+        if owner_id:
+            final_params.append(owner_id)
+
+        if os.getenv("CAUSAL_DEBUG_SQL") == "1":
+            print("[SQL调试] placeholders=" + str(sql.count("%s")) + " params=" + str(len(final_params)))
+            print("[SQL调试] params=" + repr(list(final_params)))
+            print(sql)
+
         with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
-            if owner_id:
-                cur.execute(sql, (node_id, node_id, node_id, max_eyes, owner_id))
-            else:
-                cur.execute(sql, (node_id, node_id, node_id, max_eyes))
+            cur.execute(sql, tuple(final_params))
             nodes = cur.fetchall()
-            
-            # 后处理：多因多果 → 始终解析为列表，根据开关决定保留与否
+
             for node in nodes:
-                # 前链：原始 parent_id 字符串 → previous_ids 列表（node_id 列表）
                 node['previous_ids'] = self._string_to_previous(node.get('parent_id'))
-                # 移除原始 parent_id 字符串（始终冗余）
                 node.pop('parent_id', None)
-                
-                # 子链：原始 next_ids_raw 字符串 → next_ids 列表
-                raw_next = node.pop('next_ids_raw', '')
-                node['next_ids'] = [int(x) for x in raw_next.split('|') if x.strip().isdigit()] if raw_next else []
-                
-                # 确保 distance 是浮点数
+
+                raw_next = node.pop('next_ids_raw', None)
+                node['next_ids'] = (
+                    [int(x) for x in str(raw_next).split('|') if x.strip().isdigit()]
+                    if raw_next else []
+                )
+
                 if 'distance' in node and node['distance'] is not None:
                     node['distance'] = float(node['distance'])
-                
-                # 非焦点节点默认不返回因果链，节省 LLM Token
+
                 if not show_links:
                     node.pop('previous_ids', None)
                     node.pop('next_ids', None)
-                    
+
             return nodes
 
-    def get_cross_field_contact_surface(self, owner_id: str, actor_id: str = None, focal_node_id: str = None):
+    def get_cross_field_contact_surface(self, owner_id: str, actor_id: str = None, focal_node_id: str = None, owner_actor: str = None):
         """
         职责：获取本场与异场之间的交集接触面连线。
         如果异场节点被设置为不可分享（is_share=False），则将其内容打码。
         若提供 focal_node_id，则同时计算到焦点节点的语义距离 distance（并剥离大向量）。
         """
+        if owner_id and not owner_actor:
+            master = self.get_owner_master(owner_id)
+            if master:
+                owner_actor = master.get('actor_id')
+
         distance_col = ""
         if focal_node_id:
             distance_col = ", (n.semantic_vector <=> (SELECT semantic_vector FROM ains_active_nodes WHERE node_id = %s)) * 100 AS distance"
 
-        # 第一步：查找由于 parent_id 关联产生的接触面
-        # 提取当前 owner_id 下的所有 node_id，或者指向当前 owner_id 的异场节点
+        # 第一步：查找由于 parent_id 关联产生的接触面（三级回退：my -> owner -> 活跃表）
         sql = f"""
-            SELECT DISTINCT n.*, w.parent_id as user_parent_id, w.survival_weight as user_weight{distance_col}
+            SELECT DISTINCT n.*,
+                   CASE
+                       WHEN my_w.parent_id IS NOT NULL THEN my_w.parent_id
+                       WHEN o_w.parent_id IS NOT NULL THEN o_w.parent_id
+                       ELSE n.parent_id
+                   END as user_parent_id,
+                   COALESCE(my_w.survival_weight, o_w.survival_weight, n.survival_weight) as user_weight{distance_col}
             FROM ains_active_nodes n
-            LEFT JOIN ains_user_weights w ON n.serial_id = w.serial_id AND w.actor_id = %s
+            LEFT JOIN ains_user_weights my_w ON n.serial_id = my_w.serial_id AND my_w.actor_id = %s
+            LEFT JOIN ains_user_weights o_w ON n.serial_id = o_w.serial_id AND o_w.actor_id = %s
             WHERE n.owner_id != %s
               AND (
                   -- 异场节点的前因包含本场节点
                   EXISTS (
                       SELECT 1 FROM ains_active_nodes b 
                       WHERE b.owner_id = %s 
-                        AND ('|' || COALESCE(w.parent_id, n.parent_id) || '|') LIKE '%%|' || b.node_id || '|%%'
+                        AND ('|' || (CASE
+                            WHEN my_w.parent_id IS NOT NULL THEN my_w.parent_id
+                            WHEN o_w.parent_id IS NOT NULL THEN o_w.parent_id
+                            ELSE n.parent_id
+                        END) || '|') LIKE '%%|' || b.node_id || '|%%'
                   )
                   OR
                   -- 本场节点的前因包含该异场节点
                   EXISTS (
                       SELECT 1 FROM ains_active_nodes b 
-                      LEFT JOIN ains_user_weights bw ON b.serial_id = bw.serial_id AND bw.actor_id = %s
+                      LEFT JOIN ains_user_weights b_my ON b.serial_id = b_my.serial_id AND b_my.actor_id = %s
+                      LEFT JOIN ains_user_weights b_o ON b.serial_id = b_o.serial_id AND b_o.actor_id = %s
                       WHERE b.owner_id = %s 
-                        AND ('|' || COALESCE(bw.parent_id, b.parent_id) || '|') LIKE '%%|' || n.node_id || '|%%'
+                        AND ('|' || (CASE
+                            WHEN b_my.parent_id IS NOT NULL THEN b_my.parent_id
+                            WHEN b_o.parent_id IS NOT NULL THEN b_o.parent_id
+                            ELSE b.parent_id
+                        END) || '|') LIKE '%%|' || n.node_id || '|%%'
                   )
               )
         """
         
-        params = [actor_id, owner_id, owner_id, actor_id, owner_id]
+        params = [actor_id, owner_actor, owner_id, owner_id, actor_id, owner_actor, owner_id]
         if focal_node_id:
             params.insert(0, focal_node_id)
 
@@ -1405,6 +1772,30 @@ class CausalDatabase:
         
         # 2. 获取节点的当前权重（根据owner_id过滤）
         all_nodes = self.get_all_active(owner_id)
+        
+        # 对于所有参与重排的节点，确保提取正确的三级回退权重。否则权重归一化基准不对。
+        if actor_id:
+            master_actor = None
+            if owner_id:
+                master = self.get_owner_master(owner_id)
+                master_actor = master.get('actor_id') if master else None
+                
+            actors_to_fetch = [actor_id]
+            if master_actor and master_actor != actor_id:
+                actors_to_fetch.append(master_actor)
+            
+            sids = [n['serial_id'] for n in all_nodes if n.get('serial_id')]
+            if sids:
+                ovs = self.get_user_overrides_multi(actors_to_fetch, sids)
+                for n in all_nodes:
+                    sid = n.get('serial_id')
+                    if not sid: continue
+                    my_ov = ovs.get(actor_id, {}).get(sid)
+                    owner_ov = ovs.get(master_actor, {}).get(sid) if master_actor else None
+                    if my_ov and my_ov['weight'] is not None:
+                        n['survival_weight'] = my_ov['weight']
+                    elif owner_ov and owner_ov['weight'] is not None:
+                        n['survival_weight'] = owner_ov['weight']
 
         # 2.1 并入额外的异场节点（参与距离/权重重排），按 node_id 去重
         if extra_nodes:
@@ -1490,11 +1881,10 @@ class CausalDatabase:
                     
                     self.upsert_node(update_data)
             else:
-                # 所有其他节点：按现有权重比例分配剩余的40%
-                if total_weight_excluding_boss > 0:
-                    # 计算权重比例
+                if node_info['current_weight'] > 0.585:
+                    new_weight = 0.58
+                elif total_weight_excluding_boss > 0:
                     weight_ratio = node_info['current_weight'] / total_weight_excluding_boss
-                    # 按比例分配40%
                     new_weight = weight_ratio * 0.40
                 else:
                     # 如果所有其他节点权重都为0，平均分配40%
@@ -1588,6 +1978,211 @@ class CausalDatabase:
         tokens = [t for t in self.get_user_tokens(actor_id) if t != token]
         self.set_user_tokens(actor_id, tokens)
 
+    # --- 鉴权升级：token 反查 / 场主查询 / admin ---
+    def get_actor_by_token(self, token: str):
+        """由 token 反查 actor_id（token 以逗号分隔存于 ains_users.token）。"""
+        token = (token or "").strip()
+        if not token:
+            return None
+        candidates = [token]
+        # 兼容前端把多把钥匙逗号拼接后整体传入的情况
+        if "," in token:
+            candidates.extend([t.strip() for t in token.split(",") if t.strip()])
+        try:
+            with self.conn.cursor() as cur:
+                cur.execute("SELECT actor_id, token FROM ains_users WHERE token IS NOT NULL AND token <> ''")
+                rows = cur.fetchall()
+            for actor_id, tokens in rows:
+                owned = [t for t in str(tokens).split(",") if t]
+                if any(c in owned for c in candidates):
+                    return actor_id
+        except Exception as e:
+            print(f"[鉴权] token 反查失败: {e}")
+        return None
+
+    def get_owner_master(self, owner_id: str):
+        """获取场的登记信息（owner_id / name / actor_id）。"""
+        sql = "SELECT owner_id, name, actor_id FROM ains_owner_masters WHERE owner_id = %s"
+        with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(sql, (owner_id,))
+            return cur.fetchone()
+
+    def is_admin_actor(self, actor_id: str) -> bool:
+        """判断 actor 是否为 admin（ains_users.is_admin）。"""
+        if not actor_id:
+            return False
+        sql = "SELECT is_admin FROM ains_users WHERE actor_id = %s"
+        try:
+            with self.conn.cursor() as cur:
+                cur.execute(sql, (actor_id,))
+                row = cur.fetchone()
+                return bool(row and row[0])
+        except Exception:
+            return False
+
+    def set_actor_admin(self, actor_id: str, is_admin: bool):
+        """设置 actor 的 admin 标记。"""
+        sql = "UPDATE ains_users SET is_admin = %s, updated_at = now() WHERE actor_id = %s"
+        with self.conn.cursor() as cur:
+            cur.execute(sql, (bool(is_admin), actor_id))
+
+    def count_admins(self) -> int:
+        """统计当前 admin 数量（用于“不能删除最后一个 admin”保护）。"""
+        sql = "SELECT COUNT(*) FROM ains_users WHERE COALESCE(is_admin, FALSE) = TRUE"
+        try:
+            with self.conn.cursor() as cur:
+                cur.execute(sql)
+                row = cur.fetchone()
+                return int(row[0]) if row else 0
+        except Exception:
+            return 0
+
+    def list_users(self, limit: int = 200, offset: int = 0):
+        """列出所有 actor（账号中心管理视图，不含密码）。"""
+        sql = """
+            SELECT actor_id, is_admin, created_at
+            FROM ains_users
+            ORDER BY created_at ASC
+            LIMIT %s OFFSET %s
+        """
+        with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(sql, (limit, offset))
+            return cur.fetchall()
+
+    def list_owner_actors(self, limit: int = 500):
+        """
+        职责：按「房主」聚合，供 admin 房主管理面板使用。
+        只返回名下有场（ains_owner_masters）的 actor，附带：
+            fields: [{owner_id, name, node_count}]
+            token_count: 名下钥匙数量
+            is_admin / created_at / field_count / node_count
+        """
+        sql = """
+            SELECT m.actor_id, m.owner_id, m.name, m.created_at,
+                   (SELECT COUNT(*) FROM ains_active_nodes n WHERE n.owner_id = m.owner_id) AS node_count
+            FROM ains_owner_masters m
+            ORDER BY m.created_at ASC
+        """
+        result = []
+        try:
+            with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(sql)
+                rows = cur.fetchall()
+
+                cur.execute("SELECT actor_id, token, is_admin FROM ains_users")
+                users = {r["actor_id"]: r for r in cur.fetchall()}
+
+            grouped = {}
+            for row in rows:
+                actor_id = row["actor_id"]
+                bucket = grouped.setdefault(actor_id, {
+                    "actor_id": actor_id,
+                    "fields": [],
+                    "field_count": 0,
+                    "node_count": 0,
+                    "created_at": str(row.get("created_at") or ""),
+                })
+                nodes = int(row.get("node_count") or 0)
+                bucket["fields"].append({
+                    "owner_id": row["owner_id"],
+                    "name": row["name"],
+                    "node_count": nodes,
+                })
+                bucket["field_count"] += 1
+                bucket["node_count"] += nodes
+
+            for actor_id, bucket in grouped.items():
+                u = users.get(actor_id) or {}
+                tokens = [t for t in str(u.get("token") or "").split(",") if t]
+                bucket["is_admin"] = bool(u.get("is_admin"))
+                bucket["token_count"] = len(tokens)
+                result.append(bucket)
+
+            result.sort(key=lambda x: (-x["field_count"], -x["node_count"]))
+            return result[:limit]
+        except Exception as e:
+            print(f"[数据库错误] 房主聚合失败: {e}")
+            return []
+
+    def reset_actor_tokens(self, actor_id: str):
+        """
+        职责：为 actor 重置钥匙——吊销其全部旧钥匙，签发一把新钥匙。
+        返回：{"token": 新钥匙明文, "revoked_count": 被吊销的旧钥匙把数}
+        """
+        old_tokens = self.get_user_tokens(actor_id)
+        new_token = self._new_token(actor_id)
+        self.set_user_tokens(actor_id, [new_token])
+        print(f"[admin] 重置钥匙 actor={actor_id}, 吊销 {len(old_tokens)} 把")
+        return {"token": new_token, "revoked_count": len(old_tokens)}
+
+    def list_user_fields(self, actor_id: str):
+        """列出某 actor 名下的场。"""
+        sql = "SELECT owner_id, name, actor_id FROM ains_owner_masters WHERE actor_id = %s ORDER BY created_at"
+        with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(sql, (actor_id,))
+            return cur.fetchall()
+
+    def list_all_fields(self, limit: int = 500):
+        """列出全部场（admin 视图）。"""
+        sql = """
+            SELECT owner_id, name, actor_id,
+                   (SELECT COUNT(*) FROM ains_active_nodes n WHERE n.owner_id = m.owner_id) AS node_count
+            FROM ains_owner_masters m
+            ORDER BY created_at ASC
+            LIMIT %s
+        """
+        with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(sql, (limit,))
+            return cur.fetchall()
+
+    def get_field_actor_ids(self, owner_id: str):
+        """返回曾在该场留下副本的 actor 列表（用于级联删除副本）。"""
+        sql = """
+            SELECT DISTINCT w.actor_id
+            FROM ains_user_weights w
+            JOIN ains_active_nodes n ON n.serial_id = w.serial_id
+            WHERE n.owner_id = %s
+        """
+        with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(sql, (owner_id,))
+            return [r["actor_id"] for r in cur.fetchall()]
+
+    def delete_actor_cascade(self, actor_id: str):
+        """
+        职责：注销 actor 并级联清理其名下场与所有用户副本。
+        """
+        owners = [o["owner_id"] for o in self.list_user_fields(actor_id)]
+        for owner_id in owners:
+            self.delete_owner_all(owner_id)
+        with self.conn.cursor() as cur:
+            cur.execute("DELETE FROM ains_user_weights WHERE actor_id = %s", (actor_id,))
+            cur.execute("DELETE FROM ains_users WHERE actor_id = %s", (actor_id,))
+        return owners
+
+    def get_necropolis_content_readonly(self, node_id: str, serial_id=None):
+        """
+        职责：只读读取地宫中最新的全文（不写回活跃表）。
+        用于观测者无权恢复主副本内容、但需要展示可见内容时。
+        """
+        try:
+            with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
+                if serial_id:
+                    cur.execute(
+                        "SELECT raw_content, raw_full_image_url, sealed_at FROM ains_archive_necropolis "
+                        "WHERE serial_id = %s ORDER BY sealed_at DESC LIMIT 1",
+                        (serial_id,),
+                    )
+                else:
+                    cur.execute(
+                        "SELECT raw_content, raw_full_image_url, sealed_at FROM ains_archive_necropolis "
+                        "WHERE node_id = %s ORDER BY sealed_at DESC LIMIT 1",
+                        (node_id,),
+                    )
+                return cur.fetchone()
+        except Exception as e:
+            print(f"[地宫只读] 读取失败 node={node_id}: {e}")
+            return None
+
     def list_owners(self, actor_id: str):
         sql = "SELECT owner_id, name FROM ains_owner_masters WHERE actor_id = %s ORDER BY created_at"
         with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -1661,10 +2256,12 @@ class CausalDatabase:
                     for row in cur.fetchall():
                         new_prev = [p for p in self._string_to_previous(row['parent_id']) if p != nid]
                         new_parent = self._previous_to_string(new_prev)
+                        # 删除后若已无父节点，显式写空串，表示“副本明确无父节点”，避免回退主副本旧连线
+                        stored_parent = new_parent if new_parent else ""
                         with self.conn.cursor() as cur2:
                             cur2.execute(
                                 "UPDATE ains_user_weights SET parent_id = %s WHERE actor_id = %s AND serial_id = %s",
-                                (new_parent, row['actor_id'], row['serial_id'])
+                                (stored_parent, row['actor_id'], row['serial_id'])
                             )
                         affected[row['node_id']] = row['owner_id']
 

@@ -529,7 +529,7 @@ ORDER BY similarity DESC
 def get_event_by_sid(serial_id: int, actor_id: str = None) -> Dict[str, Any]:
     """
     根据 serial_id 获取 Agent 友好型节点数据
-    如果提供 actor_id，返回用户个性化权重；否则返回全局权重
+    如果提供 actor_id，返回用户个性化权重与用户副本连线（副本为宗：NULL 才回退主副本）
     """
     sql = f'''
 SELECT 
@@ -547,7 +547,7 @@ SELECT
         FROM ains_active_nodes AS sub 
         WHERE ('|' || sub.parent_id || '|') LIKE '%|' || root.node_id || '|%'
     ), '') AS next_id_list,
-    root.node_id, root.parent_id, root.survival_weight, root.full_image_url, root.owner_id
+    root.node_id, root.parent_id, root.survival_weight, root.full_image_url, root.owner_id, root.is_share
 FROM ains_active_nodes root
 WHERE root.serial_id = {serial_id};
     '''
@@ -558,23 +558,57 @@ WHERE root.serial_id = {serial_id};
             row = cur.fetchone()
             if row:
                 d = dict(zip(columns, row))
-                
-                # 获取权重：如果提供actor_id，优先使用用户权重
+
+                # 获取权重与连线：三级回退（我的副本 -> 场主副本 -> 活跃表）
                 weight = float(d['survival_weight']) if isinstance(d['survival_weight'], Decimal) else d['survival_weight']
-                
-                if actor_id:
-                    # 查询用户权重表
-                    user_weight = db.get_user_weight(actor_id, serial_id)
-                    if user_weight is not None:
-                        weight = user_weight
-                        print(f"[搜索调试] 使用用户 {actor_id} 的个性化权重: {weight} (serial_id: {serial_id})")
-                    else:
-                        print(f"[搜索调试] 用户 {actor_id} 没有个性化权重，使用全局权重: {weight} (serial_id: {serial_id})")
-                
-                # 构建返回字典，同时包含物理键名和中文键名
-                # parent_ids / next_ids 统一为 serial_id 整数列表（多因多果）
-                parent_ids = [int(x) for x in d['parent_id_list'].split(',')] if d['parent_id_list'] else []
-                next_ids = [int(x) for x in d['next_id_list'].split(',')] if d['next_id_list'] else []
+                parent_ids = [int(x) for x in d['parent_id_list'].split(',') if x.strip().isdigit()] if d.get('parent_id_list') else []
+                next_ids = [int(x) for x in d['next_id_list'].split(',') if x.strip().isdigit()] if d.get('next_id_list') else []
+
+                owner_actor = None
+                if d.get('owner_id'):
+                    master = db.get_owner_master(d['owner_id'])
+                    if master:
+                        owner_actor = master.get('actor_id')
+
+                if actor_id or owner_actor:
+                    actors_to_fetch = []
+                    if actor_id: actors_to_fetch.append(actor_id)
+                    if owner_actor and owner_actor != actor_id: actors_to_fetch.append(owner_actor)
+                    if actors_to_fetch:
+                        ovs = db.get_user_overrides_multi(actors_to_fetch, [serial_id])
+                        my_ov = ovs.get(actor_id, {}).get(serial_id) if actor_id else None
+                        owner_ov = ovs.get(owner_actor, {}).get(serial_id) if owner_actor else None
+
+                        if my_ov and my_ov.get('weight') is not None:
+                            weight = my_ov['weight']
+                        elif owner_ov and owner_ov.get('weight') is not None:
+                            weight = owner_ov['weight']
+
+                        effective_parent = None
+                        has_override_parent = False
+                        if my_ov and my_ov.get('has_parent'):
+                            effective_parent = my_ov.get('parent_id') or ''
+                            has_override_parent = True
+                        elif owner_ov and owner_ov.get('has_parent'):
+                            effective_parent = owner_ov.get('parent_id') or ''
+                            has_override_parent = True
+
+                        if has_override_parent:
+                            d['parent_id'] = effective_parent
+                            if effective_parent:
+                                with db.conn.cursor() as cur2:
+                                    cur2.execute(
+                                        "SELECT serial_id FROM ains_active_nodes "
+                                        "WHERE node_id = ANY(string_to_array(%s, '|'))",
+                                        (effective_parent,),
+                                    )
+                                    parent_ids = [int(r[0]) for r in cur2.fetchall() if r[0] is not None]
+                            else:
+                                parent_ids = []
+
+                    links = db.get_node_links(d['node_id'], actor_id=actor_id, owner_actor=owner_actor)
+                    next_ids = links.get('next_ids', next_ids)
+
                 # 前事件标题列表（供 Agent 辅助理解，仍保留标题）
                 parent_titles = db._string_to_previous(d['parent_id']) if d['parent_id'] else []
                 
@@ -588,6 +622,7 @@ WHERE root.serial_id = {serial_id};
                     "action_tag": d['action_tag'],
                     "full_image_url": d['full_image_url'],
                     "owner_id": d['owner_id'],
+                    "is_share": d.get('is_share'),
                     "previous_node": d['parent_id'],
                     "previous_ids": parent_ids,
                     "next_ids": next_ids,
@@ -603,6 +638,7 @@ WHERE root.serial_id = {serial_id};
                     "本事件标题": d['node_id'],
                     "截图": d['full_image_url'],
                     "事件拥有者": d['owner_id'],
+                    "是否共享": d.get('is_share'),
                     "前事件标题列表": parent_titles,
                     "观察者用户": actor_id if actor_id else None  # 添加观察者用户信息
                 }
@@ -624,19 +660,63 @@ def get_event_skeleton(serial_id: int, actor_id: str = None) -> List[Dict[str, A
         因果链全息图骨架
     """
     # 1. 递归 SQL：全向抓取该连通图内所有的 serial_id (分段递归避开 PostgreSQL 语法限制)
+    #    提供 actor_id 时，因果连线以用户副本为宗（空串=明确无父节点，NULL=回退主副本）
+    # Fetch owner_id to determine owner_actor for 3-level fallback
+    owner_actor = None
+    try:
+        with db.conn.cursor() as cur:
+            cur.execute("SELECT owner_id FROM ains_active_nodes WHERE serial_id = %s", (serial_id,))
+            row = cur.fetchone()
+            if row:
+                master = db.get_owner_master(row[0])
+                if master:
+                    owner_actor = master.get('actor_id')
+    except Exception as e:
+        print(f"[DB] 获取 owner_id 失败: {e}")
+
+    w_join = ""
+    w_parent_expr = "n.parent_id"
+    if actor_id or owner_actor:
+        w_cases = []
+        if actor_id:
+            w_join += f"LEFT JOIN ains_user_weights my ON my.serial_id = n.serial_id AND my.actor_id = '{actor_id}'\n"
+            w_cases.append("WHEN my.parent_id IS NOT NULL THEN my.parent_id")
+        if owner_actor:
+            w_join += f"LEFT JOIN ains_user_weights owner_w ON owner_w.serial_id = n.serial_id AND owner_w.actor_id = '{owner_actor}'\n"
+            w_cases.append("WHEN owner_w.parent_id IS NOT NULL THEN owner_w.parent_id")
+        
+        w_parent_expr = f"CASE {' '.join(w_cases)} ELSE n.parent_id END"
+
+    ancestors_from = f"""
+        SELECT n.node_id, {w_parent_expr} AS parent_id, n.serial_id
+        FROM ains_active_nodes n
+        {w_join}
+        WHERE n.serial_id = {serial_id}
+    """
+    ancestors_rec = f"""
+        SELECT n.node_id, {w_parent_expr} AS parent_id, n.serial_id
+        FROM ains_active_nodes n
+        {w_join}
+        JOIN ancestors a ON n.node_id = ANY(string_to_array(a.parent_id, '|'))
+    """
+    related_rec = f"""
+        SELECT n.node_id, {w_parent_expr} AS parent_id, n.serial_id
+        FROM ains_active_nodes n
+        {w_join}
+        JOIN all_related ar ON ('|' || {w_parent_expr} || '|') LIKE '%|' || ar.node_id || '|%'
+    """
+
     sql = f'''
     WITH RECURSIVE 
     ancestors AS (
-        SELECT node_id, parent_id, serial_id FROM ains_active_nodes WHERE serial_id = {serial_id}
+        {ancestors_from}
         UNION
-        SELECT n.node_id, n.parent_id, n.serial_id FROM ains_active_nodes n
-        JOIN ancestors a ON n.node_id = a.parent_id
+        {ancestors_rec}
     ),
     all_related AS (
         SELECT * FROM ancestors
         UNION
-        SELECT n.node_id, n.parent_id, n.serial_id FROM ains_active_nodes n
-        JOIN all_related ar ON n.parent_id = ar.node_id
+        {related_rec}
     )
     SELECT DISTINCT serial_id FROM all_related;
     '''

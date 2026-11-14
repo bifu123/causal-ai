@@ -32,6 +32,46 @@
         set token(v) { v ? localStorage.setItem('causal_token', v) : localStorage.removeItem('causal_token'); }
     };
 
+    // ---------- 管理员「以场主身份操作」状态（仅内存，不写 localStorage） ----------
+    // 进入后整个账号中心（场 / 钥匙 / API / SKILL）都以该场主的钥匙执行；
+    // 刷新页面即恢复为 admin 自己的身份，避免污染本机登录态。
+    let ACT_AS = null;   // { actor, token }
+
+    function currentActor() { return (ACT_AS && ACT_AS.actor) || LS.actor; }
+    function authToken() { return (ACT_AS && ACT_AS.token) || LS.token; }
+    function isActingAs() { return !!ACT_AS; }
+
+    function renderActAsBanner() {
+        const bar = document.getElementById('act-as-bar');
+        const name = document.getElementById('act-as-name');
+        if (!bar) return;
+        if (isActingAs()) {
+            bar.classList.add('show');
+            if (name) name.textContent = ACT_AS.actor;
+        } else {
+            bar.classList.remove('show');
+        }
+    }
+
+    async function exitActAs() {
+        ACT_AS = null;
+        renderActAsBanner();
+        updateStatus();
+        await refreshAll();
+        switchTab('admin');
+        toast('已退出管理员视角', 'success');
+    }
+
+    function switchTab(tabName) {
+        const tab = document.querySelector('.tab[data-tab="' + tabName + '"]');
+        if (!tab) return;
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+        tab.classList.add('active');
+        const panel = document.getElementById('panel-' + tabName);
+        if (panel) panel.classList.add('active');
+    }
+
     // ---------- 工具 ----------
     function toast(msg, type) {
         let el = document.getElementById('toast');
@@ -49,7 +89,16 @@
 
     async function api(url, options) {
         try {
-            const res = await fetch(url, options);
+            const opts = Object.assign({}, options || {});
+            // 统一带上 Authorization: Bearer，避免把 token 写进 URL
+            const tk = authToken();
+            if (tk) {
+                opts.headers = Object.assign({}, opts.headers || {}, {
+                    'Authorization': 'Bearer ' + tk
+                });
+            }
+            opts.referrerPolicy = 'no-referrer';
+            const res = await fetch(url, opts);
             return await res.json();
         } catch (e) {
             return { status: 'error', message: '网络错误: ' + e.message };
@@ -65,6 +114,33 @@
     }
 
     function get(url) { return api(url); }
+
+    /**
+     * 用「管理员自己的钥匙」调用管理接口。
+     * 代管（act-as）期间 authToken() 已切成场主的钥匙，管理接口必须显式用 LS.token，
+     * 否则会返回“仅 admin 可调用该接口”。
+     */
+    async function adminApi(url, options) {
+        try {
+            const opts = Object.assign({}, options || {});
+            opts.headers = Object.assign({}, opts.headers || {}, {
+                'Authorization': 'Bearer ' + (LS.token || '')
+            });
+            opts.referrerPolicy = 'no-referrer';
+            const res = await fetch(url, opts);
+            return await res.json();
+        } catch (e) {
+            return { status: 'error', message: '网络错误: ' + e.message };
+        }
+    }
+
+    function adminPost(url, data) {
+        return adminApi(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data || {})
+        });
+    }
 
     function escapeHtml(s) {
         return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({
@@ -111,9 +187,12 @@
     function updateStatus() {
         const bar = document.getElementById('status-bar');
         const text = document.getElementById('status-text');
-        if (LS.actor) {
+        const who = currentActor();
+        if (who) {
             bar.classList.add('online');
-            text.textContent = '已登录: ' + LS.actor;
+            text.textContent = isActingAs()
+                ? ('管理员视角 · 以 ' + who + ' 身份操作')
+                : ('已登录: ' + who);
         } else {
             bar.classList.remove('online');
             text.textContent = '未登录';
@@ -122,6 +201,8 @@
 
     // ---------- 退出登录 ----------
     function logout() {
+        ACT_AS = null;
+        renderActAsBanner();
         LS.actor = '';
         LS.token = '';
         updateStatus();
@@ -223,10 +304,10 @@
     function bindOwner() {
         document.getElementById('owner-form').addEventListener('submit', async e => {
             e.preventDefault();
-            if (!LS.actor) { toast('请先登录', 'error'); return; }
+            if (!currentActor()) { toast('请先登录', 'error'); return; }
             const owner_id = document.getElementById('owner-id').value.trim();
             const name = document.getElementById('owner-name').value.trim();
-            const r = await post('/api/v1/owner/create', { owner_id, name, actor_id: LS.actor });
+            const r = await post('/api/v1/owner/create', { owner_id, name, actor_id: currentActor() });
             if (r.status === 'success') {
                 document.getElementById('owner-form').reset();
                 toast('场已创建', 'success');
@@ -256,14 +337,14 @@
     function enter(ownerId, isEdit = false) {
         // 场名形如 {owner_actor}_{bot_id} 时，取下划线前半段作为 actor_id
         // 例如：755750209_3787687088 -> 755750209
-        let actorId = LS.actor;
+        let actorId = currentActor();
         const idx = ownerId.indexOf('_');
         if (idx !== -1) {
             const prefix = ownerId.slice(0, idx);
             if (prefix) actorId = prefix;
         }
 
-        const token = LS.token || '';
+        const token = authToken();
         const url = '/3d?owner_id=' + encodeURIComponent(ownerId)
             + '&actor_id=' + encodeURIComponent(actorId)
             + (token ? '&token=' + encodeURIComponent(token) : '')
@@ -278,10 +359,10 @@
     function enterMemory(ownerId) {
         const idx = ownerId.indexOf('_');
         if (idx === -1) { toast('该场非 Agent 专用场（owner_id 无 _），无 Memory', 'error'); return; }
-        const ownerActor = ownerId.slice(0, idx) || LS.actor;   // 前半段 = 观测者 actor_id
+        const ownerActor = ownerId.slice(0, idx) || currentActor();   // 前半段 = 观测者 actor_id
         const botId = ownerId.slice(idx + 1);                    // 后半段 = bot_id
         if (!botId) { toast('bot_id 为空，无法拼接 Memory URL', 'error'); return; }
-        const token = LS.token || '';
+        const token = authToken();
         const url = '/3d?owner_id=' + encodeURIComponent(ownerId)
             + '&actor_id=' + encodeURIComponent(ownerActor)
             + '&bot_id=' + encodeURIComponent(botId)
@@ -290,51 +371,93 @@
         window.open(url, '_blank');
     }
 
+    // ---------- 场的列表渲染（宽屏网格平铺 + 搜索过滤，所有操作直接铺开） ----------
+    let OWNERS_CACHE = [];            // 当前 actor 名下场（接口原始数据）
+    let OWNER_QUERY = '';             // 搜索关键字（纯前端过滤）
+
     async function refreshOwners() {
         const box = document.getElementById('owner-list');
-        if (!LS.actor) { box.innerHTML = '<p class="empty">请先登录后查看名下场</p>'; return; }
-        const r = await get('/api/v1/owner/list?actor_id=' + encodeURIComponent(LS.actor));
-        const owners = (r.status === 'success' && r.data) ? r.data : [];
-        if (!owners.length) {
+        if (!box) return;
+        if (!currentActor()) {
+            OWNERS_CACHE = [];
+            box.innerHTML = '<p class="empty">请先登录后查看名下场</p>';
+            updateOwnerCount(0, 0);
+            return;
+        }
+        const r = await get('/api/v1/owner/list?actor_id=' + encodeURIComponent(currentActor()));
+        OWNERS_CACHE = (r.status === 'success' && r.data) ? r.data : [];
+        renderOwners();
+    }
+
+    /** 按关键字过滤场：场名 / owner_id 任一命中即保留 */
+    function filterOwners(owners, query) {
+        const q = String(query || '').trim().toLowerCase();
+        if (!q) return owners;
+        return owners.filter(o => String(o.name || '').toLowerCase().indexOf(q) !== -1
+            || String(o.owner_id || '').toLowerCase().indexOf(q) !== -1);
+    }
+
+    function updateOwnerCount(total, shown) {
+        const el = document.getElementById('owner-count');
+        if (!el) return;
+        if (!total) { el.textContent = ''; return; }
+        el.textContent = (shown === total) ? ('共 ' + total + ' 座') : ('命中 ' + shown + ' / ' + total + ' 座');
+    }
+
+    function renderOwners() {
+        const box = document.getElementById('owner-list');
+        if (!box) return;
+        const owners = filterOwners(OWNERS_CACHE, OWNER_QUERY);
+        updateOwnerCount(OWNERS_CACHE.length, owners.length);
+
+        if (!OWNERS_CACHE.length) {
             box.innerHTML = '<p class="empty">暂无场，先在上方创建一座</p>';
             return;
         }
-        box.innerHTML = owners.map(o => `
-            <div class="item">
+        if (!owners.length) {
+            box.innerHTML = '<p class="empty">没有匹配「' + escapeHtml(OWNER_QUERY) + '」的场</p>';
+            return;
+        }
+
+        box.innerHTML = owners.map(o => {
+            const id = escapeHtml(o.owner_id);
+            return `
+            <div class="item" data-owner-row="${id}">
                 <div class="meta">
                     <div class="name">${escapeHtml(o.name)}</div>
-                    <div class="id">${escapeHtml(o.owner_id)}</div>
+                    <div class="id">${id}</div>
                 </div>
                 <div class="actions">
-                    <button class="btn small ghost" data-enter="${escapeHtml(o.owner_id)}">进入星空(只读)</button>
-                    <button class="btn small primary" data-enter="${escapeHtml(o.owner_id)}" data-edit="true">进入星空(可写)</button>
-                    ${o.owner_id.includes('_') ? '<button class="btn small memory" data-memory="' + escapeHtml(o.owner_id) + '">🧠 Memory</button>' : ''}
-                    <button class="btn small ghost" data-rename="${escapeHtml(o.owner_id)}">改名</button>
-                    <button class="btn small api" data-api="${escapeHtml(o.owner_id)}">📡 获取API</button>
-                    <button class="btn small api" data-skill="${escapeHtml(o.owner_id)}">📡 获取SKILL</button>
-                    <button class="btn small danger" data-del="${escapeHtml(o.owner_id)}">删除</button>
-                    <button class="btn small danger" data-delall="${escapeHtml(o.owner_id)}">删除全部</button>
+                    <button class="btn small ghost" data-enter="${id}" title="进入星空（只读）">👁 只读</button>
+                    <button class="btn small primary" data-enter="${id}" data-edit="true" title="进入星空（可写/可编辑）">✍ 可写</button>
+                    ${o.owner_id.includes('_') ? '<button class="btn small memory" data-memory="' + id + '">🧠 Memory</button>' : ''}
+                    <button class="btn small ghost" data-rename="${id}">✏️ 改名</button>
+                    <button class="btn small api" data-api="${id}">📡 获取API</button>
+                    <button class="btn small api" data-skill="${id}">📡 获取SKILL</button>
+                    <button class="btn small danger" data-del="${id}">🗑 删除</button>
+                    <button class="btn small danger" data-delall="${id}">🗑 删除全部</button>
                 </div>
-            </div>`).join('');
+            </div>`;
+        }).join('');
 
         box.querySelectorAll('[data-enter]').forEach(b => b.addEventListener('click', () => enter(b.dataset.enter, b.dataset.edit === 'true')));
         box.querySelectorAll('[data-memory]').forEach(b => b.addEventListener('click', () => enterMemory(b.dataset.memory)));
         box.querySelectorAll('[data-rename]').forEach(b => b.addEventListener('click', async () => {
             const name = prompt('新场名称：');
             if (!name) return;
-            const r = await post('/api/v1/owner/update', { owner_id: b.dataset.rename, name, actor_id: LS.actor });
+            const r = await post('/api/v1/owner/update', { owner_id: b.dataset.rename, name, actor_id: currentActor() });
             toast(r.message || (r.status === 'success' ? '已改名' : '改名失败'), r.status === 'success' ? 'success' : 'error');
             refreshOwners();
         }));
         box.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', async () => {
             if (!confirm('确定删除该场？(不删除节点数据)')) return;
-            const r = await post('/api/v1/owner/delete', { owner_id: b.dataset.del, actor_id: LS.actor });
+            const r = await post('/api/v1/owner/delete', { owner_id: b.dataset.del, actor_id: currentActor() });
             toast(r.message || (r.status === 'success' ? '已删除' : '删除失败'), r.status === 'success' ? 'success' : 'error');
             refreshOwners();
         }));
         box.querySelectorAll('[data-delall]').forEach(b => b.addEventListener('click', async () => {
             if (!confirm('确定彻底删除该场？将删除所有事件节点、地宫、权重及场注册，且无法恢复！')) return;
-            const r = await post('/api/v1/owner/delete_all', { owner_id: b.dataset.delall, actor_id: LS.actor });
+            const r = await post('/api/v1/owner/delete_all', { owner_id: b.dataset.delall, actor_id: currentActor() });
             toast(r.message || (r.status === 'success' ? '已彻底删除' : '删除失败'), r.status === 'success' ? 'success' : 'error');
             refreshOwners();
         }));
@@ -342,14 +465,27 @@
         box.querySelectorAll('[data-skill]').forEach(b => b.addEventListener('click', () => openApiSkillModal(b.dataset.skill, 'skill')));
     }
 
+    /** 搜索框：按场名 / owner_id 实时过滤已缓存的场列表 */
+    function bindOwnerSearch() {
+        const input = document.getElementById('owner-search');
+        if (!input) return;
+        input.addEventListener('input', () => {
+            OWNER_QUERY = input.value.trim();
+            renderOwners();
+        });
+    }
+
 
     // ---------- 钥匙管理 ----------
     function bindKeys() {
         document.getElementById('key-generate').addEventListener('click', async () => {
-            if (!LS.actor) { toast('请先登录', 'error'); return; }
-            const r = await post('/api/v1/key/generate', { actor_id: LS.actor });
+            if (!currentActor()) { toast('请先登录', 'error'); return; }
+            const r = await post('/api/v1/key/generate', { actor_id: currentActor() });
             if (r.status === 'success') {
-                LS.token = r.data.token;
+                // 管理员视角下不覆盖自己的主钥匙，只展示新钥匙
+                if (!isActingAs()) {
+                    LS.token = r.data.token;
+                }
                 const box = document.getElementById('key-new');
                 box.textContent = '新钥匙（仅显示一次，请妥善保存）：' + r.data.token;
                 box.classList.add('show');
@@ -363,8 +499,8 @@
 
     async function refreshKeys() {
         const box = document.getElementById('key-list');
-        if (!LS.actor) { box.innerHTML = '<p class="empty">请先登录后查看钥匙</p>'; return; }
-        const r = await get('/api/v1/key/list?actor_id=' + encodeURIComponent(LS.actor));
+        if (!currentActor()) { box.innerHTML = '<p class="empty">请先登录后查看钥匙</p>'; return; }
+        const r = await get('/api/v1/key/list?actor_id=' + encodeURIComponent(currentActor()));
         const tokens = (r.status === 'success' && r.data) ? r.data : [];
         if (!tokens.length) {
             box.innerHTML = '<p class="empty">暂无钥匙</p>';
@@ -372,7 +508,7 @@
         }
         box.innerHTML = tokens.map(t => {
             const mask = t.slice(0, 6) + '••••' + t.slice(-4);
-            const active = t === LS.token;
+            const active = t === authToken();
             return `
             <div class="item">
                 <div class="meta">
@@ -388,8 +524,13 @@
         }).join('');
 
         box.querySelectorAll('[data-use]').forEach(b => b.addEventListener('click', () => {
-            LS.token = b.dataset.use;
+            if (isActingAs()) {
+                ACT_AS.token = b.dataset.use;   // 管理员视角：换成该场主的另一把钥匙
+            } else {
+                LS.token = b.dataset.use;
+            }
             toast('已设为主钥匙', 'success');
+            updateStatus();
             refreshKeys();
         }));
         box.querySelectorAll('[data-copy]').forEach(b => b.addEventListener('click', () => {
@@ -397,7 +538,7 @@
         }));
         box.querySelectorAll('[data-revoke]').forEach(b => b.addEventListener('click', async () => {
             if (!confirm('确定吊销该钥匙？')) return;
-            const r = await post('/api/v1/key/revoke', { actor_id: LS.actor, token: b.dataset.revoke });
+            const r = await post('/api/v1/key/revoke', { actor_id: currentActor(), token: b.dataset.revoke });
             toast(r.message || (r.status === 'success' ? '已吊销' : '吊销失败'), r.status === 'success' ? 'success' : 'error');
             refreshKeys();
         }));
@@ -438,8 +579,8 @@
         return String(tpl == null ? '' : tpl)
             .replace(/\{base_url\}/g, baseUrl)
             .replace(/\{owner_id\}/g, ownerId || '')
-            .replace(/\{actor_id\}/g, LS.actor || '')
-            .replace(/\{token\}/g, LS.token || '');
+            .replace(/\{actor_id\}/g, currentActor() || '')
+            .replace(/\{token\}/g, authToken() || '');
     }
 
     // ---------- EasyMDE 只读编辑器（复用 event-tuple-modal 的 Markdown 渲染菜单栏方案） ----------
@@ -528,9 +669,308 @@
         });
     }
 
-    function refreshAll() {
+    // ---------- 用钥匙快速进入 ----------
+    function bindQuickToken() {
+        const form = document.getElementById('quick-token-form');
+        if (!form) return;
+        form.addEventListener('submit', async e => {
+            e.preventDefault();
+            const token = document.getElementById('quick-token').value.trim();
+            const hintActor = document.getElementById('quick-token-actor').value.trim();
+            if (!token) { toast('请粘贴钥匙 token', 'error'); return; }
+
+            const r = await post('/api/v1/auth/token/verify', { token, owner_id: 'default' });
+            if (r.status !== 'success' || !r.data || !r.data.valid) {
+                toast(r.message || '钥匙无效', 'error');
+                return;
+            }
+            const actorId = r.data.actor_id || hintActor;
+            ACT_AS = null;               // 手动换钥匙即退出管理员视角
+            renderActAsBanner();
+            LS.token = token;
+            LS.actor = actorId;
+            updateStatus();
+            toast('钥匙有效，已缓存身份：' + actorId, 'success');
+            refreshAll();
+        });
+
+        // URL 里带 token：自动验证并缓存，然后清理地址栏
+        const urlToken = new URLSearchParams(window.location.search).get('token');
+        if (urlToken) {
+            post('/api/v1/auth/token/verify', { token: urlToken, owner_id: 'default' }).then(r => {
+                if (r.status === 'success' && r.data && r.data.valid) {
+                    ACT_AS = null;
+                    renderActAsBanner();
+                    LS.token = urlToken;
+                    LS.actor = r.data.actor_id;
+                    updateStatus();
+                    toast('已用地址栏钥匙登录：' + r.data.actor_id, 'success');
+                    refreshAll();
+                } else {
+                    toast('地址栏钥匙无效', 'error');
+                }
+                const url = new URL(window.location.href);
+                url.searchParams.delete('token');
+                window.history.replaceState({}, '', url);
+            });
+        }
+    }
+
+    // ---------- 场主管理（仅 admin 可见） ----------
+    // admin 的本职：看有哪些场主 → 进入其账号中心（以他身份操作）→ 重置钥匙 → 注销并删除其全部场
+    let ADMIN_IS_ADMIN = false;
+    let ADMIN_SELECTED = null;   // 当前选中的场主 actor_id
+
+    async function refreshAdmin() {
+        // 始终用管理员自己的钥匙判断权限（act-as 期间也要看真实身份）
+        if (!LS.actor || !LS.token) { ADMIN_IS_ADMIN = false; return; }
+        const ctx = await adminApi('/api/v1/auth/context?owner_id=default');
+        ADMIN_IS_ADMIN = !!(ctx.status === 'success' && ctx.data && ctx.data.is_admin);
+
+        const tab = document.getElementById('tab-admin');
+        if (tab) tab.style.display = ADMIN_IS_ADMIN ? '' : 'none';
+        if (!ADMIN_IS_ADMIN) {
+            const panel = document.getElementById('panel-admin');
+            if (panel) panel.classList.remove('active');
+            return;
+        }
+
+        const owners = await adminApi('/api/v1/admin/owners');
+        const nav = document.getElementById('admin-owner-nav');
+        const detail = document.getElementById('admin-owner-detail');
+        const summary = document.getElementById('admin-owner-summary');
+        if (!nav || !detail) return;
+
+        const list = (owners.status === 'success' && owners.data) ? owners.data : [];
+        if (summary) {
+            const totalFields = list.reduce((s, o) => s + (o.field_count || 0), 0);
+            const totalNodes = list.reduce((s, o) => s + (o.node_count || 0), 0);
+            summary.textContent = `场主 ${list.length} 位 · 场 ${totalFields} 套 · 节点 ${totalNodes} 个`;
+        }
+        if (!list.length) {
+            nav.innerHTML = '<p class="empty">暂无场主（还没有任何场）</p>';
+            detail.innerHTML = '';
+            return;
+        }
+
+        // 保持选中态：原选中还在则继续，否则回退到第一位
+        if (!list.some(o => o.actor_id === ADMIN_SELECTED)) {
+            ADMIN_SELECTED = list[0].actor_id;
+        }
+
+        renderAdminNav(list, nav);
+        renderAdminDetail(list, detail);
+    }
+
+    /** 左栏：场主列表（三件基本操作：进入他的星空 / 重置token / 删除全部；admin 升降级在右上角小开关） */
+    function renderAdminNav(list, nav) {
+        nav.innerHTML = list.map(o => {
+            const isSelf = o.actor_id === LS.actor;
+            const active = o.actor_id === ADMIN_SELECTED;
+            const grantFlag = o.is_admin ? 'false' : 'true';
+            return `
+            <div class="admin-owner-item${active ? ' active' : ''}" data-nav-owner="${escapeHtml(o.actor_id)}">
+                <div class="admin-owner-item-head">
+                    <span class="admin-owner-actor" title="${escapeHtml(o.actor_id)}">${escapeHtml(o.actor_id)}</span>
+                    ${o.is_admin ? '<span class="badge-admin">admin</span>' : ''}
+                    ${isSelf ? '<span class="badge-self">我</span>' : ''}
+                    <button class="admin-toggle" data-grant="${escapeHtml(o.actor_id)}" data-flag="${grantFlag}"
+                            title="${o.is_admin ? '取消该场主的 admin 权限' : '赋予该场主 admin 权限'}">${o.is_admin ? '取消admin' : '设为admin'}</button>
+                </div>
+                <div class="admin-owner-item-stats">场 ${o.field_count} · 节点 ${o.node_count} · 钥匙 ${o.token_count}</div>
+                <div class="admin-owner-item-actions">
+                    <button class="btn tiny primary" data-enter-star="${escapeHtml(o.actor_id)}">进入他的星空</button>
+                    <button class="btn tiny ghost" data-reset="${escapeHtml(o.actor_id)}">重置token</button>
+                    <button class="btn tiny danger" data-kill="${escapeHtml(o.actor_id)}" ${isSelf ? 'disabled title="不能删除自己"' : ''}>删除全部</button>
+                </div>
+            </div>`;
+        }).join('');
+
+        nav.querySelectorAll('[data-nav-owner]').forEach(item => item.addEventListener('click', () => {
+            ADMIN_SELECTED = item.dataset.navOwner;
+            renderAdminNav(list, nav);
+            renderAdminDetail(list, document.getElementById('admin-owner-detail'));
+        }));
+        nav.querySelectorAll('[data-enter-star]').forEach(b => b.addEventListener('click', e => {
+            e.stopPropagation();
+            const owner = list.find(x => x.actor_id === b.dataset.enterStar) || {};
+            enterOwnerStar(b.dataset.enterStar, owner.fields || []);
+        }));
+        nav.querySelectorAll('[data-reset]').forEach(b => b.addEventListener('click', e => {
+            e.stopPropagation();
+            resetOwnerToken(b.dataset.reset);
+        }));
+        nav.querySelectorAll('[data-grant]').forEach(b => b.addEventListener('click', async e => {
+            e.stopPropagation();
+            const r = await adminPost('/api/v1/admin/actors/' + encodeURIComponent(b.dataset.grant) + '/admin', {
+                is_admin: b.dataset.flag === 'true'
+            });
+            toast(r.message || (r.status === 'success' ? '已更新' : '更新失败'), r.status === 'success' ? 'success' : 'error');
+            refreshAdmin();
+        }));
+        nav.querySelectorAll('[data-kill]').forEach(b => b.addEventListener('click', e => {
+            e.stopPropagation();
+            killOwner(b.dataset.kill, list);
+        }));
+    }
+
+    /** 右栏：选中场主的名下场（磁贴网格，铺满宽屏） */
+    function renderAdminDetail(list, detail) {
+        const owner = list.find(o => o.actor_id === ADMIN_SELECTED);
+        if (!owner) { detail.innerHTML = '<p class="detail-empty">请选择左侧场主</p>'; return; }
+
+        const fields = owner.fields || [];
+        const tiles = fields.map(f => {
+            const name = f.name || f.owner_id;
+            const showId = (f.name && f.name !== f.owner_id) ? f.owner_id : '';
+            const full = (f.name && f.name !== f.owner_id) ? (f.name + '（' + f.owner_id + '）') : f.owner_id;
+            return `
+            <div class="field-tile" data-field-actor="${escapeHtml(owner.actor_id)}" data-field-id="${escapeHtml(f.owner_id)}" title="${escapeHtml(full)}">
+                <div class="field-tile-name" title="${escapeHtml(name)}">${escapeHtml(name)}</div>
+                <div class="field-tile-meta">${showId ? escapeHtml(showId) + ' · ' : ''}${f.node_count} 节点</div>
+                <div class="field-tile-foot">
+                    <button class="field-star" data-star="${escapeHtml(f.owner_id)}" data-star-actor="${escapeHtml(owner.actor_id)}">进入星空 ↗</button>
+                </div>
+            </div>`;
+        }).join('');
+
+        detail.innerHTML = `
+            <div class="admin-detail-head">
+                <div>名下场：<b>${escapeHtml(owner.actor_id)}</b> · 共 ${fields.length} 座</div>
+                <span class="admin-detail-hint">点场名 = 以他身份进入账号中心 · ↗ = 打开可写星空</span>
+            </div>
+            <div class="field-tile-grid">${tiles || '<p class="detail-empty">（该场主暂无场）</p>'}</div>`;
+
+        detail.querySelectorAll('[data-field-id]').forEach(tile => tile.addEventListener('click', async e => {
+            if (e.target.closest('[data-star]')) return;
+            await enterActAs(tile.dataset.fieldActor, tile.dataset.fieldId);
+        }));
+        detail.querySelectorAll('[data-star]').forEach(btn => btn.addEventListener('click', async e => {
+            e.stopPropagation();
+            const ok = await enterActAs(btn.dataset.starActor, null, { silent: true });
+            if (ok) enter(btn.dataset.star, true);
+        }));
+    }
+
+    /**
+     * 「进入他的星空」：以该场主身份进入。
+     * 单场 → 直接打开该场可写 3D；多场 → 进他的账号中心「场」列表挑选。
+     */
+    async function enterOwnerStar(actorId, fields) {
+        const ok = await enterActAs(actorId, null, { silent: true });
+        if (!ok) return;
+        const list = fields || [];
+        if (list.length === 1) {
+            enter(list[0].owner_id, true);
+            return;
+        }
+        switchTab('owner');
+        toast('已进入 ' + actorId + ' 的星空 · ' + list.length + ' 座场，点任一场进入 3D', 'success');
+    }
+    /**
+     * 以某个场主的身份进入账号中心（内存态 token，不写 localStorage）。
+     * @param actorId      目标场主
+     * @param focusFieldId 可选：进入后高亮/滚动到这座场
+     * @param opts.silent  可选：不切换 tab、不弹提示（仅供“进入星空”复用）
+     * @returns {Promise<boolean>} 是否成功
+     */
+    async function enterActAs(actorId, focusFieldId, opts) {
+        opts = opts || {};
+        const d = await adminApi('/api/v1/admin/actors/' + encodeURIComponent(actorId));
+        if (d.status !== 'success' || !d.data) {
+            toast(d.message || '读取场主详情失败', 'error');
+            return false;
+        }
+        let ownerToken = d.data.first_token || '';
+        // 该场主没有任何钥匙时，由 admin 代签一把（用于本次代管）
+        if (!ownerToken) {
+            const g = await adminPost('/api/v1/key/generate', { actor_id: actorId });
+            if (g.status !== 'success' || !g.data) {
+                toast(g.message || '该场主无钥匙且代签失败', 'error');
+                return false;
+            }
+            ownerToken = g.data.token;
+            toast('该场主原本没有钥匙，已代签一把', 'success');
+        }
+        ACT_AS = { actor: actorId, token: ownerToken };
+        renderActAsBanner();
+        updateStatus();
+        await refreshAll();
+        if (opts.silent) return true;
+
+        switchTab('owner');
+        if (focusFieldId) highlightOwnerRow(focusFieldId);
+        toast('已进入 ' + actorId + ' 的账号中心', 'success');
+        return true;
+    }
+
+    /** 在「场」tab 里高亮并滚动到指定场 */
+    function highlightOwnerRow(ownerId) {
+        // 从「场主管理」跳过来时先清空搜索过滤，避免目标场被关键字隐藏
+        const search = document.getElementById('owner-search');
+        if (OWNER_QUERY || (search && search.value)) {
+            OWNER_QUERY = '';
+            if (search) search.value = '';
+            renderOwners();
+        }
+        const row = document.querySelector('[data-owner-row="' + String(ownerId).replace(/"/g, '') + '"]');
+        if (!row) return;
+        row.classList.add('owner-row-flash');
+        row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        setTimeout(() => row.classList.remove('owner-row-flash'), 2400);
+    }
+
+    /** 重置场主钥匙（旧钥匙全部失效，新钥匙仅显示一次） */
+    async function resetOwnerToken(actorId) {
+        if (!confirm(`确定重置 ${actorId} 的钥匙？\n\n· 他名下所有旧钥匙将立即失效\n· 系统会签发一把新钥匙（仅显示一次）`)) return;
+        const r = await adminPost('/api/v1/admin/actors/' + encodeURIComponent(actorId) + '/token/reset', {});
+        if (r.status === 'success') {
+            showTokenModal(actorId, r.data.token, r.data.revoked_count);
+            refreshAdmin();
+        } else {
+            toast(r.message || '重置失败', 'error');
+        }
+    }
+
+    /** 注销场主并删除其名下全部场 */
+    async function killOwner(actorId, list) {
+        const card = (list || []).find(o => o.actor_id === actorId) || {};
+        const fields = (card.fields || []).map(f => `· ${f.name}（${f.owner_id}，${f.node_count} 节点）`).join('\n');
+        const msg = `确定注销场主 ${actorId}？\n\n将永久删除：\n${fields || '（无场）'}\n\n以及其名下全部场、节点、地宫、用户副本与账号（钥匙同时失效）。\n此操作不可恢复！`;
+        if (!confirm(msg)) return;
+        if (!confirm(`请再次确认：真的要删除场主 ${actorId} 及其名下全部场吗？`)) return;
+        const r = await adminPost('/api/v1/admin/actors/' + encodeURIComponent(actorId) + '/delete', {});
+        toast(r.message || (r.status === 'success' ? '已注销' : '注销失败'), r.status === 'success' ? 'success' : 'error');
+        refreshAdmin();
         refreshOwners();
-        refreshKeys();
+    }
+
+    /** 重置钥匙结果弹窗（新钥匙仅显示一次） */
+    function showTokenModal(actorId, token, revokedCount) {
+        const modal = document.getElementById('token-modal');
+        if (!modal) { copyText(token); return; }
+        document.getElementById('token-modal-actor').textContent = actorId;
+        document.getElementById('token-modal-revoked').textContent = String(revokedCount || 0);
+        document.getElementById('token-modal-value').textContent = token;
+        modal.classList.add('show');
+        const btn = document.getElementById('token-modal-copy');
+        if (btn) btn.onclick = () => copyText(token);
+        const close = document.getElementById('token-modal-close');
+        if (close) close.onclick = () => modal.classList.remove('show');
+        modal.onclick = e => { if (e.target === modal) modal.classList.remove('show'); };
+    }
+
+    function bindAdmin() {
+        const btn = document.getElementById('admin-refresh');
+        if (btn) btn.addEventListener('click', refreshAdmin);
+        const exit = document.getElementById('act-as-exit');
+        if (exit) exit.addEventListener('click', exitActAs);
+    }
+
+    async function refreshAll() {
+        await Promise.all([refreshOwners(), refreshKeys(), refreshAdmin()]);
+        renderActAsBanner();
+        updateStatus();
     }
 
     // ---------- 初始化 ----------
@@ -539,9 +979,12 @@
         bindTabs();
         bindAuth();
         bindOwner();
+        bindOwnerSearch();
         bindKeys();
         bindApiModal();
         bindLogout();
+        bindAdmin();
+        bindQuickToken();
         updateStatus();
         refreshAll();
     }
