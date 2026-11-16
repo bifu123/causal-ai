@@ -1,6 +1,8 @@
 .causal_ai/
 causal-ai/
+node_modules/
 *.rar
 *.log
 __pycache__/
-back
+back/
+docs/_localtmp/

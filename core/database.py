@@ -162,13 +162,22 @@ class CausalDatabase:
                 """)
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS ains_owner_masters (
-                        owner_id VARCHAR(64) NOT NULL PRIMARY KEY,
+                        owner_id VARCHAR(128) NOT NULL PRIMARY KEY,
                         name VARCHAR(255) NOT NULL,
                         actor_id VARCHAR(64) NOT NULL,
+                        method VARCHAR(16),
+                        bot_id VARCHAR(128),
+                        source_id VARCHAR(128),
                         created_at TIMESTAMPTZ DEFAULT now(),
                         updated_at TIMESTAMPTZ DEFAULT now()
                     );
                 """)
+                # 兼容旧库：逐列补齐，不影响已有场数据
+                cur.execute("ALTER TABLE ains_owner_masters ADD COLUMN IF NOT EXISTS method VARCHAR(16);")
+                cur.execute("ALTER TABLE ains_owner_masters ADD COLUMN IF NOT EXISTS bot_id VARCHAR(128);")
+                cur.execute("ALTER TABLE ains_owner_masters ADD COLUMN IF NOT EXISTS source_id VARCHAR(128);")
+                # 旧库 owner_id 长度放宽，容纳 {source_id}_{bot_id} 与 _wxid 后缀
+                cur.execute("ALTER TABLE ains_owner_masters ALTER COLUMN owner_id TYPE VARCHAR(128);")
             except Exception as e:
                 print(f"[数据库警告] 初始化账号表时出错: {e}")
 
@@ -1881,10 +1890,14 @@ class CausalDatabase:
                     
                     self.upsert_node(update_data)
             else:
-                if node_info['current_weight'] > 0.585:
-                    new_weight = 0.58
-                elif total_weight_excluding_boss > 0:
+                # 所有其他节点：按现有权重比例分配剩余的40%
+                # 严格遵循 60/40 分配律——大股东唯一（当前被观测的节点，固定 60%），
+                # 其余节点一律按「语义距离 × 层级深度」形成的现有权重比例瓜分 40%。
+                # 不存在「降级大股东 / 旧大股东」概念：一旦大股东易主，原大股东即降为普通节点。
+                if total_weight_excluding_boss > 0:
+                    # 计算权重比例
                     weight_ratio = node_info['current_weight'] / total_weight_excluding_boss
+                    # 按比例分配40%
                     new_weight = weight_ratio * 0.40
                 else:
                     # 如果所有其他节点权重都为0，平均分配40%
@@ -2059,6 +2072,7 @@ class CausalDatabase:
         """
         sql = """
             SELECT m.actor_id, m.owner_id, m.name, m.created_at,
+                   m.method, m.bot_id, m.source_id,
                    (SELECT COUNT(*) FROM ains_active_nodes n WHERE n.owner_id = m.owner_id) AS node_count
             FROM ains_owner_masters m
             ORDER BY m.created_at ASC
@@ -2087,6 +2101,9 @@ class CausalDatabase:
                     "owner_id": row["owner_id"],
                     "name": row["name"],
                     "node_count": nodes,
+                    "method": row.get("method"),
+                    "bot_id": row.get("bot_id"),
+                    "source_id": row.get("source_id"),
                 })
                 bucket["field_count"] += 1
                 bucket["node_count"] += nodes
@@ -2184,7 +2201,8 @@ class CausalDatabase:
             return None
 
     def list_owners(self, actor_id: str):
-        sql = "SELECT owner_id, name FROM ains_owner_masters WHERE actor_id = %s ORDER BY created_at"
+        sql = ("SELECT owner_id, name, actor_id, method, bot_id, source_id "
+               "FROM ains_owner_masters WHERE actor_id = %s ORDER BY created_at")
         with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute(sql, (actor_id,))
             return cur.fetchall()
@@ -2196,10 +2214,13 @@ class CausalDatabase:
             cur.execute(sql, (owner_id,))
             return cur.fetchone() is not None
 
-    def create_owner(self, owner_id: str, name: str, actor_id: str):
-        sql = "INSERT INTO ains_owner_masters (owner_id, name, actor_id) VALUES (%s, %s, %s)"
+    def create_owner(self, owner_id: str, name: str, actor_id: str,
+                     method: str = None, bot_id: str = None, source_id: str = None):
+        sql = ("INSERT INTO ains_owner_masters "
+               "(owner_id, name, actor_id, method, bot_id, source_id) "
+               "VALUES (%s, %s, %s, %s, %s, %s)")
         with self.conn.cursor() as cur:
-            cur.execute(sql, (owner_id, name, actor_id))
+            cur.execute(sql, (owner_id, name, actor_id, method, bot_id, source_id))
 
     def rename_owner(self, owner_id: str, name: str, actor_id: str):
         sql = "UPDATE ains_owner_masters SET name = %s, updated_at = now() WHERE owner_id = %s AND actor_id = %s"

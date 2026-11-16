@@ -1,0 +1,72 @@
+﻿
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body, html {
+            width: 100%;
+            min-height: 100%;
+            background-color: #010206;
+            color: #f1f5f9;
+            font-family: 'Noto Sans SC', system-ui, -apple-system, sans-serif;
+        }
+
+        /* 妯悜婧㈠嚭瑁佸壀锛氱敤 clip 鑰岄潪 hidden锛岄伩鍏?body 鍙樻垚婊氬姩瀹瑰櫒瀵艰嚧椤堕儴 sticky 澶辨晥 */
+        html { overflow-x: hidden; }
+        body { overflow-x: clip; }
+        @supports not (overflow: clip) {
+            /* 鏃ф祻瑙堝櫒鍏滃簳锛歝lip 涓嶅彲鐢ㄦ椂閫€鍥?hidden锛坰ticky 鍙兘澶辨晥浣嗕笉褰卞搷鍔熻兘锛?*/
+            body { overflow-x: hidden; }
+        }
+
+        /* 鍏ㄥ睆 3D 瀹囧畽 Canvas */
+        #canvas-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 1;
+            pointer-events: none;
+        }
+
+        /* 鍏ㄥ睆缁忕含绾胯繎绔伄缃?*/
+        .screen-vignette {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 2;
+            pointer-events: none;
+            background: radial-gradient(circle at 50% 50%, rgba(1, 2, 6, 0.15) 0%, rgba(1, 2, 6, 0.8) 80%, rgba(1, 2, 6, 0.98) 100%);
+        }
+
+        /* 涓诲鍣細瀹氬 1320锛堝唴瀹?1280锛夛紝姘村钩灞呬腑銆傛墍鏈夐潰鏉垮叡鐢ㄨ繖涓搴︼紝
+           鎵€浠ャ€屾垜鐨勫満銆嶅崱鐗囦笌銆屽満涓荤鐞嗐€嶅崱鐗囧ぉ鐒跺悓瀹?*/
+        .container {
+            position: relative;
+            z-index: 10;
+            max-width: 1320px;
+            margin: 0 auto;
+            padding: 18px 20px;
+        }
+
+        /* ===== 椤堕儴绱у噾鏍忥細鍝佺墝 + 鏍囩椤?+ 鐘舵€?鍚堝苟涓轰竴琛岋紙sticky锛?===== */
+        .topbar {
+            position: sticky;
+            top: 0;
+            z-index: 30;
+            margin: -18px -20px 16px;
+            padding: 9px 20px;
+            background: rgba(2, 4, 10, 0.72);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid rgba(56, 189, 248, 0.18);
+        }
+
+        .topbar-row {
+            display: flex;
+            align-items: center;
+       

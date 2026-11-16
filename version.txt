@@ -1,0 +1,5 @@
+version=20261106.1
+
+kimi修复了双圣光，但
+editor-toolbar
+的图标不显示

@@ -176,6 +176,67 @@ const hasEditPerm = () => urlEdit && ACCESS.can_write_master;
 
 let nodeCache = {};
 
+/**
+ * 【节点身份归一索引】node_id 与 serial_id 双键指向同一个节点对象。
+ *
+ * 背景：nodeCache 的写入侧统一用 node_id 作键（见 cacheSetNode 的所有调用点），
+ * 但读取侧曾用 serial_id（数字序号）作键，两侧键不一致会必然 miss，
+ * 导致本场已有节点被误判成"新节点"而重复并入 Graph，
+ * 每个重复实例都会新建 Group + 2 Sprite + 2 CanvasTexture，显存成倍增长。
+ *
+ * 本索引让 serial_id / node_id 都能 O(1) 命中同一对象；
+ * nodeCache 仍保留（其它逻辑按 node_id 直接索引它），索引只做身份归一，不改任何业务字段。
+ */
+const __nodeIndex = new Map();
+
+/** 把 serial_id / node_id 两种键都登记到归一索引 */
+function __indexNode(node) {
+    if (!node || typeof node !== 'object') return;
+    const nid = node.node_id || node['本事件标题'] || node.id;
+    const sid = node.serial_id || node['本事件ID'];
+    if (nid !== undefined && nid !== null && nid !== '') __nodeIndex.set(String(nid), node);
+    if (sid !== undefined && sid !== null && sid !== '') __nodeIndex.set(String(sid), node);
+    return node;
+}
+
+/** 按 serial_id 或 node_id 查归一索引（任一侧命中即可） */
+function __lookupNode(serialId, nodeId) {
+    if (serialId !== undefined && serialId !== null && serialId !== '') {
+        const hit = __nodeIndex.get(String(serialId));
+        if (hit) return hit;
+    }
+    if (nodeId !== undefined && nodeId !== null && nodeId !== '') {
+        const hit = __nodeIndex.get(String(nodeId));
+        if (hit) return hit;
+    }
+    return null;
+}
+
+/** 统一写入入口：同时维护 nodeCache 与归一索引 */
+function cacheSetNode(node) {
+    if (!node || typeof node !== 'object') return node;
+    const nid = node.node_id || node['本事件标题'] || node.id;
+    if (nid !== undefined && nid !== null && nid !== '') nodeCache[nid] = node;
+    return __indexNode(node);
+}
+
+/** 统一删除入口：同时清理 nodeCache 与归一索引的两个键 */
+function cacheDeleteNode(nodeId) {
+    if (nodeId === undefined || nodeId === null || nodeId === '') return;
+    const target = __nodeIndex.get(String(nodeId));
+    if (target) {
+        const nid = target.node_id || target['本事件标题'] || target.id;
+        const sid = target.serial_id || target['本事件ID'];
+        if (nid !== undefined && nid !== null && nid !== '') {
+            __nodeIndex.delete(String(nid));
+            delete nodeCache[nid];
+        }
+        if (sid !== undefined && sid !== null && sid !== '') __nodeIndex.delete(String(sid));
+    }
+    __nodeIndex.delete(String(nodeId));
+    delete nodeCache[nodeId];
+}
+
 // --- 移动端长按补丁状态 ---
 let longPressTimer = null;          // 长按定时器
 let longPressStartPos = null;       // 长按起始触摸坐标
@@ -327,6 +388,35 @@ let originalForces = { charge: -600, link: 180 };
 let activeBeam = null;
 let beamAnimationId = null;
 
+// 【建光去重】移动端 touchstart/touchend + pointerup 会让同一次操作（点节点 / 拖滑杆）
+// 走到 showDivineBeam 两次；而低帧率设备上 animate() 可能提前判定"死亡"并把 activeBeam
+// 置为 null，使下面基于 activeBeam 的幂等判重直接失效 → 同一节点叠出第二束光。
+// 这里用与 activeBeam 状态完全解耦的时间窗兜底：
+// __lastBeamStart 记录"最近一次真正建光/续期的节点与时刻"，窗口内的重复调用一律丢弃。
+const __BEAM_DEDUP_MS = 400; // 同节点建光抑制窗口（毫秒）
+let __lastBeamStart = { id: null, t: 0 };
+
+/**
+ * 彻底销毁一束光柱：从场景移除 + 释放几何体/材质 + 标记失效。
+ * force-graph 的 remove 不会 dispose，只置空引用会造成显存持续增长。
+ * @param {Object} beam 光柱 Mesh
+ */
+function disposeBeam(beam) {
+    if (!beam) return;
+    beam.userData.isDead = true;
+    if (Graph && Graph.scene()) {
+        Graph.scene().remove(beam);
+    }
+    if (beam.geometry) {
+        beam.geometry.dispose();
+        beam.geometry = null;
+    }
+    if (beam.material) {
+        beam.material.dispose();
+        beam.material = null;
+    }
+}
+
 // 抽屉避让常量
 const DRAWER_WIDTH = 384; // 抽屉宽度 (w-96 = 24rem = 384px)
 const FOCUS_DIST = 200;   // 聚焦距离
@@ -367,10 +457,40 @@ function showDivineBeam(node, colorType = 'divine') {
     const THREE = getThreeInstance();
     if (!THREE || !Graph) return;
     
-    // 如果已有光柱，移除它
-    if (activeBeam) {
-        Graph.scene().remove(activeBeam);
+    // 【幂等保护】同一节点已有存活光柱时，只重置计时，绝不叠第二束光。
+    // 背景：拖滑杆（change 直调）+ 自己收到的 nodes_updated 广播（远端跃迁分支）
+    //       会命中同一个节点，导致同一节点叠出 2~3 束光柱（"三次圣光"）。
+    //       这里用 userData.nodeId 做节点级判重：同节点 → restart 计时后直接返回。
+    const targetId = node.id || node.node_id;
+    const nowMs = Date.now();
+
+    // 【移动端时间窗去重】触屏下一次操作会走到本函数两次（pointerup + touchend 派生的 click，
+    // 或滑杆 change 双发）；且低帧率设备上 animate() 提前判死会把 activeBeam 置 null，
+    // 使下面基于 activeBeam 的判重失效。这里先按时间窗拦截，与 activeBeam 状态无关。
+    if (__lastBeamStart.id === targetId && (nowMs - __lastBeamStart.t) < __BEAM_DEDUP_MS) {
+        return; // 同节点、窗口内 → 完全丢弃：不续期、不新建，避免任何视觉叠加
     }
+
+    if (activeBeam && !activeBeam.userData.isDead &&
+        activeBeam.userData.nodeId === targetId) {
+        if (typeof activeBeam.userData.restart === 'function') {
+            activeBeam.userData.restart();
+        }
+        __lastBeamStart = { id: targetId, t: nowMs }; // 续期也要登记，挡住紧随其后的重复派发
+        return;
+    }
+
+    // 如果已有光柱，移除它并释放 GPU 资源（只 remove 不 dispose 会持续泄漏几何体与材质）
+    if (activeBeam) {
+        disposeBeam(activeBeam);
+        activeBeam = null;
+    }
+
+    // 【防御性清扫】清掉历史上可能残留的孤儿光柱（activeBeam 被覆盖后失去引用、但仍挂在 scene 上）
+    // 只用 isDivineBeam 这一光束专属标记识别，避免误伤带 userData.nodeId 的节点网格本身
+    Graph.scene().children
+        .filter(obj => obj && obj.userData && obj.userData.isDivineBeam && obj !== activeBeam)
+        .forEach(orphan => disposeBeam(orphan));
     
     // --- 根据颜色类型决定主题色 ---
     let flareGradient = 'radial-gradient(circle at center, rgba(80, 160, 255, 0.25) 0%, rgba(60, 100, 255, 0.08) 40%, transparent 80%)';
@@ -505,6 +625,7 @@ function showDivineBeam(node, colorType = 'divine') {
     beamMesh.renderOrder = 999; // 确保最后渲染，位于最上层
     
     // 记录节点ID和颜色类型，以便后续动态更新尺寸
+    beamMesh.userData.isDivineBeam = true; // 光束专属标记，供孤儿清扫与幂等判重识别
     beamMesh.userData.nodeId = node.id || node.node_id;
     beamMesh.userData.colorType = colorType;
     beamMesh.userData.beamHeight = beamHeight;
@@ -522,19 +643,34 @@ function showDivineBeam(node, colorType = 'divine') {
     spotLight.distance = beamHeight * 1.5;
     beamMesh.add(spotLight); 
 
-    const startTime = Date.now();
+    let startTime = Date.now();
     const duration = 3500; 
 
+    // 【幂等配套】同节点重复触发时只重置计时，让光柱保持常亮而不新建 mesh
+    let skipRampOnRestart = false; // 【Kimi fix】续期标记：跳过 0.5s 爆发段，防止"光柱重闪"被观感为第二次圣光
+    beamMesh.userData.restart = function() {
+        startTime = Date.now();
+        skipRampOnRestart = true;
+    };
+
     beamMesh.userData.animate = function() {
+        // 【存活守卫】disposeBeam 已把 geometry/material 置 null；若本帧之前已被销毁，
+        // 继续往下执行会访问 null.geometry / 对已释放对象设 position，必须立即退出。
+        // 用闭包里的 beamMesh 判断（与下方 disposeBeam(beamMesh) 一致），
+        // 不依赖 this 绑定，避免调用方以不同方式取出 animate 时守卫失效。
+        // 注意：失效标记由 disposeBeam 写在 userData.isDead 上，必须取 userData 下的字段。
+        if (beamMesh.userData.isDead) return false;
+
         const elapsed = Date.now() - startTime;
         if (elapsed > duration) {
-            Graph.scene().remove(beamMesh);
+            disposeBeam(beamMesh);
             return false; 
         }
         
         let p = elapsed / duration;
         // 呼吸感：0.5秒爆发至 1.0 的最大不透明度，后缓慢变暗
-        let intensityFactor = p < 0.15 ? (p / 0.15) : (1 - (p - 0.15) / 0.85);
+        // 【Kimi fix】restart() 续期（skipRampOnRestart）时直接进入衰减段，不重放爆发段
+        let intensityFactor = (p < 0.15 && !skipRampOnRestart) ? (p / 0.15) : Math.min(1, 1 - (p - 0.15) / 0.85);
         
         // 传递透明度到 Shader
         customMaterial.uniforms.globalOpacity.value = intensityFactor * 0.9;
@@ -557,14 +693,23 @@ function showDivineBeam(node, colorType = 'divine') {
     
     Graph.scene().add(beamMesh);
     activeBeam = beamMesh;
-    
+    __lastBeamStart = { id: targetId, t: nowMs }; // 登记建光时刻，拦截紧随其后的重复派发
+
+    // 【循环管理】原实现只在 beamAnimationId 为空时启动循环，但 animate() 判死后
+    // 只把 activeBeam 置 null、从不重置 beamAnimationId，于是循环永远挂在 rAF 上跑空转；
+    // 更重要的是没有任何机制让"无光柱"状态下的新循环被正确启动/停止。
+    // 现在：无光柱 → 主动停循环并清 id；有光柱 → 继续下一帧。
     if (!beamAnimationId) {
         function renderLoop() {
             if (activeBeam) {
                 const isAlive = activeBeam.userData.animate();
                 if (!isAlive) activeBeam = null;
             }
-            beamAnimationId = requestAnimationFrame(renderLoop);
+            if (activeBeam) {
+                beamAnimationId = requestAnimationFrame(renderLoop);
+            } else {
+                beamAnimationId = null; // 无光柱：停止循环，省掉空转的每帧开销
+            }
         }
         renderLoop();
     }
@@ -745,7 +890,9 @@ function updateHighlight() {
 /**
  * 更新事件视界可见性（虚化湮灭效果）
  * @param {Object} [options] 可选配置
- * @param {boolean} [options.skipLabels=false] 跳过标签纹理重建（供定时监控的轻量重绘使用）
+ * @param {boolean} [options.skipLabels=false] 跳过标签「GPU 资源分配」（新建纹理 / 换 map / 重排缩放），
+ *        供定时监控的轻量重绘使用。注意：标签亮度（material.color）不受此开关影响，
+ *        因为它是 socketio 广播后权重变化的唯一兜底纠正通道，且只改 uniform 无显存开销。
  */
 function updateEventHorizonVisibility(options) {
     if (!Graph) return;
@@ -959,29 +1106,50 @@ function updateEventHorizonVisibility(options) {
             
             // 每次更新事件视界时，检查并重置标签截断状态
             // 如果是大股东节点在事件视界中，必须保持非截断显示；其他则恢复截断
-            // 轻量重绘（skipLabels）跳过纹理重建，避免定时监控每秒重建全图标签纹理
+            //
+            // 【边界约定】skipLabels 只允许跳过 GPU 资源分配（新建纹理 / 换 map / 重排缩放），
+            // 绝不允许跳过 uniform 或材质状态的更新。亮度纠正必须无条件执行：
+            // 它是 socketio 广播（node_updated）后权重变化 -> 标签亮度的唯一兜底通道，
+            // 定时监控（:5441 传 skipLabels:true）也依赖它来完成"纠偏"。
+            if (sprite && sprite.material) {
+                // (A) 亮度：只写 material.color（uniform），零纹理分配，无条件执行
+                const brightness = getLabelBrightness(weight);
+                if (sprite.material.color) sprite.material.color.setScalar(brightness);
+            }
+
+            // (B) 纹理 / 尺寸 / 位置：这才是 skipLabels 的本意——跳过 GPU 资源分配
             if (!skipLabels && sprite && sprite.material) {
                 const isBossNode = (currentBossNodeId === node.id || currentBossNodeId === node.node_id);
                 const isBossInHorizon = hasHorizon && isBossNode;
-                // 注意：如果该节点此时恰好被 hover（即 hoverNode === node），即使不是大股东，也应保持非截断。
+                // 注意：如果该节点此时恰好被 hover（即 hoverNode === node），即使不是非大股东，也应保持非截断。
                 const isHovered = (hoverNode === node);
                 const shouldExpand = isBossInHorizon || isHovered;
-                
-                const newTexture = createTextTexture(node.id, weight, getThreeInstance(), shouldExpand);
-                const baseScale = 0.3 + (weight * 0.25);
-                const spriteHeight = newTexture.baseHeight * baseScale;
-                
-                sprite.material.map = newTexture;
-                sprite.material.needsUpdate = true;
-                
-                // 位置对齐调整
-                const targetRadius = 1.2 + (weight * (4.2 - 1.2)); // 依据 MIN_RADIUS 和 MAX_RADIUS
-                const actualPhysicalRadius = targetRadius * 7; // REL_SIZE
-                sprite.position.y = actualPhysicalRadius + spriteHeight + 4;
-                
-                // 动画中或悬浮中的标签尺寸由悬浮 Tween 负责，重绘不得写回基准值
-                if (!node.__threeObj.__isAnimatingScale && !isHovered) {
-                    sprite.scale.set(newTexture.baseWidth * baseScale, spriteHeight, 1);
+
+                // 【关键修复】亮度改由材质承载，纹理只在"截断模式"真正变化时才切换。
+                // 点击后全图权重都会变，原实现会对 250 个节点各重绘一张 1024x256 级纹理（显存台阶式上涨 + 卡顿）。
+                // 现在：权重变化只改 material.color（零纹理分配），只有该节点进出视界/悬浮导致
+                // 截断模式切换时才换 map（且换到的也是缓存里已有的纹理，不新建）。
+                const prevMode = sprite.__labelExpandMode;
+                if (prevMode === undefined || prevMode !== shouldExpand) {
+                    const newTexture = createTextTexture(node.id, weight, getThreeInstance(), shouldExpand);
+                    if (newTexture) {
+                        sprite.material.map = newTexture;
+                        sprite.material.needsUpdate = true;
+                        sprite.__labelExpandMode = shouldExpand;
+
+                        const baseScale = 0.3 + (weight * 0.25);
+                        const spriteHeight = newTexture.baseHeight * baseScale;
+
+                        // 位置对齐调整
+                        const targetRadius = 1.2 + (weight * (4.2 - 1.2)); // 依据 MIN_RADIUS 和 MAX_RADIUS
+                        const actualPhysicalRadius = targetRadius * 7; // REL_SIZE
+                        sprite.position.y = actualPhysicalRadius + spriteHeight + 4;
+
+                        // 动画中或悬浮中的标签尺寸由悬浮 Tween 负责，重绘不得写回基准值
+                        if (!node.__threeObj.__isAnimatingScale && !isHovered) {
+                            sprite.scale.set(newTexture.baseWidth * baseScale, spriteHeight, 1);
+                        }
+                    }
                 }
             }
         }
@@ -1045,6 +1213,9 @@ function hoverScaleNodeBloom(node) {
         
         sprite.material.map = newTexture;
         sprite.material.needsUpdate = true;
+        // 纹理已固定满亮，亮度统一交给材质；同时记录当前为展开态，供后续重绘判断是否需要切换
+        if (sprite.material.color) sprite.material.color.setScalar(getLabelBrightness(node.survival_weight));
+        sprite.__labelExpandMode = true;
         
         // 由于行数可能增加，需调整其位置以防止遮挡
         const targetRadius = 1.2 + (weight * (4.2 - 1.2)); // 依据 MIN_RADIUS 和 MAX_RADIUS
@@ -1138,6 +1309,9 @@ function hoverScaleNodeRebound(node) {
         
         sprite.material.map = reboundTexture;
         sprite.material.needsUpdate = true;
+        // 与创建/悬浮逻辑保持一致：亮度由材质承载，并记录当前截断模式
+        if (sprite.material.color) sprite.material.color.setScalar(getLabelBrightness(node.survival_weight));
+        sprite.__labelExpandMode = shouldExpand;
         
         const targetRadius = 1.2 + (weight * (4.2 - 1.2));
         const actualPhysicalRadius = targetRadius * 7;
@@ -1233,6 +1407,38 @@ function initStarHud() {
 }
 
 
+/**
+ * 【标签亮度】权重 -> 材质灰度的映射。
+ *
+ * 原实现把亮度烘进 canvas 文本颜色（rgb(0.5w~0.9w)），导致同一节点只要权重变化
+ * 就必须重绘整张纹理。改为：纹理固定画满亮白字，亮度改由 SpriteMaterial.color 承载。
+ *
+ * 数学等价（非近似）：
+ *   原：纹理色 255 * 0.62 = 158，材质色 白(255) -> 最终 158
+ *   新：纹理色 255，        材质色 158      -> 最终 158
+ * 因此视觉完全不变，但纹理可与权重彻底解耦并缓存复用。
+ */
+function getLabelBrightness(weight) {
+    const weightValue = getVisualWeight(weight);
+    return 0.5 + (weightValue * 0.4); // 0.5 ~ 0.9，与原实现同一条曲线
+}
+
+/**
+ * 【标签纹理缓存】键只含 文本内容 + 截断模式，不含权重。
+ *
+ * 点击节点后全图权重都会变化，若缓存键含权重则全部失效、等于没缓存；
+ * 而文本内容与截断模式在一次会话中极少变化，因此缓存命中率接近 100%，
+ * 点击时的 GPU 纹理分配峰值（250 张 1024x256 级纹理）随之消失。
+ */
+const __labelTextureCache = new Map();
+const __LABEL_TEXTURE_CACHE_MAX = 1024;
+
+/** 清空标签纹理缓存（节点大规模变更时调用，避免旧纹理长期占用显存） */
+function clearLabelTextureCache() {
+    __labelTextureCache.forEach(tex => { try { tex.dispose && tex.dispose(); } catch (e) {} });
+    __labelTextureCache.clear();
+}
+
 /** 超采样文字纹理渲染：确保 ID 极致清晰，使用2的幂次方尺寸避免警告 */
 function createTextTexture(text, weight, THREE, isHovered = false) {
     // 设置每行最大字符数
@@ -1243,6 +1449,11 @@ function createTextTexture(text, weight, THREE, isHovered = false) {
     if (!isHovered && displayText.length > MAX_LENGTH_PER_LINE) {
         displayText = displayText.substring(0, MAX_LENGTH_PER_LINE) + '...';
     }
+
+    // 缓存键：只含文本与截断模式，不含权重（亮度已移交材质）
+    const cacheKey = `${isHovered ? 'F' : 'S'}|${displayText}`;
+    const cached = __labelTextureCache.get(cacheKey);
+    if (cached) return cached;
     
     // 将长文本分割成多行
     const lines = [];
@@ -1315,14 +1526,9 @@ function createTextTexture(text, weight, THREE, isHovered = false) {
     
     ctx.font = `${32 * scale}px "Fira Code"`;
     
-    // 标签亮度与权重成正比：权重越高，标签越亮
-    // 权重范围：0.0 - 1.0，亮度范围：0.5 - 0.9 (压低亮度)
-    const weightValue = getVisualWeight(weight);
-    const brightness = 0.5 + (weightValue * 0.4); 
-    
-    // 根据亮度计算颜色值
-    const colorValue = Math.floor(255 * brightness);
-    const textColor = `rgb(${colorValue}, ${colorValue}, ${colorValue})`;
+    // 标签亮度不再烘进纹理：固定画满亮白字，权重亮度由 SpriteMaterial.color 承载。
+    // 这样同一文本的纹理可被所有节点、所有权重状态复用，点击重排时无需重建。
+    const textColor = 'rgb(255, 255, 255)';
     
     // 添加黑色发光阴影，确保在明亮星云背景下依然清晰可读
     ctx.shadowColor = 'rgba(0, 0, 0, 0.95)';
@@ -1355,7 +1561,16 @@ function createTextTexture(text, weight, THREE, isHovered = false) {
     texture.magFilter = THREE.LinearFilter;
     texture.wrapS = THREE.ClampToEdgeWrapping;
     texture.wrapT = THREE.ClampToEdgeWrapping;
-    
+
+    // 写入缓存（超限时淘汰最早的条目并释放其 GPU 资源）
+    if (__labelTextureCache.size >= __LABEL_TEXTURE_CACHE_MAX) {
+        const oldestKey = __labelTextureCache.keys().next().value;
+        const oldestTex = __labelTextureCache.get(oldestKey);
+        __labelTextureCache.delete(oldestKey);
+        try { oldestTex && oldestTex.dispose && oldestTex.dispose(); } catch (e) {}
+    }
+    __labelTextureCache.set(cacheKey, texture);
+
     return texture;
 }
 
@@ -1402,6 +1617,10 @@ async function promoteNodeWeight(node, maxEyes = null) {
         console.error('提升权重失败：节点或节点ID为空');
         return;
     }
+
+    // 【本地操作登记】这是本地主动发起的权重提升，其广播回声不应被当作远端跃迁，
+    // 否则本机会额外叠一束圣光并把镜头抢走（远端客户端不受影响，只需屏蔽本机）。
+    lastLocalActionTime = Date.now();
     
     try {
         console.log(`尝试提升节点 ${node.id} 到所有节点总权重的60%`);
@@ -1471,7 +1690,8 @@ const __loadState = {
     timer: null,         // 防抖定时器
     waiters: [],         // 本批次所有调用方的 resolve，批次结束时统一唤醒
     hasLoadedOnce: false,// 是否已完成过首帧
-    hasAutoFitted: false // 是否已做过一次自动取景（后台重载不再抢镜头）
+    hasAutoFitted: false,// 是否已做过一次自动取景（后台重载不再抢镜头）
+    urlFocusDone: false  // 是否已执行过 URL serial_id 自动聚焦（防止 /click -> 重载 -> /click 回环）
 };
 
 function loadInitialData(options) {
@@ -1604,7 +1824,7 @@ async function fetchAndRenderGraph(options) {
                     merged.fz = null;
                 }
                 // 同步写入增量缓存，让后续 node_updated 命中缓存走增量路径而非全量重载
-                nodeCache[node.node_id] = merged;
+                cacheSetNode(merged);
                 return merged;
             });
 
@@ -1763,10 +1983,16 @@ async function fetchAndRenderGraph(options) {
             }
 
             // URL 参数自动聚焦逻辑
+            // 【关键修复】只在首次加载时执行一次。
+            // 这段代码位于 fetchAndRenderGraph 内，而 loadInitialData 会在 node_deleted / field_deleted /
+            // 巡航等场景反复调用；若不加一次性保护，就会形成
+            //   /click -> 后端重排 -> node_updated -> 前端重载 -> 1 秒后又打 /click 的死循环，
+            // 每次循环都触发一轮全量重排与标签纹理重建，是显存台阶式上涨与卡顿的放大器。
             const urlParams = new URLSearchParams(window.location.search);
             const urlSerialId = urlParams.get('serial_id');
-            if (urlSerialId) {
-                console.log(`[URL聚焦] 检测到 serial_id=${urlSerialId}，准备自动聚焦`);
+            if (urlSerialId && !__loadState.urlFocusDone && !opts.background) {
+                __loadState.urlFocusDone = true;
+                console.log(`[URL聚焦] 检测到 serial_id=${urlSerialId}，准备自动聚焦（仅首次）`);
                 const urlMaxEyes = urlParams.get('max_eyes');
                 
                 // 直接调用后端接口，利用其从地宫恢复节点的强大逻辑
@@ -1794,6 +2020,37 @@ function updateNodeIncremental(data) {
     if (Graph) {
         graphNodes = Graph.graphData().nodes;
     }
+
+    // 【关键修复】Graph 节点快速索引（id / node_id / serial_id 三侧），
+    // 避免对每个广播节点都做一次 graphNodes.find 线性扫描（N 个广播 -> O(N^2) 卡顿）。
+    // 同时它是"是否真的需要新建节点"的权威判据：命中即更新，绝不重复建 THREE 对象。
+    const graphNodeIndex = new Map();
+    if (Array.isArray(graphNodes)) {
+        graphNodes.forEach(n => {
+            if (!n) return;
+            if (n.id !== undefined && n.id !== null && n.id !== '') graphNodeIndex.set(String(n.id), n);
+            if (n.node_id !== undefined && n.node_id !== null && n.node_id !== '') graphNodeIndex.set(String(n.node_id), n);
+            if (n.serial_id !== undefined && n.serial_id !== null && n.serial_id !== '') graphNodeIndex.set(String(n.serial_id), n);
+        });
+    }
+    // 本轮回调内新建的节点也要能立刻被后续条目命中（同一批广播可能重复出现同一 id）
+    const __graphLookup = (serialId, nodeId) => {
+        if (serialId !== undefined && serialId !== null && serialId !== '') {
+            const hit = graphNodeIndex.get(String(serialId));
+            if (hit) return hit;
+        }
+        if (nodeId !== undefined && nodeId !== null && nodeId !== '') {
+            const hit = graphNodeIndex.get(String(nodeId));
+            if (hit) return hit;
+        }
+        return null;
+    };
+    const __graphRegister = (gNode) => {
+        if (!gNode) return;
+        if (gNode.id !== undefined && gNode.id !== null && gNode.id !== '') graphNodeIndex.set(String(gNode.id), gNode);
+        if (gNode.node_id !== undefined && gNode.node_id !== null && gNode.node_id !== '') graphNodeIndex.set(String(gNode.node_id), gNode);
+        if (gNode.serial_id !== undefined && gNode.serial_id !== null && gNode.serial_id !== '') graphNodeIndex.set(String(gNode.serial_id), gNode);
+    };
     
     // 收集本轮广播中"图里还没有"的节点与连线，循环结束后统一并入一次，
     // 避免逐条 node_updated 都重灌 Graph.graphData 造成仿真重启与重绘抖动。
@@ -1810,15 +2067,12 @@ function updateNodeIncremental(data) {
             : uNode["本事件权重"];
         
         // 尝试多种查找方式更新缓存
-        let cacheNode = nodeCache[sid] || nodeCache[nid];
-        if (!cacheNode) {
-            for (const key in nodeCache) {
-                const cachedNode = nodeCache[key];
-                if (cachedNode.serial_id === sid || cachedNode.node_id === nid) {
-                    cacheNode = cachedNode;
-                    break;
-                }
-            }
+        // 走归一索引：serial_id / node_id 任一侧命中即可 O(1) 命中，
+        // 避免本场已有节点因键不一致被误判成"新节点"而重复并入 Graph（显存成倍增长的根因）。
+        let cacheNode = __lookupNode(sid, nid);
+        if (!cacheNode && nid !== undefined && nid !== null && nid !== '') {
+            // 兜底：极少数历史数据节点既无 node_id 也无 serial_id，只登记过 id，补一次
+            cacheNode = __lookupNode(nid, nid);
         }
         
         if (cacheNode) {
@@ -1831,19 +2085,24 @@ function updateNodeIncremental(data) {
             if (uNode.event_tuple) cacheNode.event_tuple = uNode.event_tuple;
             if (uNode.action_tag) cacheNode.action_tag = uNode.action_tag;
             if (uNode.block_tag) cacheNode.block_tag = uNode.block_tag;
+            // 补齐新出现的 serial_id / node_id 键，后续同一节点的广播可直接命中
+            __indexNode(cacheNode);
         } else {
             console.warn(`[SocketIO] 警告：未找到缓存节点，作为新节点增量并入缓存，serial_id: ${sid}, node_id: ${nid}`);
             cacheNode = Object.assign({}, uNode);
             cacheNode.id = nid;
-            nodeCache[nid] = cacheNode;
-            if (sid) nodeCache[sid] = cacheNode;
+            cacheSetNode(cacheNode);
         }
 
         // 【关键修复1】同步更新 Graph 内部的节点数据引用，否则引擎读取的永远是旧数据
         if (Graph && graphNodes) {
-            let gNode = graphNodes.find(n => n.serial_id === sid || n.id === nid || n.node_id === nid);
+            let gNode = __graphLookup(sid, nid);
             if (!gNode) {
+                // 二次守卫：Graph 里没有、但归一索引里已有这个节点（说明它曾在图中、因某次全量重载
+                // 被移出），此时以缓存的对象为基准合并，不引入新的身份。
+                const existedInCache = !!cacheNode.__isIndexedOnce;
                 gNode = Object.assign({ id: nid }, cacheNode);
+                if (existedInCache) gNode.__isIndexedOnce = true;
                 // 贴着父节点出生，避免新节点从原点飞入
                 let rawParents = cacheNode.parent_ids || cacheNode.previous_ids
                     || cacheNode.previous_node || cacheNode.parent_id || [];
@@ -1851,7 +2110,7 @@ function updateNodeIncremental(data) {
                 if (!Array.isArray(rawParents)) rawParents = [rawParents];
                 const parentRefs = rawParents
                     .filter(Boolean)
-                    .map(p => graphNodes.find(n => n.id === p || n.node_id === p))
+                    .map(p => __graphLookup(p, p))
                     .filter(Boolean);
                 const anchor = parentRefs.length ? parentRefs[0] : graphNodes[0];
                 if (anchor && Number.isFinite(anchor.x)) {
@@ -1865,6 +2124,7 @@ function updateNodeIncremental(data) {
                     pendingNewLinks.push({ source: p.id, target: gNode.id, type: 'causal' });
                 });
                 pendingNewNodes.push(gNode);
+                __graphRegister(gNode);
             }
             if (gNode) {
                 if (newWeight !== undefined) {
@@ -2061,14 +2321,20 @@ function updateNodeIncremental(data) {
                 // 【核心修复4：全局寻踪视角跃迁与防抖机制】
                 // 仅当：当前无抽屉处于打开状态，且不在寻龙中，且距离上次本地手动操作已超过 3 秒，才允许远端API驱动的相机跃迁
                 const now = Date.now();
-                const isLocalActionCooling = (now - lastLocalActionTime) < 3000;
+                const isLocalActionCooling = (now - lastLocalActionTime) < 8000; // 【Kimi fix】/click 的 node_updated 回声在移动端弱网下可超过 3s，冷却窗延长到 8s 以覆盖全链路耗时上界
                 const drawerElement = document.getElementById('drawer');
                 const isDrawerOpen = drawerElement && !drawerElement.classList.contains('drawer-hidden');
                 
                 // 为了避免被轻微的权重提升误导，仅对权重显著增加的节点触发远端跃迁
                 const isSignificantWeight = (parseFloat(newWeight || 0) >= 0.4);
-                
-                if (!isCurrentlySelected && !isDrawerOpen && !isDragonCruising && !isLocalActionCooling && isSignificantWeight && Graph) {
+
+                // 【Kimi fix】节点级判重：该节点 8 秒内刚被本地点过/发过光（__lastBeamStart 有登记），
+                // 这条 node_updated 几乎可断定是自己 /click 的回声——权重照常更新（不应跳过），
+                // 但不再发光、不再抢镜头。此判重与全局冷却互补：冷却管"任何远端跃迁"，它管"同一节点"。
+                const gTargetId = gNode.id || gNode.node_id;
+                const isRecentOwnBeam = (__lastBeamStart.id === gTargetId) && (now - __lastBeamStart.t) < 8000;
+
+                if (!isCurrentlySelected && !isDrawerOpen && !isDragonCruising && !isLocalActionCooling && !isRecentOwnBeam && isSignificantWeight && Graph) {
                     
                     // 防抖：如果2秒内已经跃迁过，则忽略，避免链路上的批量更新引发视角震荡
                     if (now - lastRemoteJumpTime > 2000) {
@@ -2190,26 +2456,65 @@ function initSocketHandlers() {
         updateHighlight();
     });
 
+    // 【广播微批去重】广播会扇出到 public/private/视角场 等多个房间，
+    // 同一 node_id 可能被本端重复收到。这里在短窗口内合并为一次批量处理，
+    // 避免同一节点被反复走一遍增量路径（重复计算 + 重复 tag 纹理查找）。
+    // 注意：房间策略不做任何改动（Memory.md §7 要求按 owner+actor 过滤）。
+    let __nodeUpdatedBuf = new Map();
+    let __nodeUpdatedTimer = null;
+    const __NODE_UPDATED_FLUSH_MS = 100;
+
+    function flushNodeUpdatedBuffer() {
+        __nodeUpdatedTimer = null;
+        if (__nodeUpdatedBuf.size === 0) return;
+        const batch = Array.from(__nodeUpdatedBuf.values());
+        __nodeUpdatedBuf = new Map();
+        const currentOwner = new URLSearchParams(window.location.search).get('owner_id') || 'default';
+        // 异场节点只有在已存在于视图中时才放行（与原逐条拦截语义一致）
+        const accepted = batch.filter(d => {
+            if (!d) return false;
+            if (d.owner_id && d.owner_id !== currentOwner && !__lookupNode(d.serial_id, d.node_id)) {
+                console.log(`[Socket.IO node_updated] 拦截(owner_id不匹配且不在缓存): ${d.node_id}`);
+                return false;
+            }
+            return true;
+        });
+        if (accepted.length === 0) return;
+        accepted.forEach(d => cacheSetNode(d));
+        updateNodeIncremental(accepted); // 函数本身支持数组入参，只重灌一次图谱
+    }
+
     window.socket.on('node_updated', (data) => {
-        const urlParams = new URLSearchParams(window.location.search);
-        const currentOwnerId = urlParams.get('owner_id') || 'default';
+        if (!data) return;
+        const key = String(data.node_id || data.serial_id || '');
+        if (!key) return;
 
         console.log(`[Socket.IO node_updated] 收到: node_id=${data.node_id}, owner_id=${data.owner_id}, actor_id=${data.actor_id}, weight=${data.survival_weight}`);
-        
-        // 隔离不同的 owner_id：仅当异场节点已加载进当前视图（nodeCache 命中）时才放行，
-        // 避免无关场域的更新污染当前视图。
-        if (data.owner_id && data.owner_id !== currentOwnerId && !nodeCache[data.node_id]) {
-            console.log(`[Socket.IO node_updated] 拦截(owner_id不匹配且不在缓存): ${data.node_id}`);
-            return;
-        }
 
         // 注意：权重与 parent_id 是每个观测者各自的副本，允许任意 actor 对任意场域改权重 / 自定义 parent_id，
         // 因此 node_updated 不再按 actor_id 拦截（只有 node_created / node_deleted 等增删改才需按 actor 隔离）。
+        // owner_id 隔离在 flushNodeUpdatedBuffer 中统一处理。
 
-        nodeCache[data.node_id] = data;
-        // 使用增量更新而不是全量刷新，保留节点坐标，防止重绘抖动
-        updateNodeIncremental(data);
+        // 同一节点在窗口内多次到达时，保留最后一条（最新权重）
+        __nodeUpdatedBuf.set(key, data);
+        if (__nodeUpdatedTimer === null) {
+            __nodeUpdatedTimer = setTimeout(flushNodeUpdatedBuffer, __NODE_UPDATED_FLUSH_MS);
+        }
     });
+
+    // 批量事件（后端可选推送，进一步把 N 条广播压成 1 条）
+    window.socket.on('nodes_updated', (arr) => {
+        if (!Array.isArray(arr) || arr.length === 0) return;
+        arr.forEach(d => {
+            if (d && (d.node_id || d.serial_id)) {
+                __nodeUpdatedBuf.set(String(d.node_id || d.serial_id), d);
+            }
+        });
+        if (__nodeUpdatedTimer === null) {
+            __nodeUpdatedTimer = setTimeout(flushNodeUpdatedBuffer, __NODE_UPDATED_FLUSH_MS);
+        }
+    });
+
     
     window.socket.on('node_created', (data) => {
         const currentOwnerId = new URLSearchParams(window.location.search).get('owner_id') || 'default';
@@ -2223,8 +2528,8 @@ function initSocketHandlers() {
 
         // 【关键】一律走增量路径，绝不调用 loadInitialData()。
         // 全量重载会重建整份节点对象（坐标归零）并重启仿真，多节点广播时会形成重绘风暴。
-        const isKnown = !!nodeCache[data.node_id];
-        nodeCache[data.node_id] = data;
+        const isKnown = !!__lookupNode(data.serial_id, data.node_id);
+        cacheSetNode(data);
         updateNodeIncremental(data);
 
         if (isKnown) return; // 已知节点只做权重/标签同步
@@ -2273,7 +2578,7 @@ function initSocketHandlers() {
         // 2. 隔离不同的 actor_id
         if (data.actor_id && currentActorId && data.actor_id !== currentActorId) return;
 
-        delete nodeCache[data.node_id];
+        cacheDeleteNode(data.node_id);
         if (currentSelectedNodeId === data.node_id) closeDrawer();
         loadInitialData();
     });
@@ -2328,14 +2633,14 @@ function openDrawer(nodeId) {
         node = nodes.find(n => n.id === nodeId);
     }
     
-    // 如果Graph中没有找到，尝试从缓存中获取
+    // 如果Graph中没有找到，尝试从归一索引/缓存中获取
     if (!node) {
-        node = nodeCache[nodeId] || { node_id: nodeId };
+        node = __lookupNode(nodeId, nodeId) || { node_id: nodeId };
     }
     
     // 更新缓存
     if (node) {
-        nodeCache[nodeId] = node;
+        cacheSetNode(node);
     }
     
     currentSelectedNodeId = nodeId;
@@ -3448,10 +3753,24 @@ function initTelescopeSlider() {
     });
 
     // 拖动结束时发送请求
+    // 【触屏去抖】部分移动浏览器在 touchend 时会补发一次 change（input→change→touchend→change），
+    // 导致同一次拖动执行两次 promoteNodeWeight + showDivineBeam（两次 /click 请求 + 两束光）。
+    // 这里用 300ms 窗口丢弃紧随其后的重复 change。
+    let __sliderChangeLock = 0;
     slider.addEventListener('change', (e) => {
         hideReticle();
+        const nowMs = Date.now();
+        if (nowMs - __sliderChangeLock < 300) {
+            console.log('[望远镜] 忽略重复的 change 事件（触屏双发）');
+            return;
+        }
+        __sliderChangeLock = nowMs;
         const maxEyes = parseFloat(e.target.value);
         console.log(`[望远镜] 调整倍率至: ${maxEyes}`);
+
+        // 【本地操作登记】本次是用户主动操作，3 秒内禁止把自己广播回来的权重变化
+        // 当成"远端跃迁"处理（否则会叠加一束圣光并抢镜头做 2 秒相机跃迁）。
+        lastLocalActionTime = Date.now();
 
         if (currentBossNodeId) {
             const { nodes } = Graph.graphData();
@@ -3460,6 +3779,17 @@ function initTelescopeSlider() {
                 // 调用 promoteNodeWeight 并传入 maxEyes
                 promoteNodeWeight(bossNode, maxEyes);
                 showDivineBeam(bossNode);
+
+                // 【显式居中】滑杆调整视界时必须让大股东回到视觉中心。
+                // 历史实现依赖「远端跃迁」分支（updateNodeIncremental 内）的副作用来居中，
+                // 该分支已因屏蔽广播回声（lastLocalActionTime）而关闭，这里改为滑杆自己负责居中：
+                // 语义清晰、不受广播时序影响，且与点击路径（cameraPosition 350 / 1200ms）手感一致。
+                if (Number.isFinite(bossNode.x) && Number.isFinite(bossNode.y) && Number.isFinite(bossNode.z)) {
+                    const { camPos, lookAt } = calculateOffsetView(bossNode, 350);
+                    Graph.cameraPosition(camPos, lookAt, 1200);
+                } else {
+                    console.warn(`[望远镜] 大股东节点坐标无效，跳过居中: ${currentBossNodeId}`);
+                }
             } else {
                 console.warn(`[望远镜] 未找到当前大股东节点: ${currentBossNodeId}`);
             }
@@ -3632,6 +3962,8 @@ window.addEventListener('load', () => {
                 const sprite = new THREE.Sprite(
                     new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false, opacity: baseOpacity })
                 );
+                // 标签亮度由材质灰度承载（纹理本身固定满亮白字，可跨节点/跨权重复用）
+                sprite.material.color.setScalar(getLabelBrightness(weight));
                 // 标签大小控制：与节点大小成正比
                 // 基础缩放0.3，权重为1时缩放为0.7
                 const baseScale = 0.3 + (weight * 0.25);
@@ -5179,19 +5511,20 @@ setInterval(() => {
         const sprite = node.__threeObj.children[1];
         if (!sphere || !sphere.material) return;
 
-        // 1. 对于视界内的大股东节点，强保透明度（统一使用 0.4 + w * 0.6 公式）
+        // 判断是否为大股东 (survival_weight > 0.59)
+        // 后端 promote_all_weights 严格按 60/40 分配：大股东唯一 0.60，其余按比例瓜分 0.40
+        // （必然远低于 0.59），因此该阈值只会命中唯一节点。
+        // 叠加视界限定，避免历史残留的 0.60 节点在视界外被错误拉亮。
         if (node.survival_weight > 0.59 && (!hasHorizon || horizonNodes.has(node.id))) {
-            const w = getVisualWeight(node.survival_weight);
-            const targetOp = 0.4 + w * 0.6;
-            if (sphere.material.opacity < targetOp - 0.02) {
-                sphere.material.opacity = targetOp;
+            if (sphere.material.opacity < 0.98) {
+                sphere.material.opacity = 0.98;
                 sphere.material.needsUpdate = true;
             }
-            if (sprite && sprite.material && sprite.material.opacity < targetOp * 0.8 - 0.02) {
-                sprite.material.opacity = targetOp * 0.8;
+            if (sprite && sprite.material && sprite.material.opacity < 0.98) {
+                sprite.material.opacity = 0.98 * 0.8;
                 sprite.material.needsUpdate = true;
             }
-        } 
+        }
         // 2. 对于普通节点，如果存在视界，检查视界外节点是否异常显示
         else if (hasHorizon && bossNode && !horizonNodes.has(node.id)) {
             const expectedDimmedOpacity = isMemoryMode ? 0 : 0.05;

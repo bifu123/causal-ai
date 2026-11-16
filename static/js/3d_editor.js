@@ -109,7 +109,7 @@
                 mdeInstance = new EasyMDE({
                     element: editorElement,
                     spellChecker: false,
-                    autoDownloadFontAwesome: true, // 确保图标正常显示
+                    autoDownloadFontAwesome: false, // 确保图标正常显示
                     status: isMobile ? false : ["lines", "words"], // 手机端隐藏状态栏节省空间
                     renderingConfig: {
                         markedOptions: {
@@ -195,7 +195,7 @@
                 mdeInstance = new EasyMDE({
                     element: editorElement,
                     spellChecker: false,
-                    autoDownloadFontAwesome: true,
+                    autoDownloadFontAwesome: false,
                     status: isMobile ? false : ["lines", "words"],
                     renderingConfig: { 
                         codeSyntaxHighlighting: true,
@@ -276,7 +276,10 @@
         if (!btn) return;
 
         // 优先使用只读模式记录的节点，其次使用全局选中节点
-        const node = currentViewingNode || (window.selectedNodeObj || null);
+        // 3d_main.js 的 selectedNodeObj 是顶层 let（全局词法绑定，不在 window 上），
+        // 旧代码读 window.selectedNodeObj 恒为 undefined，导致放大编辑路径分享必失败
+        const globalSelected = (typeof selectedNodeObj !== "undefined") ? selectedNodeObj : (window.selectedNodeObj || null);
+        const node = currentViewingNode || globalSelected || null;
         if (!node) {
             console.error('[3d_editor 分享失败：未找到节点对象');
             const oldInner = btn.innerHTML;

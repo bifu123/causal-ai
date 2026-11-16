@@ -2759,6 +2759,7 @@ function initEventTupleEditor() {
             easyMDE = new EasyMDE({
                 element: document.getElementById('modal-event-tuple-editor'),
                 spellChecker: false, // 禁用拼写检查（针对中文更友好）
+                autoDownloadFontAwesome: false, // 图标已本地化（/static/css/font-awesome.min.css），不再走CDN
                 autosave: { enabled: false },
                 status: ["lines", "words", "cursor"],
                 maxHeight: "50vh",

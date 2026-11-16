@@ -4,11 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
     <title>账号中心-因果星空</title>
-    <!-- Three.js 驱动底层 3D 粒子与透视经纬线 -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <!-- Google Fonts 科技与人文字体 -->
-    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Noto+Sans+SC:wght@300;400;700;900&display=swap" rel="stylesheet">
+    <!-- Three.js 驱动底层 3D 粒子与透视经纬线（本地文件，无需外网 CDN） -->
+    <script src="/static/js/three.min.js"></script>
+    <!-- 自托管字体（替代 Google Fonts，内网可用） -->
+    <link rel="stylesheet" href="/static/css/fonts.local.css">
     <!-- EasyMDE：复用 event-tuple-modal 的 Markdown 渲染方案 -->
+    <link rel="stylesheet" href="/static/css/font-awesome.min.css">
     <link rel="stylesheet" href="/static/css/easymde.min.css">
     <script src="/static/js/easymde.min.js"></script>
     <style>
@@ -24,7 +25,14 @@
             background-color: #010206;
             color: #f1f5f9;
             font-family: 'Noto Sans SC', system-ui, -apple-system, sans-serif;
-            overflow-x: hidden;
+        }
+
+        /* 横向溢出裁剪：用 clip 而非 hidden，避免 body 变成滚动容器导致顶部 sticky 失效 */
+        html { overflow-x: hidden; }
+        body { overflow-x: clip; }
+        @supports not (overflow: clip) {
+            /* 旧浏览器兜底：clip 不可用时退回 hidden（sticky 可能失效但不影响功能） */
+            body { overflow-x: hidden; }
         }
 
         /* 全屏 3D 宇宙 Canvas */
@@ -57,33 +65,79 @@
             z-index: 10;
             max-width: 1320px;
             margin: 0 auto;
-            padding: 40px 20px;
+            padding: 18px 20px;
         }
 
-        /* 顶部标题栏 */
-        .header {
-            text-align: center;
-            margin-bottom: 32px;
+        /* ===== 顶部紧凑栏：品牌 + 标签页 + 状态 合并为一行（sticky） ===== */
+        .topbar {
+            position: sticky;
+            top: 0;
+            z-index: 30;
+            margin: -18px -20px 16px;
+            padding: 9px 20px;
+            background: rgba(2, 4, 10, 0.72);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid rgba(56, 189, 248, 0.18);
         }
 
-        .header h1, .header h3 {
-            font-size: clamp(1.8rem, 4vw, 2.5rem);
+        .topbar-row {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            max-width: 1280px;
+            margin: 0 auto;
+        }
+
+        /* 左：品牌（标题 + 副标题同行） */
+        .topbar-brand {
+            display: flex;
+            align-items: baseline;
+            gap: 12px;
+            flex: 0 0 auto;
+            min-width: 0;
+        }
+
+        .topbar-title {
+            font-size: clamp(1.05rem, 1.9vw, 1.4rem);
             font-weight: 900;
-            letter-spacing: 0.15em;
-            background: linear-gradient(180deg, #ffffff 0%, #38bdf8 50%, rgba(192, 132, 252, 0.85) 100%);
+            letter-spacing: 0.12em;
+            background: linear-gradient(180deg, #ffffff 0%, #38bdf8 55%, rgba(192, 132, 252, 0.85) 100%);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             text-shadow: 0 0 30px rgba(56, 189, 248, 0.5);
-            margin-bottom: 8px;
+            margin: 0;
+            white-space: nowrap;
         }
 
-        .subtitle {
+        .topbar-sub {
             font-family: 'Orbitron', monospace;
-            font-size: 0.85rem;
+            font-size: 0.7rem;
             color: #94a3b8;
-            letter-spacing: 0.3em;
+            letter-spacing: 0.18em;
             text-transform: uppercase;
-            margin-bottom: 16px;
+            white-space: nowrap;
+        }
+
+        /* 中：标签页 */
+        .topbar .tabs {
+            flex: 1 1 auto;
+            justify-content: center;
+            gap: 8px;
+            margin: 0;
+            min-width: 0;
+        }
+
+        /* 右：状态胶囊 */
+        .topbar-status {
+            flex: 0 0 auto;
+        }
+
+        /* 顶栏内的管理员视角横幅（细条，不再独占一整行） */
+        .topbar .act-as-bar {
+            max-width: 1280px;
+            margin: 8px auto 0;
+            padding: 4px 12px;
+            font-size: 0.75rem;
         }
 
         /* 状态栏 */
@@ -147,14 +201,14 @@
         .tabs {
             display: flex;
             justify-content: center;
-            gap: 12px;
-            margin-bottom: 30px;
+            gap: 8px;
+            margin-bottom: 16px;
         }
 
         .tab {
-            padding: 10px 24px;
-            border-radius: 24px;
-            font-size: 0.88rem;
+            padding: 7px 16px;
+            border-radius: 20px;
+            font-size: 0.82rem;
             font-weight: 500;
             cursor: pointer;
             border: 1px solid rgba(255, 255, 255, 0.15);
@@ -162,6 +216,7 @@
             color: #cbd5e1;
             backdrop-filter: blur(8px);
             transition: all 0.3s ease;
+            white-space: nowrap;
         }
 
         .tab:hover {
@@ -181,7 +236,7 @@
         .panel {
             display: none;
             flex-direction: column;
-            gap: 20px;
+            gap: 14px;
         }
 
         .panel.active {
@@ -234,43 +289,64 @@
         #panel-owner #owner-list-card .card-body { max-height: none; }
         #panel-owner #owner-list-card.collapsed .card-body { max-height: 0; }
 
-        /* ================= 科技 HUD 切角卡片设计 ================= */
+        /* ================= 科技 HUD 切角卡片设计 =================
+         * 三层分工（切角轮廓 + 不破坏毛玻璃）。卡片本身不发光，发光焦点在按钮。
+         *   .card         —— 无 clip-path、无 filter（filter 会破坏后代的
+         *                    backdrop-filter 与层叠顺序）。
+         *   .card::before —— 持背景色 + backdrop-filter + clip-path。
+         *   .card::after  —— 持渐变描边（mask xor 挖空中心，只留 1px 边）。
+         */
         .card {
             position: relative;
-            background: rgba(10, 16, 30, 0.65);
-            clip-path: polygon(
-                14px 0%, calc(100% - 14px) 0%, 
-                100% 14px, 100% calc(100% - 14px), 
-                calc(100% - 14px) 100%, 14px 100%, 
-                0% calc(100% - 14px), 0% 14px
-            );
+            background: transparent;
             border: none;
-            backdrop-filter: blur(16px);
-            transition: all 0.3s ease;
         }
 
+        /* 卡片自身不发光：发光焦点只保留在按钮上（见 .btn:hover）。
+         * 卡片仍保留切角描边随 hover 提亮的轻微反馈（见 .card:hover::after）。 */
+
+        /* 背景 + 毛玻璃 + 切角轮廓 */
         .card::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: rgba(10, 16, 30, 0.65);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            clip-path: polygon(
+                14px 0%, calc(100% - 14px) 0%,
+                100% 14px, 100% calc(100% - 14px),
+                calc(100% - 14px) 100%, 14px 100%,
+                0% calc(100% - 14px), 0% 14px
+            );
+            pointer-events: none;
+            z-index: -1;
+        }
+
+        /* 渐变描边（同一切角轮廓，mask 挖空中心只留 1px 边） */
+        .card::after {
             content: '';
             position: absolute;
             inset: 0;
             padding: 1px;
             background: linear-gradient(135deg, rgba(56, 189, 248, 0.45) 0%, rgba(56, 189, 248, 0.08) 50%, rgba(192, 132, 252, 0.35) 100%);
             clip-path: polygon(
-                14px 0%, calc(100% - 14px) 0%, 
-                100% 14px, 100% calc(100% - 14px), 
-                calc(100% - 14px) 100%, 14px 100%, 
+                14px 0%, calc(100% - 14px) 0%,
+                100% 14px, 100% calc(100% - 14px),
+                calc(100% - 14px) 100%, 14px 100%,
                 0% calc(100% - 14px), 0% 14px
             );
             -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
             -webkit-mask-composite: xor;
             mask-composite: exclude;
             pointer-events: none;
-            transition: all 0.3s ease;
+            transition: background 0.3s ease;
         }
 
-        .card:hover::before {
+        .card:hover::after {
             background: linear-gradient(135deg, rgba(56, 189, 248, 0.9) 0%, rgba(56, 189, 248, 0.25) 50%, rgba(192, 132, 252, 0.75) 100%);
         }
+
 
         /* 卡片头部 */
         .card-header {
@@ -327,6 +403,10 @@
         .card-body {
             padding: 22px;
             max-height: 1200px;
+            /* 建立层叠上下文：让内部 .item::before / .btn::before 的 z-index:-1
+             * 只在本容器内计算，不会沉到 .card::before 的背景之下而消失。 */
+            position: relative;
+            isolation: isolate;
             transition: max-height 0.4s cubic-bezier(0.4, 0, 0.2, 1), padding 0.4s ease, opacity 0.3s ease;
             opacity: 1;
         }
@@ -358,7 +438,8 @@
 
         input[type="text"],
         input[type="password"],
-        input[type="search"] {
+        input[type="search"],
+        select {
             width: 100%;
             padding: 12px 16px;
             background: rgba(2, 4, 10, 0.7);
@@ -376,9 +457,15 @@
             outline: none;
         }
 
+        select option {
+            background: #0b1220;
+            color: #f1f5f9;
+        }
+
         input[type="text"]:focus,
         input[type="password"]:focus,
-        input[type="search"]:focus {
+        input[type="search"]:focus,
+        select:focus {
             border-color: #38bdf8;
             background: rgba(15, 23, 42, 0.9);
             box-shadow: 0 0 15px rgba(56, 189, 248, 0.25);
@@ -388,8 +475,13 @@
             color: #475569;
         }
 
-        /* 按钮统一样式 - HUD 科技切角 */
+        /* 按钮统一样式 - 透明镂空（极简 HUD 切角）
+         * 设计原则：按钮一律不填充，只保留 1px 淡描边轮廓。
+         * 发光焦点在按钮本身：鼠标指向哪个按钮，只有那一个按钮发光。
+         * 切角轮廓画在 ::before 上，用 mask 挖空中心，得到镂空细线边。
+         */
         .btn {
+            position: relative;
             padding: 12px 24px;
             font-size: 0.88rem;
             font-weight: 600;
@@ -398,42 +490,77 @@
             align-items: center;
             justify-content: center;
             gap: 8px;
-            transition: all 0.3s ease;
+            transition: color 0.25s ease, filter 0.25s ease;
             cursor: pointer;
-            backdrop-filter: blur(8px);
+            background: transparent;
+            border: none;
+            color: #94a3b8;
+            isolation: isolate;
+            filter: drop-shadow(0 0 0 rgba(56, 189, 248, 0));
+        }
+
+        /* 切角描边（mask 挖空中心，只留 1px 边；无填充） */
+        .btn::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            z-index: 0;          /* 不能是 -1：.btn 有 filter 后会被压到背景之下 */
+            padding: 1px;
+            background: rgba(148, 163, 184, 0.32);
             clip-path: polygon(
-                10px 0%, calc(100% - 10px) 0%, 
-                100% 10px, 100% calc(100% - 10px), 
-                calc(100% - 10px) 100%, 10px 100%, 
+                10px 0%, calc(100% - 10px) 0%,
+                100% 10px, 100% calc(100% - 10px),
+                calc(100% - 10px) 100%, 10px 100%,
                 0% calc(100% - 10px), 0% 10px
             );
+            -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+            -webkit-mask-composite: xor;
+            mask-composite: exclude;
+            pointer-events: none;
+            transition: background 0.25s ease;
         }
 
-        .btn.primary {
-            background: rgba(56, 189, 248, 0.22);
-            border: 1px solid #38bdf8;
-            color: #38bdf8;
-            box-shadow: 0 0 15px rgba(56, 189, 248, 0.2);
+        /* 按钮内 emoji 强制按「文字形态」渲染：多数图标会退回单色字形，
+         * 避免彩色 emoji 破坏整体中性灰调（纯 CSS，不改 DOM/JS）。 */
+        .btn {
+            font-variant-emoji: text;
         }
 
-        .btn.primary:hover {
-            background: rgba(56, 189, 248, 0.4);
-            color: #ffffff;
-            box-shadow: 0 0 25px rgba(56, 189, 248, 0.5);
-            transform: translateY(-2px);
+        /* 所有变体统一：不填充、不发光、不位移，只有文字与描边随 hover 微微提亮 */
+        .btn.primary,
+        .btn.ghost,
+        .btn.danger,
+        .btn.api,
+        .btn.memory {
+            background: transparent;
+            filter: none;
+            box-shadow: none;
+            transform: none;
         }
 
-        .btn.ghost {
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            background: rgba(2, 4, 10, 0.65);
-            color: #cbd5e1;
+        /* 鼠标指向时，只有这一个按钮发光 */
+        .btn:hover {
+            color: #f1f5f9;
+            transform: none;
+            filter: drop-shadow(0 0 8px rgba(56, 189, 248, 0.85))
+                    drop-shadow(0 0 18px rgba(56, 189, 248, 0.45));
         }
 
-        .btn.ghost:hover {
-            background: rgba(255, 255, 255, 0.12);
-            border-color: rgba(255, 255, 255, 0.4);
-            color: #ffffff;
-            transform: translateY(-2px);
+        .btn:hover::before {
+            background: rgba(125, 211, 252, 0.95);
+        }
+
+        /* 危险操作：仅用极淡红色文字提示，不填充、不发光 */
+        .btn.danger {
+            color: #b97d7d;
+        }
+
+        .btn.danger:hover {
+            color: #fca5a5;
+        }
+
+        .btn.danger:hover::before {
+            background: rgba(125, 211, 252, 0.95);   /* 与其他按钮统一为蓝光 */
         }
 
         /* ================= 列表与内部操作按钮对齐修复 ================= */
@@ -443,25 +570,65 @@
             gap: 14px;
         }
 
+        /* 场条目：不发光（发光焦点在按钮上），只保留切角轮廓与描边。
+         *   .item         —— 无 clip-path，背景透明
+         *   .item::before —— 背景 + 切角轮廓 + z-index:-1
+         *   .item::after  —— 1px 切角描边（mask xor 挖空）
+         */
         .item {
-            background: rgba(2, 4, 10, 0.55);
-            border: 1px solid rgba(56, 189, 248, 0.15);
-            clip-path: polygon(
-                10px 0%, calc(100% - 10px) 0%, 
-                100% 10px, 100% calc(100% - 10px), 
-                calc(100% - 10px) 100%, 10px 100%, 
-                0% calc(100% - 10px), 0% 10px
-            );
+            position: relative;
+            background: transparent;
+            border: none;
             padding: 16px 20px;
             display: flex;
             flex-direction: column;
             gap: 12px;
-            transition: all 0.3s ease;
         }
 
-        .item:hover {
-            border-color: rgba(56, 189, 248, 0.35);
+        /* 背景 + 切角轮廓 */
+        .item::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            z-index: -1;
+            background: rgba(2, 4, 10, 0.55);
+            clip-path: polygon(
+                10px 0%, calc(100% - 10px) 0%,
+                100% 10px, 100% calc(100% - 10px),
+                calc(100% - 10px) 100%, 10px 100%,
+                0% calc(100% - 10px), 0% 10px
+            );
+            pointer-events: none;
+            transition: background 0.3s ease;
+        }
+
+        /* 1px 切角描边 */
+        .item::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            padding: 1px;
+            background: rgba(56, 189, 248, 0.15);
+            clip-path: polygon(
+                10px 0%, calc(100% - 10px) 0%,
+                100% 10px, 100% calc(100% - 10px),
+                calc(100% - 10px) 100%, 10px 100%,
+                0% calc(100% - 10px), 0% 10px
+            );
+            -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+            -webkit-mask-composite: xor;
+            mask-composite: exclude;
+            pointer-events: none;
+            transition: background 0.3s ease;
+        }
+
+        /* 场条目 hover：只做背景与描边的轻微提亮，不发光（发光焦点在按钮上） */
+        .item:hover::before {
             background: rgba(15, 23, 42, 0.7);
+        }
+
+        .item:hover::after {
+            background: rgba(56, 189, 248, 0.45);
         }
 
         .item .meta {
@@ -565,10 +732,13 @@
         .btn.small {
             padding: 7px 14px;
             font-size: 0.78rem;
+        }
+
+        .btn.small::before {
             clip-path: polygon(
-                6px 0%, calc(100% - 6px) 0%, 
-                100% 6px, 100% calc(100% - 6px), 
-                calc(100% - 6px) 100%, 6px 100%, 
+                6px 0%, calc(100% - 6px) 0%,
+                100% 6px, 100% calc(100% - 6px),
+                calc(100% - 6px) 100%, 6px 100%,
                 0% calc(100% - 6px), 0% 6px
             );
         }
@@ -789,53 +959,11 @@
         }
         .token-modal-actions { display: flex; gap: 10px; justify-content: flex-end; }
 
-        /* 危险操作按钮（科技红光风格） */
-        .btn.danger {
-            border: 1px solid rgba(239, 68, 68, 0.4);
-            background: rgba(239, 68, 68, 0.15);
-            color: #fca5a5;
-            box-shadow: 0 0 10px rgba(239, 68, 68, 0.15);
-        }
+        /* 危险操作按钮已在上方 .btn 段落统一为透明镂空，此处仅保留语义占位。
+         * 所有按钮变体（primary/ghost/danger/api/memory）共用同一套透明描边样式，
+         * 不再有各自的填充色与发光，避免视觉花乱。
+         */
 
-        .btn.danger:hover {
-            background: rgba(239, 68, 68, 0.35);
-            border-color: #ef4444;
-            color: #ffffff;
-            box-shadow: 0 0 20px rgba(239, 68, 68, 0.4);
-            transform: translateY(-2px);
-        }
-
-        /* 获取 API/SKILL 按钮（青紫渐变，区别于主/幽灵按钮） */
-        .btn.api {
-            border: 1px solid rgba(192, 132, 252, 0.55);
-            background: rgba(192, 132, 252, 0.15);
-            color: #e9d5ff;
-            box-shadow: 0 0 10px rgba(192, 132, 252, 0.18);
-        }
-
-        .btn.api:hover {
-            background: rgba(192, 132, 252, 0.35);
-            border-color: #c084fc;
-            color: #ffffff;
-            box-shadow: 0 0 20px rgba(192, 132, 252, 0.45);
-            transform: translateY(-2px);
-        }
-
-        /* Memory 按钮（琥珀金光，象征记忆 / Agent 专用场） */
-        .btn.memory {
-            border: 1px solid rgba(251, 191, 36, 0.55);
-            background: rgba(251, 191, 36, 0.15);
-            color: #fde68a;
-            box-shadow: 0 0 10px rgba(251, 191, 36, 0.18);
-        }
-
-        .btn.memory:hover {
-            background: rgba(251, 191, 36, 0.35);
-            border-color: #fbbf24;
-            color: #ffffff;
-            box-shadow: 0 0 20px rgba(251, 191, 36, 0.45);
-            transform: translateY(-2px);
-        }
 
         .empty {
             color: #64748b;
@@ -1143,6 +1271,40 @@
             }
         }
 
+        /* ===== 顶栏响应式 ===== */
+        @media (max-width: 900px) {
+            /* 副标题先让位给标签页 */
+            .topbar-sub { display: none; }
+        }
+
+        @media (max-width: 768px) {
+            /* 顶栏改为两行：品牌+状态一行，标签页单独一行可横向滑动 */
+            .topbar {
+                margin: -24px -12px 12px;
+                padding: 8px 12px;
+            }
+            .topbar-row {
+                flex-wrap: wrap;
+                gap: 8px 12px;
+            }
+            .topbar-brand { flex: 1 1 auto; }
+            .topbar-status { flex: 0 0 auto; }
+            .topbar .tabs {
+                order: 3;
+                flex: 1 0 100%;
+                justify-content: flex-start;
+                flex-wrap: nowrap;
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+                padding-bottom: 2px;
+            }
+            .topbar .act-as-bar {
+                flex-wrap: wrap;
+                gap: 6px;
+                font-size: 0.72rem;
+            }
+        }
+
         /* ===== 移动端：场主管理改为单栏 + 横向滑动场主胶囊 ===== */
         @media (max-width: 768px) {
             .container { padding: 24px 12px; }
@@ -1162,11 +1324,11 @@
             #owner-list .item .actions { gap: 6px; }
             #owner-list .item .actions .btn { flex: 0 1 auto; }
         }
-    <!-- KaTeX for formula rendering -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.21/dist/katex.min.css">
-    <script src="https://cdn.jsdelivr.net/npm/marked@4.3.0/marked.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.21/dist/katex.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/marked-katex-extension@5.1.13/lib/index.umd.js"></script>
+    <!-- KaTeX for formula rendering（本地文件） -->
+    <link rel="stylesheet" href="/static/css/katex.min.css">
+    <script src="/static/js/marked.min.js"></script>
+    <script src="/static/js/katex.min.js"></script>
+    <script src="/static/js/marked-katex-extension.umd.js"></script>
 
     </style>
 </head>
@@ -1178,33 +1340,41 @@
     <div class="screen-vignette"></div>
 
     <div class="container">
-        <header class="header">
-            <h2>因果星空 · 账号中心</h2>
-            <p class="subtitle">actor 身份 · 场 owner · 钥匙 token</p>
-            <div class="status-bar" id="status-bar">
-                <span class="status-dot"></span>
-                <span id="status-text">未登录</span>
-                <button id="logout-btn" class="logout-btn" type="button">退出</button>
+        <!-- 顶部紧凑栏：品牌 + 标签页 + 状态（sticky 单行） -->
+        <div class="topbar">
+            <div class="topbar-row">
+                <div class="topbar-brand">
+                    <h2 class="topbar-title">因果星空 · 账号中心</h2>
+                    <span class="topbar-sub">actor 身份 · 场 owner · 钥匙 token</span>
+                </div>
+
+                <nav class="tabs" id="tabs">
+                    <button class="tab active" data-tab="actor">🧑 身份</button>
+                    <button class="tab" data-tab="key">🔑 钥匙</button>
+                    <button class="tab" data-tab="owner">🏠 场</button>
+                    <button class="tab" data-tab="admin" id="tab-admin" style="display:none">👑 场主管理</button>
+                </nav>
+
+                <div class="topbar-status">
+                    <div class="status-bar" id="status-bar">
+                        <span class="status-dot"></span>
+                        <span id="status-text">未登录</span>
+                        <button id="logout-btn" class="logout-btn" type="button">退出</button>
+                    </div>
+                </div>
             </div>
-        </header>
 
-        <!-- 管理员视角横幅：以某个场主身份操作时显示 -->
-        <div class="act-as-bar" id="act-as-bar">
-            <span>👑 管理员视角：正在以 <b id="act-as-name">-</b> 的身份操作</span>
-            <button id="act-as-exit" class="act-as-exit" type="button">退出管理员视角</button>
+            <!-- 管理员视角横幅：以某个场主身份操作时显示（顶栏内细条） -->
+            <div class="act-as-bar" id="act-as-bar">
+                <span>👑 管理员视角：正在以 <b id="act-as-name">-</b> 的身份操作</span>
+                <button id="act-as-exit" class="act-as-exit" type="button">退出管理员视角</button>
+            </div>
         </div>
-
-        <nav class="tabs" id="tabs">
-            <button class="tab active" data-tab="actor">🧑 身份</button>
-            <button class="tab" data-tab="key">🔑 钥匙</button>
-            <button class="tab" data-tab="owner">🏠 场</button>
-            <button class="tab" data-tab="admin" id="tab-admin" style="display:none">👑 场主管理</button>
-        </nav>
 
         <!-- ① actor 注册 / 登录 -->
         <section class="panel active" id="panel-actor">
-            <!-- 用钥匙快速进入 -->
-            <div class="card">
+            <!-- 用钥匙快速进入（已登录时整张卡片隐藏，见 auth.js updateAuthCardVisibility） -->
+            <div class="card" id="quick-token-card">
                 <div class="card-header" onclick="toggleCard(this)">
                     <h2>🔑 用钥匙快速进入</h2>
                     <span class="collapse-icon">▼</span>
@@ -1340,8 +1510,17 @@
                 </div>
                 <div class="card-body">
                     <form id="owner-form" class="form">
-                        <label>场 ID（owner_id）
-                            <input type="text" name="owner_id" id="owner-id" placeholder="例如 cbf" autocomplete="off" required>
+                        <label>类型 / 场景
+                            <select name="method" id="owner-method" required>
+                                <option value="private">私聊（private）</option>
+                                <option value="group">群聊（group）</option>
+                            </select>
+                        </label>
+                        <label>机器人 ID（bot_id）
+                            <input type="text" name="bot_id" id="owner-bot-id" placeholder="例如 3787687088" autocomplete="off" required>
+                        </label>
+                        <label>群 ID（source_id）
+                            <input type="text" name="source_id" id="owner-source-id" placeholder="群聊必填，例如 454652835" autocomplete="off">
                         </label>
                         <label>场名称
                             <input type="text" name="name" id="owner-name" placeholder="例如 因果观测站" autocomplete="off" required>
@@ -1442,32 +1621,9 @@
             card.classList.toggle('collapsed');
         }
 
-        // 根据登录状态自动折叠/展开“登录”卡片、隐藏/显示“注册新 actor”卡片
-        const loginCard = document.getElementById('login-card');
-        const registerCard = document.getElementById('register-card');
-        const statusText = document.getElementById('status-text');
-
-        function updateLoginCardState() {
-            if (!statusText) return;
-            const isLoggedIn = statusText.textContent.includes('已登录');
-            if (loginCard) {
-                if (isLoggedIn) {
-                    loginCard.classList.add('collapsed');    // 已登录：折叠登录卡片
-                } else {
-                    loginCard.classList.remove('collapsed'); // 未登录：展开登录卡片
-                }
-            }
-            if (registerCard) {
-                registerCard.style.display = isLoggedIn ? 'none' : ''; // 已登录：隐藏注册卡片
-            }
-        }
-
-        // 初始化检查
-        updateLoginCardState();
-
-        // 监听状态文本变化，实时响应登录状态的切换
-        const statusObserver = new MutationObserver(updateLoginCardState);
-        statusObserver.observe(statusText, { childList: true, characterData: true, subtree: true });
+        // 说明：「登录」卡片 / 「注册新 actor」卡片的显隐统一由 static/js/auth.js 的
+        // updateAuthCardVisibility() 处理（依据真实登录态而非状态栏文案，避免
+        // 「管理员视角」文案导致误判），此处不再重复控制。
 
         document.addEventListener('click', function(e) {
             const target = e.target;
@@ -1656,6 +1812,6 @@
         animate();
     </script>
 
-    <script src="/static/js/auth.js?v=20261113b"></script>
+    <script src="/static/js/auth.js?v=20261114d"></script>
 </body>
 </html>

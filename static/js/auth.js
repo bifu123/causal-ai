@@ -197,6 +197,22 @@
             bar.classList.remove('online');
             text.textContent = '未登录';
         }
+        updateAuthCardVisibility();
+    }
+
+    // 已登录时无需再展示登录类卡片（含其 card-body），仅未登录时显示：
+    //   · 「用钥匙快速进入」quick-token-card
+    //   · 「登录」login-card
+    //   · 「注册新 actor」register-card
+    // 顶栏「退出」后这些卡片会自动重新出现，可用于切换账号。
+    function updateAuthCardVisibility() {
+        const loggedIn = !!(currentActor() && authToken());
+        ['quick-token-card', 'login-card', 'register-card'].forEach(id => {
+            const card = document.getElementById(id);
+            if (!card) return;
+            card.style.display = loggedIn ? 'none' : '';
+            if (!loggedIn) card.classList.remove('collapsed');
+        });
     }
 
     // ---------- 退出登录 ----------
@@ -305,17 +321,41 @@
         document.getElementById('owner-form').addEventListener('submit', async e => {
             e.preventDefault();
             if (!currentActor()) { toast('请先登录', 'error'); return; }
-            const owner_id = document.getElementById('owner-id').value.trim();
+            const method = document.getElementById('owner-method').value.trim().toLowerCase();
+            const bot_id = document.getElementById('owner-bot-id').value.trim();
+            const source_id = document.getElementById('owner-source-id').value.trim();
             const name = document.getElementById('owner-name').value.trim();
-            const r = await post('/api/v1/owner/create', { owner_id, name, actor_id: currentActor() });
+            if (!bot_id) { toast('请填写机器人 ID（bot_id）', 'error'); return; }
+            if (method === 'group' && !source_id) { toast('群聊场景请填写群 ID（source_id）', 'error'); return; }
+            // owner_id 由后端按统一规则生成，这里只提交场类型与要素
+            const r = await post('/api/v1/owner/create', {
+                method, bot_id, source_id: method === 'group' ? source_id : '', name,
+                actor_id: currentActor(),
+            });
             if (r.status === 'success') {
                 document.getElementById('owner-form').reset();
-                toast('场已创建', 'success');
+                syncOwnerMethodFields();
+                toast('场已创建：' + ((r.data && r.data.owner_id) || ''), 'success');
                 refreshOwners();
             } else {
                 toast(r.message || '创建失败', 'error');
             }
         });
+        const methodSel = document.getElementById('owner-method');
+        if (methodSel) methodSel.addEventListener('change', syncOwnerMethodFields);
+        syncOwnerMethodFields();
+    }
+
+    /** 私聊隐藏并清空群 ID；群聊时群 ID 必填 */
+    function syncOwnerMethodFields() {
+        const sel = document.getElementById('owner-method');
+        const src = document.getElementById('owner-source-id');
+        if (!sel || !src) return;
+        const isGroup = sel.value === 'group';
+        src.disabled = !isGroup;
+        src.required = isGroup;
+        if (!isGroup) src.value = '';
+        src.placeholder = isGroup ? '群聊必填，例如 454652835' : '私聊无需填写';
     }
 
     // function enter(ownerId, isEdit = false) {
@@ -334,15 +374,49 @@
     //     window.open(url, '_blank');
     // }
 
-    function enter(ownerId, isEdit = false) {
-        // 场名形如 {owner_actor}_{bot_id} 时，取下划线前半段作为 actor_id
-        // 例如：755750209_3787687088 -> 755750209
-        let actorId = currentActor();
-        const idx = ownerId.indexOf('_');
-        if (idx !== -1) {
-            const prefix = ownerId.slice(0, idx);
-            if (prefix) actorId = prefix;
+    /** 在已缓存的场列表（当前用户 + admin 视图）中查找场的元数据 */
+    function findOwnerMeta(ownerId) {
+        const local = (OWNERS_CACHE || []).find(o => o && o.owner_id === ownerId);
+        if (local) return local;
+        for (const owner of (ADMIN_OWNERS_CACHE || [])) {
+            const f = (owner.fields || []).find(x => x && x.owner_id === ownerId);
+            if (f) return f;
         }
+        return null;
+    }
+
+    /**
+     * 统一解析进入场时的 actor_id：
+     * 1. 含 _wxid 的旧场：取 _wxid 之前的全部字符
+     *    例：cbf_415135222_wxid_lmu529xf597z22 -> cbf_415135222
+     * 2. 新私聊场（method=private）：取该场创建者 actor_id
+     * 3. 新群聊场（method=group）：取 bot_id
+     * 4. 其余旧场：取第一个下划线前的字符
+     */
+    function resolveOwnerActorId(ownerId, meta) {
+        const wxIdx = ownerId.indexOf('_wxid');
+        if (wxIdx > 0) return ownerId.slice(0, wxIdx);
+
+        if (meta) {
+            if (meta.method === 'group' && meta.bot_id) return meta.bot_id;
+            if (meta.method === 'private' && meta.actor_id) return meta.actor_id;
+        }
+        const idx = ownerId.indexOf('_');
+        if (idx > 0) return ownerId.slice(0, idx);
+        return currentActor();
+    }
+
+    /** 取该场的 bot_id：优先用元数据，其次取最后一个下划线后的部分 */
+    function resolveOwnerBotId(ownerId, meta) {
+        if (meta && meta.bot_id) return meta.bot_id;
+        const idx = ownerId.lastIndexOf('_');
+        if (idx !== -1 && idx < ownerId.length - 1) return ownerId.slice(idx + 1);
+        return '';
+    }
+
+    function enter(ownerId, isEdit = false) {
+        const meta = findOwnerMeta(ownerId);
+        const actorId = resolveOwnerActorId(ownerId, meta);
 
         const token = authToken();
         const url = '/3d?owner_id=' + encodeURIComponent(ownerId)
@@ -357,10 +431,10 @@
     // owner_id 形如 {owner_actor}_{bot_id}：前半段即观测者 actor_id，后半段即 bot_id。
     // 例如 454652835_3787687088 => actor_id = 454652835, bot_id = 3787687088。
     function enterMemory(ownerId) {
-        const idx = ownerId.indexOf('_');
-        if (idx === -1) { toast('该场非 Agent 专用场（owner_id 无 _），无 Memory', 'error'); return; }
-        const ownerActor = ownerId.slice(0, idx) || currentActor();   // 前半段 = 观测者 actor_id
-        const botId = ownerId.slice(idx + 1);                    // 后半段 = bot_id
+        const meta = findOwnerMeta(ownerId);
+        if (!ownerId.includes('_')) { toast('该场非 Agent 专用场（owner_id 无 _），无 Memory', 'error'); return; }
+        const ownerActor = resolveOwnerActorId(ownerId, meta) || currentActor(); // 观测者 actor_id
+        const botId = resolveOwnerBotId(ownerId, meta);                            // bot_id
         if (!botId) { toast('bot_id 为空，无法拼接 Memory URL', 'error'); return; }
         const token = authToken();
         const url = '/3d?owner_id=' + encodeURIComponent(ownerId)
@@ -374,6 +448,7 @@
     // ---------- 场的列表渲染（宽屏网格平铺 + 搜索过滤，所有操作直接铺开） ----------
     let OWNERS_CACHE = [];            // 当前 actor 名下场（接口原始数据）
     let OWNER_QUERY = '';             // 搜索关键字（纯前端过滤）
+    let ADMIN_OWNERS_CACHE = [];      // admin 视图的场主及其场元数据
 
     async function refreshOwners() {
         const box = document.getElementById('owner-list');
@@ -428,14 +503,14 @@
                     <div class="id">${id}</div>
                 </div>
                 <div class="actions">
-                    <button class="btn small ghost" data-enter="${id}" title="进入星空（只读）">👁 只读</button>
-                    <button class="btn small primary" data-enter="${id}" data-edit="true" title="进入星空（可写/可编辑）">✍ 可写</button>
-                    ${o.owner_id.includes('_') ? '<button class="btn small memory" data-memory="' + id + '">🧠 Memory</button>' : ''}
-                    <button class="btn small ghost" data-rename="${id}">✏️ 改名</button>
-                    <button class="btn small api" data-api="${id}">📡 获取API</button>
-                    <button class="btn small api" data-skill="${id}">📡 获取SKILL</button>
-                    <button class="btn small danger" data-del="${id}">🗑 删除</button>
-                    <button class="btn small danger" data-delall="${id}">🗑 删除全部</button>
+                    <button class="btn small ghost" data-enter="${id}" title="进入星空（只读）">◉ 只读</button>
+                    <button class="btn small primary" data-enter="${id}" data-edit="true" title="进入星空（可写/可编辑）">◐ 可写</button>
+                    ${o.owner_id.includes('_') ? '<button class="btn small memory" data-memory="' + id + '">◈ Memory</button>' : ''}
+                    <button class="btn small ghost" data-rename="${id}">✎ 改名</button>
+                    <button class="btn small api" data-api="${id}">⌁ 获取API</button>
+                    <button class="btn small api" data-skill="${id}">⌁ 获取SKILL</button>
+                    <button class="btn small danger" data-del="${id}">⌫ 删除</button>
+                    <button class="btn small danger" data-delall="${id}">⌫ 删除全部</button>
                 </div>
             </div>`;
         }).join('');
@@ -595,7 +670,7 @@
         apiMde = new EasyMDE({
             element: el,
             spellChecker: false,
-            autoDownloadFontAwesome: true,
+            autoDownloadFontAwesome: false,
             status: isMobile ? false : ['lines', 'words'],
             renderingConfig: { 
                 codeSyntaxHighlighting: true,
@@ -742,6 +817,7 @@
         if (!nav || !detail) return;
 
         const list = (owners.status === 'success' && owners.data) ? owners.data : [];
+        ADMIN_OWNERS_CACHE = list;
         if (summary) {
             const totalFields = list.reduce((s, o) => s + (o.field_count || 0), 0);
             const totalNodes = list.reduce((s, o) => s + (o.node_count || 0), 0);

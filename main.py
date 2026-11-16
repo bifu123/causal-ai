@@ -1312,6 +1312,11 @@ async def handle_node_click(request: Request):
         print(f"[点击事件] 因果链: previous_ids={current_node['previous_ids']}, next_ids={current_node['next_ids']}")
         
         # 5. 广播所有更新的事件
+        # 【去重】promote_all_weights 可能返回重复 node_id（跨场并入 / 大股东补充查询），
+        # 同一节点重复广播会被前端重复处理，是显存与卡顿的放大器之一。按 node_id 去重后
+        # 再以 nodes_updated 批量推送一次，node_updated 保留兼容（单节点场景仍可用）。
+        _broadcast_seen = set()
+        _broadcast_batch = []
         for updated_node in updated_nodes:
             # 剥离语义/视觉向量，避免浪费 LLM token 和 WebSocket 带宽
             updated_node.pop('semantic_vector', None)
@@ -1354,8 +1359,22 @@ async def handle_node_click(request: Request):
             # 添加调试日志
             print(f"[点击事件广播] 节点 {updated_node.get('node_id')} 权重: {updated_node.get('survival_weight')}, 类型: {type(updated_node.get('survival_weight'))}")
 
-            # 隔离广播：私密节点只发到「焦点场主」房间，共享节点发本场公共房间
+            # 去重后暂存，循环结束后批量推送
+            _nid = updated_node.get('node_id')
+            if _nid and _nid in _broadcast_seen:
+                print(f"[点击事件广播] 跳过重复节点 {_nid}")
+                continue
+            if _nid:
+                _broadcast_seen.add(_nid)
+            _broadcast_batch.append(updated_node)
+
+        # 隔离广播：私密节点只发到「焦点场主」房间，共享节点发本场公共房间
+        # 逐条发送（保持每个节点各自的可见性判定），但同一 node_id 只发一次
+        for updated_node in _broadcast_batch:
             await broadcast_node('node_updated', updated_node, access.owner_id, access)
+        if len(_broadcast_batch) > 1:
+            # 兼容批量事件：前端可一次性处理，减少 WS 帧数与重复渲染
+            await emit_nodes_updated_batch(_broadcast_batch, access.owner_id, access)
 
         # 如果显式传递了 max_eyes，则广播 horizon_updated 事件
         if req_max_eyes is not None:
@@ -1604,6 +1623,9 @@ async def get_current_event_horizon(request: Request):
         current_node['next_ids'] = node_links.get('next_ids', [])
 
         # 11. 广播所有更新的事件（按可见性分房间）
+        # 【去重】同一 node_id 只广播一次，避免前端重复处理导致显存与卡顿放大
+        _hz_seen = set()
+        _hz_batch = []
         for updated_node in updated_nodes:
             updated_node.pop('semantic_vector', None)
             updated_node.pop('visual_vector', None)
@@ -1629,7 +1651,18 @@ async def get_current_event_horizon(request: Request):
                 updated_node['previous_ids'] = current_node['previous_ids']
             if actor_id:
                 updated_node['actor_id'] = actor_id
+
+            _nid = updated_node.get('node_id')
+            if _nid and _nid in _hz_seen:
+                continue
+            if _nid:
+                _hz_seen.add(_nid)
+            _hz_batch.append(updated_node)
+
+        for updated_node in _hz_batch:
             await broadcast_node('node_updated', updated_node, access.owner_id, access)
+        if len(_hz_batch) > 1:
+            await emit_nodes_updated_batch(_hz_batch, access.owner_id, access)
 
         # 12. 如果显式传递了 max_eyes，广播 horizon_updated 事件
         if req_max_eyes is not None:
@@ -1862,6 +1895,42 @@ def private_room(owner_id: str) -> str:
 
 def actor_room(actor_id: str) -> str:
     return f"actor:{actor_id}"
+
+
+async def emit_nodes_updated_batch(nodes: list, field_owner_id: str, access=None):
+    """
+    职责：把一批已更新的节点用单条 nodes_updated 事件推送出去。
+
+    与 broadcast_node 的区别：broadcast_node 逐节点发送并独立判定可见性，
+    本函数只负责"把已通过可见性判定的那批节点打包成一条帧"，
+    房间集合与 broadcast_node 完全一致（public/private 焦点场 + 视角场公共房间），
+    因此不改变任何可见性语义（Memory.md §7 的 owner+actor 过滤仍由调用方保证）。
+
+    客户端收到 nodes_updated 后一次性批量更新，避免 N 条 WS 帧引发的重复渲染。
+    """
+    if not nodes:
+        return
+
+    # 按"该批次里是否存在共享节点"决定房间集合：
+    # 私密节点只能进焦点场主房间，不能因为同批里有共享节点而泄漏到公共房间。
+    private_nodes = [n for n in nodes if not bool(n.get('is_share'))]
+    shared_nodes = [n for n in nodes if bool(n.get('is_share'))]
+
+    if private_nodes:
+        owner_ids = {n.get('owner_id') or field_owner_id for n in private_nodes}
+        for oid in owner_ids:
+            batch = [n for n in private_nodes if (n.get('owner_id') or field_owner_id) == oid]
+            await sm.emit('nodes_updated', batch, room=private_room(oid))
+
+    if shared_nodes:
+        # 与 broadcast_node 保持完全一致：本场 public + private + 视角场 public
+        rooms = {public_room(field_owner_id), private_room(field_owner_id)}
+        for n in shared_nodes:
+            onid = n.get('owner_id') or field_owner_id
+            rooms.add(public_room(onid))
+            rooms.add(private_room(onid))
+        for room in rooms:
+            await sm.emit('nodes_updated', shared_nodes, room=room)
 
 
 async def broadcast_node(event: str, node: dict, field_owner_id: str, access=None):
@@ -2115,17 +2184,37 @@ async def owner_list(actor_id: str, request: Request):
     if err:
         return err
     owners = db.list_owners(actor_id)
-    return {"status": "success", "data": [{"owner_id": o["owner_id"], "name": o["name"]} for o in owners]} 
+    return {
+        "status": "success",
+        "data": [{
+            "owner_id": o["owner_id"],
+            "name": o["name"],
+            "actor_id": o.get("actor_id"),
+            "method": o.get("method"),
+            "bot_id": o.get("bot_id"),
+            "source_id": o.get("source_id"),
+        } for o in owners],
+    }
 
 
 @app.post("/api/v1/owner/create")
 async def owner_create(data: dict, request: Request):
-    """创建场并成为主人。"""
-    owner_id = (data.get("owner_id") or "").strip()
+    """创建场并成为主人；owner_id 由场类型、机器人与群/用户 ID 统一生成。"""
     name = (data.get("name") or "").strip()
     actor_id = (data.get("actor_id") or "").strip()
-    if not owner_id or not name or not actor_id:
-        return {"status": "error", "message": "owner_id、name、actor_id 均必填"}
+    method = (data.get("method") or "").strip().lower()
+    bot_id = (data.get("bot_id") or "").strip()
+    source_id = (data.get("source_id") or "").strip()
+    if not name or not actor_id:
+        return {"status": "error", "message": "场名称、actor_id 均必填"}
+    if method not in ("private", "group"):
+        return {"status": "error", "message": "类型必须是 private（私聊）或 group（群聊）"}
+    if not bot_id:
+        return {"status": "error", "message": "机器人 ID（bot_id）必填"}
+    if method == "group" and not source_id:
+        return {"status": "error", "message": "群聊场景必须填写群 ID（source_id）"}
+
+    owner_id = f"{actor_id}_{bot_id}" if method == "private" else f"{source_id}_{bot_id}"
     _, err = _require_self_or_admin(request, actor_id, data)
     if err:
         return err
@@ -2133,10 +2222,16 @@ async def owner_create(data: dict, request: Request):
     if db.owner_exists(owner_id):
         return {"status": "error", "message": "该场已经有了主人，请另外填写新场名"}
     try:
-        db.create_owner(owner_id, name, actor_id)
+        db.create_owner(owner_id, name, actor_id, method=method, bot_id=bot_id,
+                        source_id=source_id or None)
     except Exception as e:
         return {"status": "error", "message": "创建失败: " + str(e)}
-    return {"status": "success", "message": "创建成功", "data": {"owner_id": owner_id, "name": name}}
+    return {
+        "status": "success",
+        "message": "创建成功",
+        "data": {"owner_id": owner_id, "name": name, "method": method,
+                 "bot_id": bot_id, "source_id": source_id or None},
+    }
 
 
 @app.post("/api/v1/owner/update")

@@ -32,12 +32,30 @@ CREATE TABLE IF NOT EXISTS public.ains_users (
 );
 
 CREATE TABLE IF NOT EXISTS public.ains_owner_masters (
-    owner_id VARCHAR(64) NOT NULL PRIMARY KEY,
+    owner_id VARCHAR(128) NOT NULL PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
     actor_id VARCHAR(64) NOT NULL,
+    method VARCHAR(16),
+    bot_id VARCHAR(128),
+    source_id VARCHAR(128),
     created_at TIMESTAMPTZ DEFAULT now(),
     updated_at TIMESTAMPTZ DEFAULT now()
 );
+
+-- ④.1 场主表补列：场类型与场要素（私聊/群聊）
+--   method     : private（私聊）/ group（群聊）；旧行为 NULL
+--   bot_id     : 机器人 ID
+--   source_id  : 群聊时的群 ID
+ALTER TABLE IF EXISTS public.ains_owner_masters
+    ADD COLUMN IF NOT EXISTS method VARCHAR(16);
+ALTER TABLE IF EXISTS public.ains_owner_masters
+    ADD COLUMN IF NOT EXISTS bot_id VARCHAR(128);
+ALTER TABLE IF EXISTS public.ains_owner_masters
+    ADD COLUMN IF NOT EXISTS source_id VARCHAR(128);
+
+-- 旧库 owner_id 长度放宽（容纳 {source_id}_{bot_id} 与 _wxid 后缀）
+ALTER TABLE IF EXISTS public.ains_owner_masters
+    ALTER COLUMN owner_id TYPE VARCHAR(128);
 
 -- ⑤ 首个管理员（可选）：把已存在的 actor 提升为 admin
 -- UPDATE public.ains_users SET is_admin = TRUE WHERE actor_id = '415135222';
