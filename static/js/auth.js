@@ -386,32 +386,72 @@
     }
 
     /**
-     * 统一解析进入场时的 actor_id：
-     * 1. 含 _wxid 的旧场：取 _wxid 之前的全部字符
-     *    例：cbf_415135222_wxid_lmu529xf597z22 -> cbf_415135222
-     * 2. 新私聊场（method=private）：取该场创建者 actor_id
-     * 3. 新群聊场（method=group）：取 bot_id
-     * 4. 其余旧场：取第一个下划线前的字符
+     * 把 owner_id 拆成 source_id + bot_id。
+     *
+     * 后端生成规则（main.py owner_create）：
+     *   private → owner_id = "{创建者actor_id}_{bot_id}"
+     *   group   → owner_id = "{source_id}_{bot_id}"
+     * 即 owner_id 一律是「前半段 + _ + bot_id」两段式；不含 _ 的场无法拆分，
+     * 属于公共/理论等老式单段场（如 222302526），与字符类型无关（不限定纯数字）。
+     *
+     * 拆分要点：bot_id 可能是 wxid_ 形态（含下划线），
+     * 所以有 "_wxid" 时以第一个 "_wxid" 为界，不能用 lastIndexOf('_')，
+     * 否则 21122263971@chatroom_wxid_lmu529xf597z22 会被截成 lmu529xf597z22（丢掉 wxid_ 前缀）。
+     *
+     * @returns {{sourceId: string, botId: string, hasBot: boolean, isWxidBot: boolean}}
      */
-    function resolveOwnerActorId(ownerId, meta) {
-        const wxIdx = ownerId.indexOf('_wxid');
-        if (wxIdx > 0) return ownerId.slice(0, wxIdx);
-
-        if (meta) {
-            if (meta.method === 'group' && meta.bot_id) return meta.bot_id;
-            if (meta.method === 'private' && meta.actor_id) return meta.actor_id;
+    function parseOwnerId(ownerId) {
+        const id = String(ownerId || '');
+        const wxIdx = id.indexOf('_wxid');
+        if (wxIdx > 0) {
+            return {
+                sourceId: id.slice(0, wxIdx),
+                botId: id.slice(wxIdx + 1),
+                hasBot: true,
+                isWxidBot: true,      // bot_id 是 wxid_ 形态 → 群聊接入
+            };
         }
-        const idx = ownerId.indexOf('_');
-        if (idx > 0) return ownerId.slice(0, idx);
-        return currentActor();
+        const idx = id.lastIndexOf('_');
+        if (idx > 0 && idx < id.length - 1) {
+            return {
+                sourceId: id.slice(0, idx),
+                botId: id.slice(idx + 1),
+                hasBot: true,
+                isWxidBot: false,
+            };
+        }
+        // 不含 _（或下划线在首尾）：单段场，无法拆出 bot_id
+        return { sourceId: id, botId: '', hasBot: false, isWxidBot: false };
     }
 
-    /** 取该场的 bot_id：优先用元数据，其次取最后一个下划线后的部分 */
+    /**
+     * 统一解析进入场时的 actor_id。
+     *
+     * 规则（按优先级）：
+     * 1. 元数据 method=group   → bot_id（群聊：以机器人身份进入）
+     * 2. 元数据 method=private → source_id（私聊：以对话方身份进入）
+     * 3. owner_id 含 "_wxid"   → bot_id（群聊接入的真实形态，如
+     *    21122263971@chatroom_wxid_lmu529xf597z22 → wxid_lmu529xf597z22）
+     * 4. owner_id 含 _         → source_id（去掉末尾 _{bot_id} 的前半段）
+     * 5. owner_id 不含 _       → 当前登录 actor（公共场：actor 是观测者而非场主，
+     *    例如 ?owner_id=222302526&actor_id=415135222）；未登录时回退 owner_id。
+     */
+    function resolveOwnerActorId(ownerId, meta) {
+        const parsed = parseOwnerId(ownerId);
+
+        if (meta) {
+            if (meta.method === 'group') return meta.bot_id || parsed.botId || currentActor();
+            if (meta.method === 'private') return meta.source_id || parsed.sourceId || currentActor();
+        }
+        if (parsed.isWxidBot) return parsed.botId;
+        if (parsed.hasBot) return parsed.sourceId;
+        return currentActor() || parsed.sourceId;
+    }
+
+    /** 取该场的 bot_id：优先用元数据，其次按 parseOwnerId 拆分（保留 wxid_ 前缀） */
     function resolveOwnerBotId(ownerId, meta) {
         if (meta && meta.bot_id) return meta.bot_id;
-        const idx = ownerId.lastIndexOf('_');
-        if (idx !== -1 && idx < ownerId.length - 1) return ownerId.slice(idx + 1);
-        return '';
+        return parseOwnerId(ownerId).botId;
     }
 
     function enter(ownerId, isEdit = false) {
@@ -428,8 +468,10 @@
 
 
     // ---------- Agent 专用场 Memory 直连 ----------
-    // owner_id 形如 {owner_actor}_{bot_id}：前半段即观测者 actor_id，后半段即 bot_id。
-    // 例如 454652835_3787687088 => actor_id = 454652835, bot_id = 3787687088。
+    // owner_id 形如 {source_id}_{bot_id}：前半段即 source_id，后半段即 bot_id。
+    // 例如 454652835_3787687088 => source_id = 454652835, bot_id = 3787687088；
+    //      21122263971@chatroom_wxid_lmu529xf597z22 => bot_id = wxid_lmu529xf597z22。
+    // actor_id 仍由 resolveOwnerActorId 统一决定（群聊取 bot_id，私聊取 source_id）。
     function enterMemory(ownerId) {
         const meta = findOwnerMeta(ownerId);
         if (!ownerId.includes('_')) { toast('该场非 Agent 专用场（owner_id 无 _），无 Memory', 'error'); return; }
