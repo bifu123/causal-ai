@@ -1,0 +1,1867 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
+    <title>账号中心-因果星空</title>
+    <!-- Three.js 驱动底层 3D 粒子与透视经纬线（本地文件，无需外网 CDN） -->
+    <script src="/static/js/three.min.js"></script>
+    <!-- 自托管字体（替代 Google Fonts，内网可用） -->
+    <link rel="stylesheet" href="/static/css/fonts.local.css">
+    <!-- EasyMDE：复用 event-tuple-modal 的 Markdown 渲染方案 -->
+    <link rel="stylesheet" href="/static/css/font-awesome.min.css">
+    <link rel="stylesheet" href="/static/css/easymde.min.css">
+    <script src="/static/js/easymde.min.js"></script>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body, html {
+            width: 100%;
+            min-height: 100%;
+            background-color: #010206;
+            color: #f1f5f9;
+            font-family: 'Noto Sans SC', system-ui, -apple-system, sans-serif;
+        }
+
+        /* 横向溢出裁剪：用 clip 而非 hidden，避免 body 变成滚动容器导致顶部 sticky 失效 */
+        html { overflow-x: hidden; }
+        body { overflow-x: clip; }
+        @supports not (overflow: clip) {
+            /* 旧浏览器兜底：clip 不可用时退回 hidden（sticky 可能失效但不影响功能） */
+            body { overflow-x: hidden; }
+        }
+
+        /* 全屏 3D 宇宙 Canvas */
+        #canvas-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 1;
+            pointer-events: none;
+        }
+
+        /* 全屏经纬线近端遮罩 */
+        .screen-vignette {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 2;
+            pointer-events: none;
+            background: radial-gradient(circle at 50% 50%, rgba(1, 2, 6, 0.15) 0%, rgba(1, 2, 6, 0.8) 80%, rgba(1, 2, 6, 0.98) 100%);
+        }
+
+        /* 主容器：定宽 1320（内容 1280），水平居中。所有面板共用这个宽度，
+           所以「我的场」卡片与「场主管理」卡片天然同宽 */
+        .container {
+            position: relative;
+            z-index: 10;
+            max-width: 1320px;
+            margin: 0 auto;
+            padding: 18px 20px;
+        }
+
+        /* ===== 顶部紧凑栏：品牌 + 标签页 + 状态 合并为一行（sticky） ===== */
+        .topbar {
+            position: sticky;
+            top: 0;
+            z-index: 30;
+            margin: -18px -20px 16px;
+            padding: 9px 20px;
+            background: rgba(2, 4, 10, 0.72);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid rgba(56, 189, 248, 0.18);
+        }
+
+        .topbar-row {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            max-width: 1280px;
+            margin: 0 auto;
+        }
+
+        /* 左：品牌（标题 + 副标题同行） */
+        .topbar-brand {
+            display: flex;
+            align-items: baseline;
+            gap: 12px;
+            flex: 0 0 auto;
+            min-width: 0;
+        }
+
+        .topbar-title {
+            font-size: clamp(1.05rem, 1.9vw, 1.4rem);
+            font-weight: 900;
+            letter-spacing: 0.12em;
+            background: linear-gradient(180deg, #ffffff 0%, #38bdf8 55%, rgba(192, 132, 252, 0.85) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            text-shadow: 0 0 30px rgba(56, 189, 248, 0.5);
+            margin: 0;
+            white-space: nowrap;
+        }
+
+        .topbar-sub {
+            font-family: 'Orbitron', monospace;
+            font-size: 0.7rem;
+            color: #94a3b8;
+            letter-spacing: 0.18em;
+            text-transform: uppercase;
+            white-space: nowrap;
+        }
+
+        /* 中：标签页 */
+        .topbar .tabs {
+            flex: 1 1 auto;
+            justify-content: center;
+            gap: 8px;
+            margin: 0;
+            min-width: 0;
+        }
+
+        /* 右：状态胶囊 */
+        .topbar-status {
+            flex: 0 0 auto;
+        }
+
+        /* 顶栏内的管理员视角横幅（细条，不再独占一整行） */
+        .topbar .act-as-bar {
+            max-width: 1280px;
+            margin: 8px auto 0;
+            padding: 4px 12px;
+            font-size: 0.75rem;
+        }
+
+        /* 状态栏 */
+        .status-bar {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 18px;
+            background: rgba(15, 23, 42, 0.75);
+            border: 1px solid rgba(56, 189, 248, 0.3);
+            border-radius: 20px;
+            font-size: 0.78rem;
+            font-family: 'Orbitron', monospace;
+            color: #38bdf8;
+            backdrop-filter: blur(8px);
+            box-shadow: 0 0 15px rgba(56, 189, 248, 0.15);
+        }
+
+        .status-dot {
+            width: 6px;
+            height: 6px;
+            background-color: #38bdf8;
+            border-radius: 50%;
+            box-shadow: 0 0 10px #38bdf8;
+            animation: pulse 2s infinite;
+        }
+
+        /* 退出登录按钮 */
+        .logout-btn {
+            margin-left: 6px;
+            padding: 2px 12px;
+            background: rgba(239, 68, 68, 0.16);
+            border: 1px solid rgba(239, 68, 68, 0.55);
+            border-radius: 12px;
+            color: #f87171;
+            font-size: 0.72rem;
+            font-family: 'Noto Sans SC', system-ui, sans-serif;
+            letter-spacing: 0.05em;
+            cursor: pointer;
+            display: none;
+            transition: all 0.2s ease;
+        }
+
+        .logout-btn:hover {
+            background: rgba(239, 68, 68, 0.4);
+            color: #ffffff;
+            border-color: #ef4444;
+            box-shadow: 0 0 12px rgba(239, 68, 68, 0.4);
+        }
+
+        .status-bar.online .logout-btn {
+            display: inline-block;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.3; transform: scale(0.8); }
+        }
+
+        /* 标签页导航 */
+        .tabs {
+            display: flex;
+            justify-content: center;
+            gap: 8px;
+            margin-bottom: 16px;
+        }
+
+        .tab {
+            padding: 7px 16px;
+            border-radius: 20px;
+            font-size: 0.82rem;
+            font-weight: 500;
+            cursor: pointer;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            background: rgba(2, 4, 10, 0.65);
+            color: #cbd5e1;
+            backdrop-filter: blur(8px);
+            transition: all 0.3s ease;
+            white-space: nowrap;
+        }
+
+        .tab:hover {
+            background: rgba(255, 255, 255, 0.12);
+            border-color: rgba(56, 189, 248, 0.4);
+            color: #ffffff;
+        }
+
+        .tab.active {
+            background: rgba(56, 189, 248, 0.2);
+            border-color: #38bdf8;
+            color: #ffffff;
+            box-shadow: 0 0 20px rgba(56, 189, 248, 0.35);
+        }
+
+        /* 面板显示控制 */
+        .panel {
+            display: none;
+            flex-direction: column;
+            gap: 14px;
+        }
+
+        .panel.active {
+            display: flex;
+        }
+
+        /* 除「场主管理」外的面板保持居中窄列，场主管理吃满宽屏 */
+        .panel:not(#panel-admin) {
+            max-width: 720px;
+            margin: 0 auto;
+        }
+
+        /* 「场」面板：整块吃满容器（注意 .panel:not(#panel-admin) 的特异性是 1-1-0，
+           必须用同特异性的 .panel#panel-owner 才能覆盖，单写 #panel-owner 会被 720px 压住） */
+        .panel#panel-owner {
+            max-width: none;
+        }
+
+        /* 两张卡都与「场主管理」卡片同宽（100% 容器内容宽），不再各自定宽 */
+        #panel-owner > .card {
+            width: 100%;
+            max-width: none;
+            margin: 0 auto;
+        }
+
+        /* 创建场表单横向排开，配合 1280 的宽卡片，不再挤成竖排窄条 */
+        #panel-owner #owner-form {
+            flex-direction: row;
+            align-items: flex-end;
+            gap: 14px;
+            flex-wrap: wrap;
+        }
+
+        #panel-owner #owner-form label {
+            flex: 1 1 240px;
+            min-width: 0;
+        }
+
+        #panel-owner #owner-form .btn {
+            flex: 0 0 auto;
+        }
+
+        #panel-owner > .card#owner-list-card {
+            width: 100%;
+            max-width: none;
+            margin: 0 auto;
+        }
+
+        /* 我的场卡片不受 .card-body 的 max-height:1200px 限制（场多时不再被裁切，与 #panel-admin 同策） */
+        #panel-owner #owner-list-card .card-body { max-height: none; }
+        #panel-owner #owner-list-card.collapsed .card-body { max-height: 0; }
+
+        /* ================= 科技 HUD 切角卡片设计 =================
+         * 三层分工（切角轮廓 + 不破坏毛玻璃）。卡片本身不发光，发光焦点在按钮。
+         *   .card         —— 无 clip-path、无 filter（filter 会破坏后代的
+         *                    backdrop-filter 与层叠顺序）。
+         *   .card::before —— 持背景色 + backdrop-filter + clip-path。
+         *   .card::after  —— 持渐变描边（mask xor 挖空中心，只留 1px 边）。
+         */
+        .card {
+            position: relative;
+            background: transparent;
+            border: none;
+        }
+
+        /* 卡片自身不发光：发光焦点只保留在按钮上（见 .btn:hover）。
+         * 卡片仍保留切角描边随 hover 提亮的轻微反馈（见 .card:hover::after）。 */
+
+        /* 背景 + 毛玻璃 + 切角轮廓 */
+        .card::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: rgba(10, 16, 30, 0.65);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            clip-path: polygon(
+                14px 0%, calc(100% - 14px) 0%,
+                100% 14px, 100% calc(100% - 14px),
+                calc(100% - 14px) 100%, 14px 100%,
+                0% calc(100% - 14px), 0% 14px
+            );
+            pointer-events: none;
+            z-index: -1;
+        }
+
+        /* 渐变描边（同一切角轮廓，mask 挖空中心只留 1px 边） */
+        .card::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            padding: 1px;
+            background: linear-gradient(135deg, rgba(56, 189, 248, 0.45) 0%, rgba(56, 189, 248, 0.08) 50%, rgba(192, 132, 252, 0.35) 100%);
+            clip-path: polygon(
+                14px 0%, calc(100% - 14px) 0%,
+                100% 14px, 100% calc(100% - 14px),
+                calc(100% - 14px) 100%, 14px 100%,
+                0% calc(100% - 14px), 0% 14px
+            );
+            -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+            -webkit-mask-composite: xor;
+            mask-composite: exclude;
+            pointer-events: none;
+            transition: background 0.3s ease;
+        }
+
+        .card:hover::after {
+            background: linear-gradient(135deg, rgba(56, 189, 248, 0.9) 0%, rgba(56, 189, 248, 0.25) 50%, rgba(192, 132, 252, 0.75) 100%);
+        }
+
+
+        /* 卡片头部 */
+        .card-header {
+            padding: 18px 22px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            user-select: none;
+            background: linear-gradient(90deg, rgba(56, 189, 248, 0.08) 0%, rgba(15, 23, 42, 0.2) 100%);
+            border-bottom: 1px solid rgba(56, 189, 248, 0.12);
+            transition: background 0.2s ease;
+        }
+
+        .card-header:hover {
+            background: linear-gradient(90deg, rgba(56, 189, 248, 0.18) 0%, rgba(15, 23, 42, 0.4) 100%);
+        }
+
+        .card-header h2 {
+            font-size: 1.0rem;
+            color: #f1f5f9;
+            font-weight: 600;
+            letter-spacing: 0.08em;
+            margin: 0;
+            text-shadow: 0 0 10px rgba(56, 189, 248, 0.3);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .card-header h2::before {
+            content: '';
+            display: inline-block;
+            width: 4px;
+            height: 14px;
+            background: #38bdf8;
+            box-shadow: 0 0 8px #38bdf8;
+            border-radius: 1px;
+        }
+
+        /* 折叠箭头图标 */
+        .collapse-icon {
+            font-family: 'Orbitron', monospace;
+            color: #38bdf8;
+            font-size: 0.8rem;
+            transition: transform 0.3s ease;
+        }
+
+        .card.collapsed .collapse-icon {
+            transform: rotate(-90deg);
+        }
+
+        /* 卡片主体内容 */
+        .card-body {
+            padding: 22px;
+            max-height: 1200px;
+            /* 建立层叠上下文：让内部 .item::before / .btn::before 的 z-index:-1
+             * 只在本容器内计算，不会沉到 .card::before 的背景之下而消失。 */
+            position: relative;
+            isolation: isolate;
+            transition: max-height 0.4s cubic-bezier(0.4, 0, 0.2, 1), padding 0.4s ease, opacity 0.3s ease;
+            opacity: 1;
+        }
+
+        .card.collapsed .card-body {
+            max-height: 0;
+            padding-top: 0;
+            padding-bottom: 0;
+            opacity: 0;
+            pointer-events: none;
+            overflow: hidden;
+        }
+
+        /* 表单样式 */
+        .form {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        label {
+            font-size: 0.85rem;
+            color: #94a3b8;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            font-weight: 500;
+        }
+
+        input[type="text"],
+        input[type="password"],
+        input[type="search"],
+        select {
+            width: 100%;
+            padding: 12px 16px;
+            background: rgba(2, 4, 10, 0.7);
+            border: 1px solid rgba(56, 189, 248, 0.25);
+            clip-path: polygon(
+                6px 0%, calc(100% - 6px) 0%, 
+                100% 6px, 100% calc(100% - 6px), 
+                calc(100% - 6px) 100%, 6px 100%, 
+                0% calc(100% - 6px), 0% 6px
+            );
+            color: #f1f5f9;
+            font-size: 0.95rem;
+            font-family: inherit;
+            transition: all 0.3s ease;
+            outline: none;
+        }
+
+        select option {
+            background: #0b1220;
+            color: #f1f5f9;
+        }
+
+        input[type="text"]:focus,
+        input[type="password"]:focus,
+        input[type="search"]:focus,
+        select:focus {
+            border-color: #38bdf8;
+            background: rgba(15, 23, 42, 0.9);
+            box-shadow: 0 0 15px rgba(56, 189, 248, 0.25);
+        }
+
+        input::placeholder {
+            color: #475569;
+        }
+
+        /* 按钮统一样式 - 透明镂空（极简 HUD 切角）
+         * 设计原则：按钮一律不填充，只保留 1px 淡描边轮廓。
+         * 发光焦点在按钮本身：鼠标指向哪个按钮，只有那一个按钮发光。
+         * 切角轮廓画在 ::before 上，用 mask 挖空中心，得到镂空细线边。
+         */
+        .btn {
+            position: relative;
+            padding: 12px 24px;
+            font-size: 0.88rem;
+            font-weight: 600;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            transition: color 0.25s ease, filter 0.25s ease;
+            cursor: pointer;
+            background: transparent;
+            border: none;
+            color: #94a3b8;
+            isolation: isolate;
+            filter: drop-shadow(0 0 0 rgba(56, 189, 248, 0));
+        }
+
+        /* 切角描边（mask 挖空中心，只留 1px 边；无填充） */
+        .btn::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            z-index: 0;          /* 不能是 -1：.btn 有 filter 后会被压到背景之下 */
+            padding: 1px;
+            background: rgba(148, 163, 184, 0.32);
+            clip-path: polygon(
+                10px 0%, calc(100% - 10px) 0%,
+                100% 10px, 100% calc(100% - 10px),
+                calc(100% - 10px) 100%, 10px 100%,
+                0% calc(100% - 10px), 0% 10px
+            );
+            -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+            -webkit-mask-composite: xor;
+            mask-composite: exclude;
+            pointer-events: none;
+            transition: background 0.25s ease;
+        }
+
+        /* 按钮内 emoji 强制按「文字形态」渲染：多数图标会退回单色字形，
+         * 避免彩色 emoji 破坏整体中性灰调（纯 CSS，不改 DOM/JS）。 */
+        .btn {
+            font-variant-emoji: text;
+        }
+
+        /* 所有变体统一：不填充、不发光、不位移，只有文字与描边随 hover 微微提亮 */
+        .btn.primary,
+        .btn.ghost,
+        .btn.danger,
+        .btn.api,
+        .btn.memory {
+            background: transparent;
+            filter: none;
+            box-shadow: none;
+            transform: none;
+        }
+
+        /* 鼠标指向时，只有这一个按钮发光 */
+        .btn:hover {
+            color: #f1f5f9;
+            transform: none;
+            filter: drop-shadow(0 0 8px rgba(56, 189, 248, 0.85))
+                    drop-shadow(0 0 18px rgba(56, 189, 248, 0.45));
+        }
+
+        .btn:hover::before {
+            background: rgba(125, 211, 252, 0.95);
+        }
+
+        /* 危险操作：仅用极淡红色文字提示，不填充、不发光 */
+        .btn.danger {
+            color: #b97d7d;
+        }
+
+        .btn.danger:hover {
+            color: #fca5a5;
+        }
+
+        .btn.danger:hover::before {
+            background: rgba(125, 211, 252, 0.95);   /* 与其他按钮统一为蓝光 */
+        }
+
+        /* ================= 列表与内部操作按钮对齐修复 ================= */
+        .list {
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+        }
+
+        /* 场条目：不发光（发光焦点在按钮上），只保留切角轮廓与描边。
+         *   .item         —— 无 clip-path，背景透明
+         *   .item::before —— 背景 + 切角轮廓 + z-index:-1
+         *   .item::after  —— 1px 切角描边（mask xor 挖空）
+         */
+        .item {
+            position: relative;
+            background: transparent;
+            border: none;
+            padding: 16px 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        /* 背景 + 切角轮廓 */
+        .item::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            z-index: -1;
+            background: rgba(2, 4, 10, 0.55);
+            clip-path: polygon(
+                10px 0%, calc(100% - 10px) 0%,
+                100% 10px, 100% calc(100% - 10px),
+                calc(100% - 10px) 100%, 10px 100%,
+                0% calc(100% - 10px), 0% 10px
+            );
+            pointer-events: none;
+            transition: background 0.3s ease;
+        }
+
+        /* 1px 切角描边 */
+        .item::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            padding: 1px;
+            background: rgba(56, 189, 248, 0.15);
+            clip-path: polygon(
+                10px 0%, calc(100% - 10px) 0%,
+                100% 10px, 100% calc(100% - 10px),
+                calc(100% - 10px) 100%, 10px 100%,
+                0% calc(100% - 10px), 0% 10px
+            );
+            -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+            -webkit-mask-composite: xor;
+            mask-composite: exclude;
+            pointer-events: none;
+            transition: background 0.3s ease;
+        }
+
+        /* 场条目 hover：只做背景与描边的轻微提亮，不发光（发光焦点在按钮上） */
+        .item:hover::before {
+            background: rgba(15, 23, 42, 0.7);
+        }
+
+        .item:hover::after {
+            background: rgba(56, 189, 248, 0.45);
+        }
+
+        .item .meta {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .item .meta .name {
+            font-size: 0.98rem;
+            font-weight: 700;
+            color: #f1f5f9;
+            letter-spacing: 0.05em;
+        }
+
+        .item .meta .id {
+            font-size: 0.78rem;
+            font-family: 'Orbitron', monospace;
+            color: #64748b;
+        }
+
+        .item .actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            align-items: center;
+            margin-top: 4px;
+        }
+
+        /* ===== 「我的场」列表：网格平铺 + 搜索工具栏 + 操作分组 ===== */
+        #owner-list {
+            display: grid;
+            /* 固定 3 列；minmax(0,1fr) 防止超长 owner_id 把格子撑破 */
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 14px;
+            align-items: start;
+        }
+
+        /* 列数按容器可用宽度降级：>=1320 三列（单卡 403，按钮 4+4 两行）
+           901~1319 两列（单卡 ~590），<=900 单列 */
+        @media (max-width: 1319px) {
+            #owner-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        }
+
+        @media (max-width: 900px) {
+            #owner-list { grid-template-columns: minmax(0, 1fr); }
+        }
+
+        #owner-list > .item {
+            min-width: 0;
+        }
+
+        #owner-list > .empty {
+            grid-column: 1 / -1;
+        }
+
+        .owner-toolbar {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 14px;
+            flex-wrap: wrap;
+        }
+
+        .owner-toolbar #owner-search {
+            flex: 0 0 340px;
+            max-width: 340px;
+            min-width: 0;
+        }
+
+        .owner-toolbar .owner-count {
+            color: #94a3b8;
+            font-size: 0.78rem;
+            font-family: 'Orbitron', monospace;
+            white-space: nowrap;
+            margin-right: auto;   /* 计数紧跟搜索框，右侧留白 */
+        }
+
+        /* 所有操作直接铺开（不再有「更多」折叠），按钮自然换行即可 */
+        #owner-list .item .meta {
+            /* 场名与 owner_id 挨在一起（左对齐），不再一个在左、一个飘到最右 */
+            flex-direction: row;
+            align-items: baseline;
+            justify-content: flex-start;
+            gap: 4px 10px;
+            flex-wrap: wrap;
+        }
+
+        #owner-list .item .meta .id {
+            min-width: 0;
+            word-break: break-all;
+        }
+
+        /* 卡片内按钮略微收紧，让一行能容纳更多操作 */
+        #owner-list .item .actions .btn {
+            padding-left: 10px;
+            padding-right: 10px;
+        }
+
+        /* 小尺寸按钮 */
+        .btn.small {
+            padding: 7px 14px;
+            font-size: 0.78rem;
+        }
+
+        .btn.small::before {
+            clip-path: polygon(
+                6px 0%, calc(100% - 6px) 0%,
+                100% 6px, 100% calc(100% - 6px),
+                calc(100% - 6px) 100%, 6px 100%,
+                0% calc(100% - 6px), 0% 6px
+            );
+        }
+
+        /* ===== 管理员视角横幅 ===== */
+        .act-as-bar {
+            display: none;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin: 0 0 14px;
+            padding: 10px 14px;
+            border: 1px solid rgba(251, 191, 36, 0.45);
+            background: rgba(251, 191, 36, 0.12);
+            color: #fde68a;
+            font-size: 0.85rem;
+            clip-path: polygon(8px 0%, 100% 0%, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0% 100%, 0% 8px);
+        }
+        .act-as-bar.show { display: flex; }
+        .act-as-bar b { color: #fbbf24; }
+        .act-as-exit {
+            flex: 0 0 auto;
+            cursor: pointer;
+            padding: 6px 12px;
+            font-size: 0.78rem;
+            color: #111827;
+            background: #fbbf24;
+            border: none;
+            border-radius: 2px;
+            font-weight: 600;
+        }
+        .act-as-exit:hover { background: #fcd34d; }
+
+        /* ===== 场主管理（宽屏左右分栏仪表盘） ===== */
+        .admin-toolbar {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin: 10px 0 14px;
+            flex-wrap: wrap;
+        }
+        .admin-summary { color: #94a3b8; font-size: 0.8rem; }
+
+        /* 场主管理卡片不受 .card-body 的 max-height:1200px 限制，完整铺开（否则右侧网格会被裁掉） */
+        #panel-admin .card-body { max-height: none; }
+        #panel-admin .card.collapsed .card-body { max-height: 0; }
+
+        .admin-split {
+            display: grid;
+            grid-template-columns: 340px 1fr;
+            gap: 16px;
+            align-items: start;
+        }
+
+        /* 左栏：场主列表 */
+        .admin-owner-nav {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            min-width: 0;
+        }
+        .admin-owner-item {
+            border: 1px solid rgba(56, 189, 248, 0.22);
+            background: rgba(15, 23, 42, 0.55);
+            padding: 10px 12px;
+            cursor: pointer;
+            clip-path: polygon(10px 0%, 100% 0%, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0% 100%, 0% 10px);
+            transition: border-color 0.15s ease, background 0.15s ease;
+        }
+        .admin-owner-item:hover { border-color: rgba(56, 189, 248, 0.55); background: rgba(15, 23, 42, 0.85); }
+        .admin-owner-item.active {
+            border-color: #38bdf8;
+            background: rgba(56, 189, 248, 0.10);
+            box-shadow: 0 0 18px rgba(56, 189, 248, 0.25);
+        }
+        .admin-owner-item-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+        .admin-owner-actor {
+            color: #e2e8f0;
+            font-size: 0.92rem;
+            font-family: 'Orbitron', monospace;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            min-width: 0;
+            flex: 1 1 auto;
+        }
+        .badge-admin, .badge-self {
+            font-size: 0.66rem;
+            padding: 1px 7px;
+            border-radius: 8px;
+            flex: 0 0 auto;
+        }
+        .badge-admin { background: rgba(251, 191, 36, 0.18); color: #fbbf24; border: 1px solid rgba(251, 191, 36, 0.45); }
+        .badge-self { background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.4); }
+        .admin-owner-item-stats { color: #94a3b8; font-size: 0.75rem; margin: 6px 0 8px; }
+        .admin-owner-item-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+        .admin-owner-item-actions .btn[disabled] { opacity: 0.4; cursor: not-allowed; }
+        /* 右上角 admin 升降级小开关（不属于三件基本操作） */
+        .admin-toggle {
+            margin-left: auto;
+            flex: 0 0 auto;
+            cursor: pointer;
+            padding: 1px 7px;
+            font-size: 0.64rem;
+            line-height: 1.5;
+            color: #94a3b8;
+            background: transparent;
+            border: 1px solid rgba(148, 163, 184, 0.35);
+            border-radius: 8px;
+            transition: color 0.15s ease, border-color 0.15s ease;
+        }
+        .admin-toggle:hover { color: #fbbf24; border-color: rgba(251, 191, 36, 0.55); }
+
+        .btn.tiny { padding: 5px 9px; font-size: 0.72rem; border-radius: 2px; }
+
+        /* 右栏：选中场主的名下场（磁贴网格，铺满宽屏） */
+        .admin-owner-detail { min-width: 0; }
+        .admin-detail-head {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 12px;
+            color: #e2e8f0;
+            font-size: 0.85rem;
+        }
+        .admin-detail-head b { color: #38bdf8; font-family: 'Orbitron', monospace; }
+        .admin-detail-hint { color: #64748b; font-size: 0.72rem; }
+        .detail-empty { color: #64748b; font-size: 0.85rem; padding: 20px; text-align: center; }
+
+        .field-tile-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 10px;
+        }
+        .field-tile {
+            min-width: 0;
+            border: 1px solid rgba(56, 189, 248, 0.22);
+            background: rgba(15, 23, 42, 0.55);
+            padding: 12px 14px;
+            cursor: pointer;
+            clip-path: polygon(10px 0%, 100% 0%, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0% 100%, 0% 10px);
+            transition: border-color 0.15s ease, background 0.15s ease;
+        }
+        .field-tile:hover { border-color: rgba(56, 189, 248, 0.55); background: rgba(15, 23, 42, 0.85); }
+        .field-tile-name {
+            color: #e2e8f0;
+            font-size: 0.86rem;
+            font-weight: 600;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .field-tile:hover .field-tile-name { color: #38bdf8; }
+        .field-tile-meta {
+            color: #64748b;
+            font-size: 0.72rem;
+            margin-top: 6px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .field-tile-foot { display: flex; justify-content: flex-end; margin-top: 8px; }
+        .field-star {
+            cursor: pointer;
+            padding: 4px 10px;
+            font-size: 0.72rem;
+            color: #38bdf8;
+            background: rgba(56, 189, 248, 0.10);
+            border: 1px solid rgba(56, 189, 248, 0.35);
+            border-radius: 2px;
+            opacity: 0.85;
+            transition: opacity 0.15s ease, background 0.15s ease;
+        }
+        .field-star:hover { opacity: 1; background: rgba(56, 189, 248, 0.22); }
+
+        /* 代管后跳转到「场」tab 时的高亮 */
+        .owner-row-flash {
+            animation: ownerRowFlash 2.4s ease-out;
+        }
+        @keyframes ownerRowFlash {
+            0%   { background: rgba(251, 191, 36, 0.28); box-shadow: 0 0 0 1px rgba(251, 191, 36, 0.55); }
+            60%  { background: rgba(251, 191, 36, 0.12); box-shadow: 0 0 0 1px rgba(251, 191, 36, 0.25); }
+            100% { background: transparent; box-shadow: none; }
+        }
+
+        /* ===== 重置钥匙弹窗 ===== */
+        #token-modal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            z-index: 200;
+            background: rgba(2, 6, 23, 0.78);
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        #token-modal.show { display: flex; }
+        .token-modal-dialog {
+            width: min(560px, 100%);
+            border: 1px solid rgba(251, 191, 36, 0.4);
+            background: #0b1220;
+            padding: 20px;
+            clip-path: polygon(14px 0%, 100% 0%, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0% 100%, 0% 14px);
+        }
+        .token-modal-dialog h3 { margin: 0 0 10px; color: #fbbf24; font-size: 1rem; }
+        .token-modal-hint { color: #94a3b8; font-size: 0.8rem; margin: 0 0 12px; }
+        .token-modal-value {
+            display: block;
+            padding: 12px;
+            margin-bottom: 14px;
+            background: rgba(2, 6, 23, 0.8);
+            border: 1px dashed rgba(56, 189, 248, 0.4);
+            color: #38bdf8;
+            font-size: 0.82rem;
+            word-break: break-all;
+        }
+        .token-modal-actions { display: flex; gap: 10px; justify-content: flex-end; }
+
+        /* ===== 场级钥匙弹窗（与钥匙重置弹窗同款样式） ===== */
+        #fkey-modal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            z-index: 200;
+            background: rgba(2, 6, 23, 0.78);
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        #fkey-modal.show { display: flex; }
+        .fkey-modal-dialog {
+            width: min(560px, 100%);
+            border: 1px solid rgba(56, 189, 248, 0.4);
+            background: #0b1220;
+            padding: 20px;
+            clip-path: polygon(14px 0%, 100% 0%, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0% 100%, 0% 14px);
+        }
+        .fkey-modal-dialog h3 { margin: 0 0 10px; color: #38bdf8; font-size: 1rem; }
+        .fkey-modal-hint { color: #94a3b8; font-size: 0.8rem; margin: 0 0 12px; }
+        .fkey-modal-value {
+            display: block;
+            padding: 12px;
+            margin-bottom: 14px;
+            background: rgba(2, 6, 23, 0.8);
+            border: 1px dashed rgba(56, 189, 248, 0.4);
+            color: #38bdf8;
+            font-size: 0.82rem;
+            word-break: break-all;
+        }
+        .fkey-modal-actions { display: flex; gap: 10px; justify-content: flex-end; }
+
+        /* 危险操作按钮已在上方 .btn 段落统一为透明镂空，此处仅保留语义占位。
+         * 所有按钮变体（primary/ghost/danger/api/memory）共用同一套透明描边样式，
+         * 不再有各自的填充色与发光，避免视觉花乱。
+         */
+
+
+        .empty {
+            color: #64748b;
+            font-size: 0.85rem;
+            text-align: center;
+            padding: 16px 0;
+        }
+
+        .key-new {
+            margin-top: 12px;
+            word-break: break-all;
+            font-family: 'Orbitron', monospace;
+            font-size: 0.82rem;
+            color: #38bdf8;
+            cursor: pointer;
+            position: relative;
+        }
+        
+        .key-new:hover::after {
+            content: " (点击复制)";
+            font-size: 0.75rem;
+            color: #10b981;
+        }
+
+        /* 底部返回 */
+        .footer {
+            margin-top: 40px;
+            text-align: center;
+            font-size: 0.85rem;
+        }
+
+        .footer a {
+            color: #94a3b8;
+            text-decoration: none;
+            transition: color 0.2s ease;
+        }
+
+        .footer a:hover {
+            color: #38bdf8;
+            text-shadow: 0 0 10px rgba(56, 189, 248, 0.5);
+        }
+
+        .sep {
+            margin: 0 12px;
+            color: #334155;
+        }
+
+        /* ================= API / SKILL 模态框 ================= */
+        .api-modal {
+            position: fixed;
+            inset: 0;
+            z-index: 1000;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .api-modal.show {
+            display: flex;
+        }
+
+        .api-modal-mask {
+            position: absolute;
+            inset: 0;
+            background: rgba(1, 2, 6, 0.82);
+            backdrop-filter: blur(8px);
+        }
+
+        .api-modal-dialog {
+            position: relative;
+            width: min(860px, 100%);
+            height: 88vh; /* 定高：让 flex 子项获得确定高度，从而启用 CodeMirror 内部滚动 */
+            max-height: 88vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            background: rgba(10, 16, 30, 0.92);
+            backdrop-filter: blur(16px);
+            clip-path: polygon(
+                14px 0%, calc(100% - 14px) 0%,
+                100% 14px, 100% calc(100% - 14px),
+                calc(100% - 14px) 100%, 14px 100%,
+                0% calc(100% - 14px), 0% 14px
+            );
+            border: 1px solid rgba(56, 189, 248, 0.4);
+            box-shadow: 0 0 60px rgba(56, 189, 248, 0.25), 0 0 30px rgba(192, 132, 252, 0.15);
+            animation: fadeIn 0.25s ease;
+        }
+
+        .api-modal-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px 22px;
+            background: linear-gradient(90deg, rgba(56, 189, 248, 0.12) 0%, rgba(15, 23, 42, 0.2) 100%);
+            border-bottom: 1px solid rgba(56, 189, 248, 0.18);
+            font-weight: 700;
+            letter-spacing: 0.06em;
+            color: #f1f5f9;
+            text-shadow: 0 0 10px rgba(56, 189, 248, 0.35);
+        }
+
+        .api-modal-editor {
+            flex: 1;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* EasyMDE 深色主题覆盖（复用 event-tuple-modal 的 Markdown 渲染菜单栏方案） */
+        .api-modal-editor .EasyMDEContainer {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+            width: 100%;
+            min-height: 0;
+            background: rgba(2, 6, 23, 0.6) !important;
+            border: none !important;
+            border-radius: 0 !important;
+            overflow: hidden;
+        }
+
+        .api-modal-editor .editor-toolbar {
+            opacity: 1 !important;
+            border: none !important;
+            border-bottom: 1px solid rgba(56, 189, 248, 0.18) !important;
+            border-radius: 0 !important;
+            background: rgba(15, 23, 42, 0.5) !important;
+        }
+
+        .api-modal-editor .editor-toolbar button {
+            color: #cbd5e1 !important;
+            border: none !important;
+            background: transparent !important;
+        }
+
+        .api-modal-editor .editor-toolbar button:hover,
+        .api-modal-editor .editor-toolbar button.active {
+            color: #38bdf8 !important;
+            background: rgba(56, 189, 248, 0.15) !important;
+        }
+
+        .api-modal-editor .CodeMirror {
+            flex: 1;
+            min-height: 0 !important; /* 关键：允许在 flex 容器内收缩，启用 CodeMirror 内部滚动 */
+            overflow: hidden;
+            border: none !important;
+            border-radius: 0 !important;
+            background: transparent !important;
+            color: #d1d5db !important;
+            font-family: ui-monospace, 'SF Mono', 'Cascadia Code', Consolas, 'Courier New', 'Microsoft YaHei', 'PingFang SC', monospace;
+            font-size: 14px;
+        }
+
+        .api-modal-editor .CodeMirror-scroll {
+            min-height: 0 !important; /* 覆盖 EasyMDE 内联设置的 min-height，避免滚动容器超出被裁剪 */
+        }
+
+        .api-modal-editor .CodeMirror-cursor {
+            border-left: 2px solid #38bdf8 !important;
+        }
+
+        .api-modal-editor .editor-statusbar {
+            padding: 8px 12px;
+            background: rgba(15, 23, 42, 0.5) !important;
+            border-top: 1px solid rgba(56, 189, 248, 0.15) !important;
+            color: #94a3b8 !important;
+        }
+
+        .api-modal-editor .editor-preview,
+        .api-modal-editor .editor-preview-side {
+            background: #020617 !important; /* 纯色不透明，完全遮挡底层源码，避免重影 */
+            color: #e2e8f0 !important;
+            border: none !important;
+        }
+
+        .api-modal-editor .editor-preview-side {
+            border-left: 1px solid rgba(56, 189, 248, 0.2) !important;
+        }
+
+        /* 适配 markdown 预览内的元素，防止深色模式下不可读 */
+        .api-modal-editor .editor-preview pre {
+            background: rgba(15, 23, 42, 0.8) !important;
+            border: 1px solid rgba(56, 189, 248, 0.2) !important;
+            border-radius: 6px;
+            color: #e2e8f0 !important;
+            padding: 10px;
+        }
+        .api-modal-editor .editor-preview code {
+            background: rgba(15, 23, 42, 0.8) !important;
+            color: #38bdf8 !important;
+            padding: 2px 4px;
+            border-radius: 4px;
+        }
+        .api-modal-editor .editor-preview pre code {
+            background: transparent !important;
+            color: inherit !important;
+            padding: 0;
+        }
+        .api-modal-editor .editor-preview table th,
+        .api-modal-editor .editor-preview table td {
+            border-color: rgba(56, 189, 248, 0.3) !important;
+        }
+        .api-modal-editor .editor-preview a {
+            color: #38bdf8 !important;
+        }
+        .api-modal-editor .editor-preview ul, 
+        .api-modal-editor .editor-preview ol {
+            color: #e2e8f0 !important;
+        }
+
+        /* 移动端/窄屏内容防溢出 */
+        .api-modal-editor .editor-preview,
+        .api-modal-editor .editor-preview-side {
+            max-width: 100%;
+            overflow-wrap: break-word;
+            word-wrap: break-word;
+        }
+        .api-modal-editor .editor-preview pre {
+            max-width: 100%;
+            overflow-x: auto;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+        .api-modal-editor .editor-preview table {
+            display: block;
+            max-width: 100%;
+            overflow-x: auto;
+        }
+        .api-modal-editor .editor-preview img {
+            max-width: 100%;
+            height: auto;
+        }
+        .api-modal-editor .editor-preview .katex-display {
+            max-width: 100%;
+            overflow-x: auto;
+            overflow-y: hidden;
+        }
+
+        .api-modal-foot {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+            padding: 14px 22px;
+            border-top: 1px solid rgba(56, 189, 248, 0.15);
+        }
+
+        .api-icon {
+            width: 34px;
+            height: 34px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            background: rgba(2, 4, 10, 0.65);
+            color: #cbd5e1;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .api-icon:hover {
+            background: rgba(239, 68, 68, 0.3);
+            border-color: #ef4444;
+            color: #ffffff;
+            box-shadow: 0 0 15px rgba(239, 68, 68, 0.4);
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(12px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* 移动端 API / SKILL 模态框适配 */
+        @media (max-width: 768px) {
+            .api-modal {
+                padding: 8px;
+            }
+            .api-modal-dialog {
+                width: 100%;
+                height: 92vh;
+                max-height: 92vh;
+            }
+            .api-modal-head {
+                padding: 12px 14px;
+                font-size: 0.9rem;
+            }
+            .api-modal-foot {
+                padding: 10px 14px;
+            }
+            .api-modal-editor .CodeMirror {
+                font-size: 13px;
+            }
+            .api-modal-editor .editor-toolbar {
+                overflow-x: auto;
+                white-space: nowrap;
+                flex-wrap: nowrap;
+                -webkit-overflow-scrolling: touch;
+            }
+            .api-modal-editor .editor-toolbar button {
+                flex-shrink: 0;
+            }
+        }
+
+        /* ===== 顶栏响应式 ===== */
+        @media (max-width: 900px) {
+            /* 副标题先让位给标签页 */
+            .topbar-sub { display: none; }
+        }
+
+        @media (max-width: 768px) {
+            /* 顶栏改为两行：品牌+状态一行，标签页单独一行可横向滑动 */
+            .topbar {
+                margin: -24px -12px 12px;
+                padding: 8px 12px;
+            }
+            .topbar-row {
+                flex-wrap: wrap;
+                gap: 8px 12px;
+            }
+            .topbar-brand { flex: 1 1 auto; }
+            .topbar-status { flex: 0 0 auto; }
+            .topbar .tabs {
+                order: 3;
+                flex: 1 0 100%;
+                justify-content: flex-start;
+                flex-wrap: nowrap;
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+                padding-bottom: 2px;
+            }
+            .topbar .act-as-bar {
+                flex-wrap: wrap;
+                gap: 6px;
+                font-size: 0.72rem;
+            }
+        }
+
+        /* ===== 移动端：场主管理改为单栏 + 横向滑动场主胶囊 ===== */
+        @media (max-width: 768px) {
+            .container { padding: 24px 12px; }
+            .admin-split { grid-template-columns: 1fr; }
+            .admin-owner-nav {
+                flex-direction: row;
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+                padding-bottom: 6px;
+                gap: 8px;
+            }
+            .admin-owner-item { flex: 0 0 auto; width: 80vw; max-width: 300px; }
+            .field-tile-grid { grid-template-columns: 1fr; }
+            .admin-owner-item-actions .btn { min-height: 34px; }
+
+            /* 「我的场」：所有操作直接铺开，按钮自然换行（列数由 #owner-list 的断点统一控制） */
+            #owner-list .item .actions { gap: 6px; }
+            #owner-list .item .actions .btn { flex: 0 1 auto; }
+        }
+    <!-- KaTeX for formula rendering（本地文件） -->
+    <link rel="stylesheet" href="/static/css/katex.min.css">
+    <script src="/static/js/marked.min.js"></script>
+    <script src="/static/js/katex.min.js"></script>
+    <script src="/static/js/marked-katex-extension.umd.js"></script>
+
+    </style>
+</head>
+<body>
+    <!-- 3D 宇宙与经纬线透视 Canvas -->
+    <div id="canvas-container"></div>
+    
+    <!-- 近端满屏淡化遮罩层 -->
+    <div class="screen-vignette"></div>
+
+    <div class="container">
+        <!-- 顶部紧凑栏：品牌 + 标签页 + 状态（sticky 单行） -->
+        <div class="topbar">
+            <div class="topbar-row">
+                <div class="topbar-brand">
+                    <h2 class="topbar-title">因果星空 · 账号中心</h2>
+                    <span class="topbar-sub">actor 身份 · 场 owner · 钥匙 token</span>
+                </div>
+
+                <nav class="tabs" id="tabs">
+                    <button class="tab active" data-tab="actor">🧑 身份</button>
+                    <button class="tab" data-tab="key">🔑 钥匙</button>
+                    <button class="tab" data-tab="owner">🏠 场</button>
+                    <button class="tab" data-tab="admin" id="tab-admin" style="display:none">👑 场主管理</button>
+                </nav>
+
+                <div class="topbar-status">
+                    <div class="status-bar" id="status-bar">
+                        <span class="status-dot"></span>
+                        <span id="status-text">未登录</span>
+                        <button id="logout-btn" class="logout-btn" type="button">退出</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 管理员视角横幅：以某个场主身份操作时显示（顶栏内细条） -->
+            <div class="act-as-bar" id="act-as-bar">
+                <span>👑 管理员视角：正在以 <b id="act-as-name">-</b> 的身份操作</span>
+                <button id="act-as-exit" class="act-as-exit" type="button">退出管理员视角</button>
+            </div>
+        </div>
+
+        <!-- ① actor 注册 / 登录 -->
+        <section class="panel active" id="panel-actor">
+            <!-- 用钥匙快速进入（已登录时整张卡片隐藏，见 auth.js updateAuthCardVisibility） -->
+            <div class="card" id="quick-token-card">
+                <div class="card-header" onclick="toggleCard(this)">
+                    <h2>🔑 用钥匙快速进入</h2>
+                    <span class="collapse-icon">▼</span>
+                </div>
+                <div class="card-body">
+                    <p class="hint">粘贴一把钥匙 token，验证通过后自动缓存身份（actor_id 可留空，系统会用钥匙反查）。</p>
+                    <form id="quick-token-form" class="form">
+                        <label>钥匙 token
+                            <input type="text" id="quick-token" placeholder="例如 3f2a1b9c8d7e|9a8b7c6d..." autocomplete="one-time-code" required>
+                        </label>
+                        <label>actor_id（可选）
+                            <input type="text" id="quick-token-actor" placeholder="留空则按钥匙自动识别" autocomplete="off">
+                        </label>
+                        <button type="submit" class="btn primary">验证并进入</button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- 为登录卡片增加 id="login-card" -->
+            <div class="card" id="login-card">
+                <div class="card-header" onclick="toggleCard(this)">
+                    <h2>登录</h2>
+                    <span class="collapse-icon">▼</span>
+                </div>
+                <div class="card-body">
+                    <form id="login-form" class="form">
+                        <label>actor 身份 ID
+                            <input type="text" name="actor_id" id="login-actor" placeholder="例如 user2" autocomplete="username" required>
+                        </label>
+                        <label>密码
+                            <input type="password" name="password" id="login-password" placeholder="输入密码" autocomplete="current-password" required>
+                        </label>
+                        <button type="submit" class="btn primary">进入我的星空</button>
+                    </form>
+                </div>
+            </div>
+
+            <div class="card collapsed" id="register-card">
+                <div class="card-header" onclick="toggleCard(this)">
+                    <h2>注册新 actor</h2>
+                    <span class="collapse-icon">▼</span>
+                </div>
+                <div class="card-body">
+                    <form id="register-form" class="form">
+                        <label>actor 身份 ID
+                            <input type="text" name="actor_id" id="register-actor" placeholder="例如 zhangsan" autocomplete="username" required>
+                        </label>
+                        <label>设置密码
+                            <input type="password" name="password" id="register-password" placeholder="至少 6 位" autocomplete="new-password" required minlength="6">
+                        </label>
+                        <button type="submit" class="btn ghost">注册并签发钥匙</button>
+                    </form>
+                </div>
+            </div>
+
+            <div class="card collapsed">
+                <div class="card-header" onclick="toggleCard(this)">
+                    <h2>修改密码</h2>
+                    <span class="collapse-icon">▼</span>
+                </div>
+                <div class="card-body">
+                    <form id="change-password-form" class="form">
+                        <label>actor 身份 ID
+                            <input type="text" name="actor_id" id="change-actor" placeholder="例如 user2" autocomplete="username" required>
+                        </label>
+                        <label>旧密码
+                            <input type="password" name="old_password" id="change-old" placeholder="输入旧密码" autocomplete="current-password" required>
+                        </label>
+                        <label>新密码
+                            <input type="password" name="new_password" id="change-new" placeholder="至少 6 位" autocomplete="new-password" required minlength="6">
+                        </label>
+                        <button type="submit" class="btn ghost">修改密码</button>
+                    </form>
+                </div>
+            </div>
+
+            <div class="card collapsed">
+                <div class="card-header" onclick="toggleCard(this)">
+                    <h2>忘记密码 · 重置</h2>
+                    <span class="collapse-icon">▼</span>
+                </div>
+                <div class="card-body">
+                    <p class="hint">用你名下任意一把有效钥匙验证身份后即可重置密码。</p>
+                    <form id="reset-password-form" class="form">
+                        <label>actor 身份 ID
+                            <input type="text" name="actor_id" id="reset-actor" placeholder="例如 user2" autocomplete="username" required>
+                        </label>
+                        <label>有效钥匙 token
+                            <input type="text" name="token" id="reset-token" placeholder="粘贴一把钥匙" autocomplete="one-time-code" required>
+                        </label>
+                        <label>新密码
+                            <input type="password" name="new_password" id="reset-new" placeholder="至少 6 位" autocomplete="new-password" required minlength="6">
+                        </label>
+                        <button type="submit" class="btn ghost">重置密码</button>
+                    </form>
+                </div>
+            </div>
+        </section>
+
+        <!-- ② 钥匙 token 管理 -->
+        <section class="panel" id="panel-key">
+            <div class="card collapsed">
+                <div class="card-header" onclick="toggleCard(this)">
+                    <h2>签发新钥匙</h2>
+                    <span class="collapse-icon">▼</span>
+                </div>
+                <div class="card-body">
+                    <p class="hint">钥匙用于进入私密场域的“防盗门”鉴权，新钥匙只会显示一次。</p>
+                    <button id="key-generate" class="btn primary">签发一把新钥匙</button>
+                    <div id="key-new" class="key-new"></div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header" onclick="toggleCard(this)">
+                    <h2>我的钥匙</h2>
+                    <span class="collapse-icon">▼</span>
+                </div>
+                <div class="card-body">
+                    <div id="key-list" class="list">
+                        <p class="empty">请先登录后查看钥匙</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ③ 场 owner 管理 -->
+        <section class="panel" id="panel-owner">
+            <div class="card collapsed">
+                <div class="card-header" onclick="toggleCard(this)">
+                    <h2>创建场（场域）</h2>
+                    <span class="collapse-icon">▼</span>
+                </div>
+                <div class="card-body">
+                    <form id="owner-form" class="form">
+                        <label>类型 / 场景
+                            <select name="method" id="owner-method" required>
+                                <option value="private">私聊（private）</option>
+                                <option value="group">群聊（group）</option>
+                            </select>
+                        </label>
+                        <label>机器人 ID（bot_id）
+                            <input type="text" name="bot_id" id="owner-bot-id" placeholder="例如 3787687088" autocomplete="off" required>
+                        </label>
+                        <label>群 ID（source_id）
+                            <input type="text" name="source_id" id="owner-source-id" placeholder="群聊必填，例如 454652835" autocomplete="off">
+                        </label>
+                        <label>场名称
+                            <input type="text" name="name" id="owner-name" placeholder="例如 因果观测站" autocomplete="off" required>
+                        </label>
+                        <button type="submit" class="btn primary">创建并成为主人</button>
+                    </form>
+                </div>
+            </div>
+
+            <div class="card" id="owner-list-card">
+                <div class="card-header" onclick="toggleCard(this)">
+                    <h2>我的场</h2>
+                    <span class="collapse-icon">▼</span>
+                </div>
+                <div class="card-body">
+                    <div class="owner-toolbar">
+                        <input type="search" id="owner-search" placeholder="搜索场名 / 场 ID" autocomplete="off">
+                        <span class="owner-count" id="owner-count"></span>
+                    </div>
+                    <div id="owner-list" class="list">
+                        <p class="empty">请先登录后查看名下场</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ④ 场主管理（仅 admin 可见） -->
+        <section class="panel" id="panel-admin">
+            <div class="card">
+                <div class="card-header" onclick="toggleCard(this)">
+                    <h2>👑 场主管理</h2>
+                    <span class="collapse-icon">▼</span>
+                </div>
+                <div class="card-body">
+                    <p class="hint">
+                        每位场主三件基本操作：<b>进入他的星空</b> · <b>重置token</b> · <b>删除全部</b>（右上角小开关可升降 admin）。
+                        <br>
+                        需要更多操作就点「进入他的星空」；右侧<b>点场名</b> = 进入他的账号中心并高亮这座场，「进入星空 ↗」= 直接打开该场可写 3D。
+                    </p>
+                    <div class="admin-toolbar">
+                        <button id="admin-refresh" class="btn ghost">刷新</button>
+                        <span id="admin-owner-summary" class="admin-summary"></span>
+                    </div>
+                    <div class="admin-split">
+                        <div class="admin-owner-nav" id="admin-owner-nav">
+                            <p class="empty">加载中…</p>
+                        </div>
+                        <div class="admin-owner-detail" id="admin-owner-detail">
+                            <p class="detail-empty">请选择左侧场主</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <footer class="footer">
+            <a href="/">← 返回首页</a>
+            <span class="sep">|</span>
+        </footer>
+    </div>
+
+    <!-- API / SKILL 模态框 -->
+    <!-- 重置钥匙结果弹窗（新钥匙仅显示一次） -->
+    <div id="token-modal">
+        <div class="token-modal-dialog">
+            <h3>🔑 钥匙已重置 · <span id="token-modal-actor">-</span></h3>
+            <p class="token-modal-hint">
+                已吊销 <b id="token-modal-revoked">0</b> 把旧钥匙（立即失效）。下面是新钥匙，<b>仅显示这一次</b>，请立刻复制并交给该场主。
+            </p>
+            <code class="token-modal-value mono" id="token-modal-value">-</code>
+            <div class="token-modal-actions">
+                <button class="btn small ghost" id="token-modal-close" type="button">关闭</button>
+                <button class="btn small primary" id="token-modal-copy" type="button">复制新钥匙</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 场级钥匙弹窗：一场一把，只开本场；可查看 / 复制 / 重置 -->
+    <div id="fkey-modal">
+        <div class="fkey-modal-dialog">
+            <h3>⚿ 场级钥匙 · <span id="fkey-modal-owner">-</span></h3>
+            <p class="fkey-modal-hint">
+                场级钥匙只开这一座场（读写本场全部节点），<b>不能登录账号中心、开不了你的其他场</b>。
+                分享给群成员就用它；若泄露，点「重置场钥」让旧钥匙立即失效。
+            </p>
+            <code class="fkey-modal-value mono" id="fkey-modal-value">加载中…</code>
+            <div class="fkey-modal-actions">
+                <button class="btn small ghost" id="fkey-modal-close" type="button">关闭</button>
+                <button class="btn small danger" id="fkey-modal-reset" type="button">♻ 重置场钥</button>
+                <button class="btn small primary" id="fkey-modal-copy" type="button">复制场钥</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="api-modal" id="api-modal">
+        <div class="api-modal-mask" data-close></div>
+        <div class="api-modal-dialog">
+            <div class="api-modal-head">
+                <span>📡 获取 API / SKILL</span>
+                <button class="api-icon" id="api-close" title="关闭">✕</button>
+            </div>
+            <div class="api-modal-editor">
+                <textarea id="api-editor"></textarea>
+            </div>
+            <div class="api-modal-foot">
+                <button class="btn small primary" id="api-copy">📋 复制</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 卡片折叠与背景动画脚本 -->
+    <script>
+        function toggleCard(headerElement) {
+            const card = headerElement.closest('.card');
+            card.classList.toggle('collapsed');
+        }
+
+        // 说明：「登录」卡片 / 「注册新 actor」卡片的显隐统一由 static/js/auth.js 的
+        // updateAuthCardVisibility() 处理（依据真实登录态而非状态栏文案，避免
+        // 「管理员视角」文案导致误判），此处不再重复控制。
+
+        document.addEventListener('click', function(e) {
+            const target = e.target;
+            if (target.id === 'key-new' || target.classList.contains('token-item') || target.dataset.token) {
+                const textToCopy = target.dataset.token || target.innerText.replace(" (点击复制)", "").trim();
+                if (!textToCopy) return;
+
+                copyTextToClipboard(textToCopy, target);
+            }
+        });
+
+        function copyTextToClipboard(text, element) {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).then(() => {
+                    showCopiedFeedback(element);
+                }).catch(() => {
+                    fallbackCopyText(text, element);
+                });
+            } else {
+                fallbackCopyText(text, element);
+            }
+        }
+
+        function fallbackCopyText(text, element) {
+            const textArea = document.createElement("textarea");
+            textArea.value = text;
+            textArea.style.position = "fixed";  
+            document.body.appendChild(textArea);
+            textArea.focus();
+            textArea.select();
+            try {
+                const successful = document.execCommand('copy');
+                if (successful) {
+                    showCopiedFeedback(element);
+                } else {
+                    alert('复制失败，请手动选中复制');
+                }
+            } catch (err) {
+                alert('浏览器不支持自动复制，请手动选中复制');
+            }
+            document.body.removeChild(textArea);
+        }
+
+        function showCopiedFeedback(element) {
+            const originalText = element.innerText;
+            element.innerText = "✓ 已成功复制到剪贴板！";
+            element.style.color = "#10b981";
+            setTimeout(() => {
+                element.innerText = originalText;
+                element.style.color = "#38bdf8";
+            }, 1500);
+        }
+
+        const container = document.getElementById('canvas-container');
+        
+        const scene = new THREE.Scene();
+        scene.fog = new THREE.FogExp2(0x010206, 0.001);
+
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 3000);
+        camera.position.z = 350;
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        container.appendChild(renderer.domElement);
+
+        const tunnelGroup = new THREE.Group();
+
+        const ringCount = 30;
+        for (let i = 0; i < ringCount; i++) {
+            const zPos = -i * 60;
+            const radius = 220 + i * 45;
+            const ringGeometry = new THREE.BufferGeometry();
+            const points = [];
+            const segments = 48;
+
+            for (let j = 0; j <= segments; j++) {
+                const theta = (j / segments) * Math.PI * 2;
+                points.push(new THREE.Vector3(Math.cos(theta) * radius, Math.sin(theta) * radius, zPos));
+            }
+
+            ringGeometry.setFromPoints(points);
+            const opacityVal = i < 2 ? (i * 0.15) : Math.max(0.04, 0.6 - i * 0.018);
+            const ringMaterial = new THREE.LineBasicMaterial({
+                color: i % 2 === 0 ? 0x38bdf8 : 0xc084fc,
+                transparent: true,
+                opacity: opacityVal
+            });
+
+            const ring = new THREE.Line(ringGeometry, ringMaterial);
+            tunnelGroup.add(ring);
+        }
+
+        const lineCount = 24;
+        for (let k = 0; k < lineCount; k++) {
+            const angle = (k / lineCount) * Math.PI * 2;
+            const lineGeometry = new THREE.BufferGeometry();
+            const startPt = new THREE.Vector3(Math.cos(angle) * 220, Math.sin(angle) * 220, 0);
+            const endPt = new THREE.Vector3(Math.cos(angle) * 1800, Math.sin(angle) * 1800, -1800);
+
+            lineGeometry.setFromPoints([startPt, endPt]);
+            const lineMaterial = new THREE.LineBasicMaterial({
+                color: 0x38bdf8,
+                transparent: true,
+                opacity: 0.18
+            });
+
+            const line = new THREE.Line(lineGeometry, lineMaterial);
+            tunnelGroup.add(line);
+        }
+
+        scene.add(tunnelGroup);
+
+        const particleCount = 1800;
+        const particleGeo = new THREE.BufferGeometry();
+        const positions = new Float32Array(particleCount * 3);
+        const colors = new Float32Array(particleCount * 3);
+
+        const color1 = new THREE.Color(0x38bdf8);
+        const color2 = new THREE.Color(0xc084fc);
+
+        for (let i = 0; i < particleCount * 3; i += 3) {
+            positions[i] = (Math.random() - 0.5) * 1600;
+            positions[i + 1] = (Math.random() - 0.5) * 1600;
+            positions[i + 2] = (Math.random() - 0.5) * 1600 - 200;
+
+            const c = Math.random() > 0.4 ? color1 : color2;
+            colors[i] = c.r;
+            colors[i + 1] = c.g;
+            colors[i + 2] = c.b;
+        }
+
+        particleGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        particleGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+        const particleMat = new THREE.PointsMaterial({
+            size: 2.8,
+            vertexColors: true,
+            transparent: true,
+            opacity: 0.65,
+            blending: THREE.AdditiveBlending
+        });
+
+        const particles = new THREE.Points(particleGeo, particleMat);
+        scene.add(particles);
+
+        let mouseX = 0;
+        let mouseY = 0;
+        let targetX = 0;
+        let targetY = 0;
+
+        const windowHalfX = window.innerWidth / 2;
+        const windowHalfY = window.innerHeight / 2;
+
+        document.addEventListener('mousemove', (event) => {
+            mouseX = (event.clientX - windowHalfX) * 0.05;
+            mouseY = (event.clientY - windowHalfY) * 0.05;
+        });
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        const clock = new THREE.Clock();
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const elapsedTime = clock.getElapsedTime();
+
+            tunnelGroup.rotation.z = elapsedTime * 0.025;
+            particles.rotation.z = -elapsedTime * 0.012;
+
+            targetX += (mouseX - targetX) * 0.05;
+            targetY += (mouseY - targetY) * 0.05;
+
+            camera.position.x += (targetX - camera.position.x) * 0.05;
+            camera.position.y += (-targetY - camera.position.y) * 0.05;
+            camera.lookAt(scene.position);
+
+            renderer.render(scene, camera);
+        }
+
+        animate();
+    </script>
+
+    <script src="/static/js/auth.js?v=20261117a"></script>
+</body>
+</html>

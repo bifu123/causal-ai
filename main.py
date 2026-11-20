@@ -2168,8 +2168,9 @@ def _require_self_or_admin(request: Request, actor_id: str, data: dict = None):
     返回 (access, error_dict)。
     """
     access = resolve_access(request=request, data=data, owner_id=(data or {}).get("owner_id", "default"))
-    if not access.has_token:
-        return access, {"status": "error", "message": "请先登录（需要有效钥匙 token）"}
+    # 账号/场管理类操作只认 actor 级钥匙：场级钥匙（fld_ 前缀）无 token_actor，一律拦在门外
+    if not access.has_token or not access.token_actor:
+        return access, {"status": "error", "message": "请先登录（需要 actor 级钥匙 token）"}
     if access.actor_id != actor_id and not access.is_admin:
         return access, {"status": "error", "message": "无权操作他人的账号数据"}
     return access, None
@@ -2193,6 +2194,7 @@ async def owner_list(actor_id: str, request: Request):
             "method": o.get("method"),
             "bot_id": o.get("bot_id"),
             "source_id": o.get("source_id"),
+            "is_locked": bool(o.get("is_locked")),
         } for o in owners],
     }
 
@@ -2226,12 +2228,78 @@ async def owner_create(data: dict, request: Request):
                         source_id=source_id or None)
     except Exception as e:
         return {"status": "error", "message": "创建失败: " + str(e)}
+    # 建场即签发场级钥匙：一场一把，只开本场；agent 端分享/跳转只带它，不带 actor 总钥匙
+    field_token = db.ensure_field_key(owner_id)
     return {
         "status": "success",
         "message": "创建成功",
         "data": {"owner_id": owner_id, "name": name, "method": method,
-                 "bot_id": bot_id, "source_id": source_id or None},
+                 "bot_id": bot_id, "source_id": source_id or None,
+                 "field_token": field_token},
     }
+
+
+def _require_field_master(request: Request, owner_id: str, actor_id: str, data: dict):
+    """
+    职责：场级钥匙管理（查看/重置）的门槛——必须是该场场主本人（actor 级钥匙）或 admin。
+    场级钥匙本身无权管理场级钥匙（防偷来的场钥再签发新钥匙）。
+    """
+    access, err = _require_self_or_admin(request, actor_id, data)
+    if err:
+        return access, err
+    master = db.get_owner_master(owner_id)
+    if not master:
+        return access, {"status": "error", "message": "场不存在"}
+    if (master.get("actor_id") or "") != actor_id and not access.is_admin:
+        return access, {"status": "error", "message": "只有场主本人或 admin 可以管理场级钥匙"}
+    return access, None
+
+
+@app.post("/api/v1/owner/field_key/show")
+async def field_key_show(data: dict, request: Request):
+    """查看某场的场级钥匙（旧场没有则现场补发）。仅场主本人或 admin。"""
+    owner_id = (data.get("owner_id") or "").strip()
+    actor_id = (data.get("actor_id") or "").strip()
+    if not owner_id or not actor_id:
+        return {"status": "error", "message": "owner_id、actor_id 均必填"}
+    _, err = _require_field_master(request, owner_id, actor_id, data)
+    if err:
+        return err
+    token = db.ensure_field_key(owner_id)
+    return {"status": "success", "data": {"owner_id": owner_id, "field_token": token}}
+
+
+@app.post("/api/v1/owner/field_key/reset")
+async def field_key_reset(data: dict, request: Request):
+    """重置某场的场级钥匙：旧钥匙立即失效，新钥匙仅此一次返回。仅场主本人或 admin。"""
+    owner_id = (data.get("owner_id") or "").strip()
+    actor_id = (data.get("actor_id") or "").strip()
+    if not owner_id or not actor_id:
+        return {"status": "error", "message": "owner_id、actor_id 均必填"}
+    _, err = _require_field_master(request, owner_id, actor_id, data)
+    if err:
+        return err
+    token = db.reset_field_key(owner_id)
+    return {"status": "success", "message": "场级钥匙已重置，旧钥匙立即失效",
+            "data": {"owner_id": owner_id, "field_token": token}}
+
+
+@app.post("/api/v1/owner/lock")
+async def owner_lock(data: dict, request: Request):
+    """场级锁：上锁后该场的场级钥匙整把失效（校验直接报错），actor 级钥匙不受影响。
+    仅场主本人或 admin。默认开锁。"""
+    owner_id = (data.get("owner_id") or "").strip()
+    actor_id = (data.get("actor_id") or "").strip()
+    locked = bool(data.get("locked"))
+    if not owner_id or not actor_id:
+        return {"status": "error", "message": "owner_id、actor_id 均必填"}
+    _, err = _require_field_master(request, owner_id, actor_id, data)
+    if err:
+        return err
+    db.set_field_locked(owner_id, locked)
+    return {"status": "success",
+            "message": ("场已上锁：场级钥匙全部失效" if locked else "场已开锁：场级钥匙恢复可用"),
+            "data": {"owner_id": owner_id, "is_locked": locked}}
 
 
 @app.post("/api/v1/owner/update")
@@ -2334,8 +2402,8 @@ async def key_revoke(data: dict, request: Request):
     if not actor_id or not token:
         return {"status": "error", "message": "actor_id、token 均必填"}
     access = resolve_access(request=request, data=data)
-    if not access.actor_id:
-        return {"status": "error", "message": "需要登录后再吊销钥匙"}
+    if not access.token_actor:
+        return {"status": "error", "message": "需要 actor 级钥匙登录后再吊销钥匙"}
     if access.actor_id != actor_id and not access.is_admin:
         return {"status": "error", "message": "无权吊销他人的钥匙"}
     db.remove_user_token(actor_id, token)
@@ -2372,6 +2440,31 @@ async def auth_token_verify(request: Request):
 
     actor = db.get_actor_by_token(token)
     if not actor:
+        # 场级钥匙：只证明「该场的场主级权限」，不证明任何 actor 身份
+        field_owner = db.get_owner_by_field_token(token)
+        if field_owner:
+            fmaster = db.get_owner_master(field_owner) or {}
+            field_name = fmaster.get("name") or field_owner
+            field_master_id = fmaster.get("actor_id") or ""
+            if db.is_field_locked(field_owner):
+                return {"status": "error", "message": "该场已上锁，场级钥匙暂不可用",
+                        "data": {"valid": False, "key_scope": "field", "is_locked": True,
+                                 "field_owner_id": field_owner, "field_name": field_name,
+                                 "field_master_id": field_master_id}}
+            return {
+                "status": "success",
+                "data": {
+                    "valid": True,
+                    "key_scope": "field",
+                    "actor_id": None,
+                    "owner_id": owner_id,
+                    "field_owner_id": field_owner,
+                    "field_name": field_name,
+                    "field_master_id": field_master_id,
+                    "is_owner": field_owner == owner_id,
+                    "is_admin": False,
+                },
+            }
         return {"status": "error", "message": "钥匙无效", "data": {"valid": False}}
 
     master = db.get_owner_master(owner_id) or {}
@@ -2379,10 +2472,12 @@ async def auth_token_verify(request: Request):
         "status": "success",
         "data": {
             "valid": True,
+            "key_scope": "actor",
             "actor_id": actor,
             "owner_id": owner_id,
             "is_owner": (master.get("actor_id") or "") == actor,
             "is_admin": db.is_admin_actor(actor),
+            "is_locked": bool(master.get("is_locked")),
         },
     }
 
@@ -2391,7 +2486,7 @@ async def auth_token_verify(request: Request):
 async def auth_me(request: Request):
     """职责：返回当前 token 对应的 actor 及其名下场（用于账号中心）。"""
     access = resolve_access(request=request)
-    if not access.has_token or not access.actor_id:
+    if not access.has_token or not access.token_actor:
         return {"status": "error", "message": "未登录或钥匙无效"}
     fields = db.list_user_fields(access.actor_id)
     return {

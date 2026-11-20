@@ -178,6 +178,17 @@ class CausalDatabase:
                 cur.execute("ALTER TABLE ains_owner_masters ADD COLUMN IF NOT EXISTS source_id VARCHAR(128);")
                 # 旧库 owner_id 长度放宽，容纳 {source_id}_{bot_id} 与 _wxid 后缀
                 cur.execute("ALTER TABLE ains_owner_masters ALTER COLUMN owner_id TYPE VARCHAR(128);")
+                # 场级锁：锁定后该场的场级钥匙整把失效（actor 级钥匙不受影响）
+                cur.execute("ALTER TABLE ains_owner_masters ADD COLUMN IF NOT EXISTS is_locked BOOLEAN DEFAULT FALSE;")
+                # 场级钥匙表：一场一把，只开该场（与 actor 级钥匙隔离存放）
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS ains_field_keys (
+                        owner_id VARCHAR(128) NOT NULL PRIMARY KEY,
+                        token VARCHAR(255) NOT NULL,
+                        created_at TIMESTAMPTZ DEFAULT now(),
+                        updated_at TIMESTAMPTZ DEFAULT now()
+                    );
+                """)
             except Exception as e:
                 print(f"[数据库警告] 初始化账号表时出错: {e}")
 
@@ -1991,6 +2002,79 @@ class CausalDatabase:
         tokens = [t for t in self.get_user_tokens(actor_id) if t != token]
         self.set_user_tokens(actor_id, tokens)
 
+    # --- 场级钥匙：一场一把，只开该场，不携带 actor 身份 ---
+    @staticmethod
+    def _new_field_token() -> str:
+        """生成场级钥匙：fld_ 前缀 + 随机 hex。不含 "|"、","，与 actor 级钥匙格式彻底隔离。"""
+        return "fld_" + secrets.token_hex(20)
+
+    def get_field_key(self, owner_id: str):
+        """读取某场的场级钥匙（没有则返回 None）。"""
+        sql = "SELECT token FROM ains_field_keys WHERE owner_id = %s"
+        with self.conn.cursor() as cur:
+            cur.execute(sql, (owner_id,))
+            row = cur.fetchone()
+            return row[0] if row else None
+
+    def get_owner_by_field_token(self, token: str):
+        """由场级钥匙反查 owner_id。非 fld_ 前缀直接 None（快速排除 actor 钥匙）。"""
+        token = (token or "").strip()
+        if not token or not token.startswith("fld_"):
+            return None
+        try:
+            with self.conn.cursor() as cur:
+                cur.execute("SELECT owner_id FROM ains_field_keys WHERE token = %s", (token,))
+                row = cur.fetchone()
+                return row[0] if row else None
+        except Exception as e:
+            print(f"[鉴权] 场级钥匙反查失败: {e}")
+            return None
+
+    def ensure_field_key(self, owner_id: str) -> str:
+        """取某场的场级钥匙；不存在则现场补发（兼容旧场）。"""
+        token = self.get_field_key(owner_id)
+        if token:
+            return token
+        token = self._new_field_token()
+        sql = ("INSERT INTO ains_field_keys (owner_id, token) VALUES (%s, %s) "
+               "ON CONFLICT (owner_id) DO UPDATE SET token = ains_field_keys.token")
+        with self.conn.cursor() as cur:
+            cur.execute(sql, (owner_id, token))
+        return self.get_field_key(owner_id) or token
+
+    def reset_field_key(self, owner_id: str) -> str:
+        """重置某场的场级钥匙（旧钥匙立即失效），返回新钥匙明文。"""
+        token = self._new_field_token()
+        sql = ("INSERT INTO ains_field_keys (owner_id, token, updated_at) VALUES (%s, %s, now()) "
+               "ON CONFLICT (owner_id) DO UPDATE SET token = EXCLUDED.token, updated_at = now()")
+        with self.conn.cursor() as cur:
+            cur.execute(sql, (owner_id, token))
+        return token
+
+    def delete_field_key(self, owner_id: str):
+        """删除某场的场级钥匙（场删除时联动清理）。"""
+        sql = "DELETE FROM ains_field_keys WHERE owner_id = %s"
+        with self.conn.cursor() as cur:
+            cur.execute(sql, (owner_id,))
+
+    # --- 场级锁：认钥匙不认人的世界里，场主的"关门权" ---
+    def set_field_locked(self, owner_id: str, locked: bool):
+        """上锁/开锁。上锁后该场的场级钥匙整把失效；actor 级钥匙（含场主本人）不受影响。"""
+        sql = "UPDATE ains_owner_masters SET is_locked = %s, updated_at = now() WHERE owner_id = %s"
+        with self.conn.cursor() as cur:
+            cur.execute(sql, (bool(locked), owner_id))
+
+    def is_field_locked(self, owner_id: str) -> bool:
+        """该场是否处于上锁状态。"""
+        sql = "SELECT is_locked FROM ains_owner_masters WHERE owner_id = %s"
+        try:
+            with self.conn.cursor() as cur:
+                cur.execute(sql, (owner_id,))
+                row = cur.fetchone()
+                return bool(row and row[0])
+        except Exception:
+            return False
+
     # --- 鉴权升级：token 反查 / 场主查询 / admin ---
     def get_actor_by_token(self, token: str):
         """由 token 反查 actor_id（token 以逗号分隔存于 ains_users.token）。"""
@@ -2015,7 +2099,8 @@ class CausalDatabase:
 
     def get_owner_master(self, owner_id: str):
         """获取场的登记信息（owner_id / name / actor_id）。"""
-        sql = "SELECT owner_id, name, actor_id FROM ains_owner_masters WHERE owner_id = %s"
+        sql = ("SELECT owner_id, name, actor_id, COALESCE(is_locked, FALSE) AS is_locked "
+               "FROM ains_owner_masters WHERE owner_id = %s")
         with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute(sql, (owner_id,))
             return cur.fetchone()
@@ -2201,7 +2286,8 @@ class CausalDatabase:
             return None
 
     def list_owners(self, actor_id: str):
-        sql = ("SELECT owner_id, name, actor_id, method, bot_id, source_id "
+        sql = ("SELECT owner_id, name, actor_id, method, bot_id, source_id, "
+               "COALESCE(is_locked, FALSE) AS is_locked "
                "FROM ains_owner_masters WHERE actor_id = %s ORDER BY created_at")
         with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute(sql, (actor_id,))
@@ -2231,6 +2317,7 @@ class CausalDatabase:
         sql = "DELETE FROM ains_owner_masters WHERE owner_id = %s AND actor_id = %s"
         with self.conn.cursor() as cur:
             cur.execute(sql, (owner_id, actor_id))
+        self.delete_field_key(owner_id)
 
     def delete_owner_all(self, owner_id: str):
         """
@@ -2301,6 +2388,7 @@ class CausalDatabase:
         # 5. 删场注册
         with self.conn.cursor() as cur:
             cur.execute("DELETE FROM ains_owner_masters WHERE owner_id = %s", (owner_id,))
+        self.delete_field_key(owner_id)
 
         return {
             "deleted_node_ids": node_ids,

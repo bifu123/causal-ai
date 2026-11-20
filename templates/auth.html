@@ -118,18 +118,23 @@
             white-space: nowrap;
         }
 
-        /* 中：标签页 */
+        /* 中：标签页（置于状态胶囊之上，保证始终可点） */
         .topbar .tabs {
             flex: 1 1 auto;
             justify-content: center;
             gap: 8px;
             margin: 0;
             min-width: 0;
+            position: relative;
+            z-index: 2;
         }
 
-        /* 右：状态胶囊 */
+        /* 右：状态胶囊（可收缩，长文本省略号，避免遮挡中间的 tabs） */
         .topbar-status {
-            flex: 0 0 auto;
+            flex: 0 1 auto;
+            min-width: 0;
+            position: relative;
+            z-index: 1;
         }
 
         /* 顶栏内的管理员视角横幅（细条，不再独占一整行） */
@@ -144,6 +149,7 @@
         .status-bar {
             display: inline-flex;
             align-items: center;
+            max-width: 100%;
             gap: 8px;
             padding: 6px 18px;
             background: rgba(15, 23, 42, 0.75);
@@ -154,6 +160,13 @@
             color: #38bdf8;
             backdrop-filter: blur(8px);
             box-shadow: 0 0 15px rgba(56, 189, 248, 0.15);
+        }
+
+        #status-text {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            max-width: min(38vw, 460px);
         }
 
         .status-dot {
@@ -959,6 +972,39 @@
         }
         .token-modal-actions { display: flex; gap: 10px; justify-content: flex-end; }
 
+        /* ===== 场级钥匙弹窗（与钥匙重置弹窗同款样式） ===== */
+        #fkey-modal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            z-index: 200;
+            background: rgba(2, 6, 23, 0.78);
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        #fkey-modal.show { display: flex; }
+        .fkey-modal-dialog {
+            width: min(560px, 100%);
+            border: 1px solid rgba(56, 189, 248, 0.4);
+            background: #0b1220;
+            padding: 20px;
+            clip-path: polygon(14px 0%, 100% 0%, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0% 100%, 0% 14px);
+        }
+        .fkey-modal-dialog h3 { margin: 0 0 10px; color: #38bdf8; font-size: 1rem; }
+        .fkey-modal-hint { color: #94a3b8; font-size: 0.8rem; margin: 0 0 12px; }
+        .fkey-modal-value {
+            display: block;
+            padding: 12px;
+            margin-bottom: 14px;
+            background: rgba(2, 6, 23, 0.8);
+            border: 1px dashed rgba(56, 189, 248, 0.4);
+            color: #38bdf8;
+            font-size: 0.82rem;
+            word-break: break-all;
+        }
+        .fkey-modal-actions { display: flex; gap: 10px; justify-content: flex-end; }
+
         /* 危险操作按钮已在上方 .btn 段落统一为透明镂空，此处仅保留语义占位。
          * 所有按钮变体（primary/ghost/danger/api/memory）共用同一套透明描边样式，
          * 不再有各自的填充色与发光，避免视觉花乱。
@@ -1594,6 +1640,23 @@
             <div class="token-modal-actions">
                 <button class="btn small ghost" id="token-modal-close" type="button">关闭</button>
                 <button class="btn small primary" id="token-modal-copy" type="button">复制新钥匙</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 场级钥匙弹窗：一场一把，只开本场；可查看 / 复制 / 重置 -->
+    <div id="fkey-modal">
+        <div class="fkey-modal-dialog">
+            <h3>⚿ 场级钥匙 · <span id="fkey-modal-owner">-</span></h3>
+            <p class="fkey-modal-hint">
+                场级钥匙只开这一座场（读写本场全部节点），<b>不能登录账号中心、开不了你的其他场</b>。
+                分享给群成员就用它；若泄露，点「重置场钥」让旧钥匙立即失效。
+            </p>
+            <code class="fkey-modal-value mono" id="fkey-modal-value">加载中…</code>
+            <div class="fkey-modal-actions">
+                <button class="btn small ghost" id="fkey-modal-close" type="button">关闭</button>
+                <button class="btn small danger" id="fkey-modal-reset" type="button">♻ 重置场钥</button>
+                <button class="btn small primary" id="fkey-modal-copy" type="button">复制场钥</button>
             </div>
         </div>
     </div>

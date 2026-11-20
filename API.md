@@ -782,21 +782,24 @@ curl -X POST "{base_url}/api/v1/auth/password/reset" \
 | 字段 | 类型 | 必填 | 说明 |
 | :--- | :--- | :--- | :--- |
 | `actor_id` | String | 是 | actor 身份 ID（query 参数） |
+| `token` / `auth_token` | String | 是 | 该 actor 本人的有效 actor 级钥匙（query 参数；场级钥匙无权） |
 
 **返回说明**:
 - `status`: `"success"` 或 `"error"`
-- `data`: 场列表，每条包含 `owner_id` 与 `name`
+- `data`: 场列表，每条包含 `owner_id`、`name`、`actor_id`、`method`、`bot_id`、`source_id`、`is_locked`（场级锁状态）
 
 **调用示例**:
 ```bash
-curl -X GET "{base_url}/api/v1/owner/list?actor_id={actor_id}"
+curl -G "{base_url}/api/v1/owner/list" \
+     --data-urlencode "actor_id={actor_id}" \
+     --data-urlencode "token={token}"
 ```
 
 ---
 
 ### 22. 场改名
 
-**功能**: 重命名指定 actor 名下的场。
+**功能**: 重命名指定 actor 名下的场。需携带该 actor 本人的有效 actor 级钥匙 token（场级钥匙无权改名）。
 
 **请求**:
 - **URL**: `/api/v1/owner/update`
@@ -825,7 +828,8 @@ curl -X POST "{base_url}/api/v1/owner/update" \
 
 ### 23. 删除场
 
-**功能**: 删除指定 actor 名下的场（不删除该场的节点数据）。
+**功能**: 删除指定 actor 名下的场（不删除该场的节点数据），同时注销该场的场级钥匙。需携带该 actor 本人的有效 actor 级钥匙 token。
+另有 `POST /api/v1/owner/delete_all`（同参数）可彻底删除场：活跃节点 + 地宫 + 用户副本 + 场注册 + 场级钥匙 + 跨场父子引用一并清除。
 
 **请求**:
 - **URL**: `/api/v1/owner/delete`
@@ -853,7 +857,7 @@ curl -X POST "{base_url}/api/v1/owner/delete" \
 
 ### 25. 我的钥匙列表
 
-**功能**: 获取指定 actor 名下所有钥匙 token 列表。
+**功能**: 获取指定 actor 名下所有钥匙 token 列表。需携带该 actor 本人的有效 actor 级钥匙 token 作鉴权（场级钥匙无权）。
 
 **请求**:
 - **URL**: `/api/v1/key/list`
@@ -878,7 +882,7 @@ curl -X GET "{base_url}/api/v1/key/list?actor_id={actor_id}"
 
 ### 26. 吊销钥匙
 
-**功能**: 吊销指定 actor 名下的一把钥匙 token。
+**功能**: 吊销指定 actor 名下的一把钥匙 token。鉴权 token 必须是 actor 级钥匙（证明操作者身份），`token` 字段为待吊销的钥匙。
 
 **请求**:
 - **URL**: `/api/v1/key/revoke`
@@ -904,6 +908,58 @@ curl -X POST "{base_url}/api/v1/key/revoke" \
 
 ---
 
+### 27. 场级钥匙（`fld_`）：语义 / 校验 / 管理
+
+**为什么有两层钥匙**：actor 级钥匙（格式 `{hex}|{md5}`）能开该 actor 名下的**全部**场并登录账号中心，
+不适合放进分享链接；场级钥匙（格式 `fld_` + 40 位 hex）一场一把、只开绑定的那一座场，
+是分享与 Agent 跳转链接应该携带的钥匙。
+
+| | actor 级钥匙 | 场级钥匙（`fld_`） |
+| :--- | :--- | :--- |
+| 作用域 | 该 actor 的**全部**场 + 账号中心 | **仅绑定的那一座场** |
+| 场内能力 | 场主场=全部；他场=观测者 | 本场内 = 场主级读写（读私有节点、写主副本、上传图片） |
+| 账号能力 | owner/*、key/*、auth/me 全部 | **一律无权**（无 actor 身份，账号类接口全部拒绝） |
+| 分发建议 | 仅本人持有 | 可分享给群成员；泄露由场主重置 |
+
+> 场级钥匙命中本场时 `role=owner`，但不获得任何 actor 身份；用它请求**其他**场时按观测者处理。
+> 场钥不能管理场钥（防止偷来的钥再签新钥）。建场成功时服务端自动签发（`owner/create` 响应含 `field_token`）。
+
+**校验一把钥匙**（`POST /api/v1/auth/token/verify`，也支持 GET）:
+
+```bash
+curl -X POST "{base_url}/api/v1/auth/token/verify" \
+     -H "Content-Type: application/json" \
+     -d '{"token": "{token}", "owner_id": "{owner_id}"}'
+```
+
+返回（actor 级钥匙）: `data.valid=true`、`data.key_scope="actor"`、`data.actor_id`、`data.is_owner`、`data.is_admin`
+
+返回（场级钥匙）: `data.valid=true`、`data.key_scope="field"`、`data.actor_id=null`、
+`data.field_owner_id`（该钥绑定的场）、`data.is_owner`（绑定场是否等于请求的 `owner_id`）、`data.is_admin=false`
+
+**场主管理场钥**（需场主本人的 actor 级钥匙，或 admin）:
+
+```bash
+# 查看 / 补发（旧场没有则现场补发），可重复查看明文
+curl -X POST "{base_url}/api/v1/owner/field_key/show" \
+     -H "Content-Type: application/json" \
+     -d '{"owner_id": "{owner_id}", "actor_id": "{actor_id}", "auth_token": "{token}"}'
+
+# 重置：旧钥立即失效，返回新钥明文（泄露后的标准处置）
+curl -X POST "{base_url}/api/v1/owner/field_key/reset" \
+     -H "Content-Type: application/json" \
+     -d '{"owner_id": "{owner_id}", "actor_id": "{actor_id}", "auth_token": "{token}"}'
+```
+
+> `/auth` 账号中心的「场」列表每行有「⚿ 场钥」按钮：弹窗内可直接查看 / 复制 / 重置。
+
+**场级锁**（`POST {base_url}/api/v1/owner/lock`，场主 actor 级钥匙鉴权）:
+上锁后该场的场级钥匙整把失效（`token/verify` 直接报错，持钥者退为观测者）；
+actor 级钥匙不受影响。body: `{"owner_id": "{owner_id}", "actor_id": "{actor_id}", "locked": true, "auth_token": "{token}"}`。
+泄露场钥时的标准处置：先上锁止损 → 重置场钥 → 开锁。场列表与 `token/verify`/`auth/context` 均会返回 `is_locked` 状态。
+
+---
+
 ### 通用参数说明
 
 | 字段 | 类型 | 说明 |
@@ -919,7 +975,7 @@ curl -X POST "{base_url}/api/v1/key/revoke" \
 | `actor_id` | String | 观测者/用户ID，用于个性化权重与用户副本 |
 | `survival_weight` | Float | 事件权重（0-1），大股东约 0.6，其他节点按比例分配 |
 | `max_eyes` | Float | 望远镜功率/事件视界半径，建议范围 30-60 |
-| `token` | String | 钥匙 token（也可用 `Authorization: Bearer {token}`）。token 只用于判定身份与角色，不能提升权限 |
+| `token` | String | 钥匙 token（也可用 `Authorization: Bearer {token}` 或 `auth_token` 字段）。分两层：actor 级钥匙（含 `\|`，开全部场+账号中心）与场级钥匙（`fld_` 前缀，只开绑定场，见 §27）。token 只用于判定身份与角色，不能提升权限 |
 
 ---
 
@@ -931,7 +987,10 @@ curl -X POST "{base_url}/api/v1/key/revoke" \
 
 **返回**:
 - `data.role`: `anonymous`（无 token 且无 actor_id）/ `observer`（URL 带 actor_id 或非场主 token）/ `owner`（该场主人）/ `admin`
+- `data.key_scope`: 钥匙层级——`"actor"`（actor 级钥匙）/ `"field"`（场级钥匙）/ `null`（无有效钥匙）
 - `data.can_read_private` / `data.can_write_copy` / `data.can_write_master`: 三项能力位
+- 场级钥匙（`fld_`）命中本场时 `role=owner` 且三项能力全开；打其他场则 `role=observer`
+- `data.is_locked`: 当前视角场的场级锁状态（`true` 时场级钥匙一律失效）
 
 | 能力 | 匿名 | 观测者 | 场主 | admin |
 | :--- | :--- | :--- | :--- | :--- |
@@ -942,6 +1001,10 @@ curl -X POST "{base_url}/api/v1/key/revoke" \
 
 > **只有 token 能证明场主 / admin 身份**：仅带 `owner_id + actor_id`（无 token）最高为 observer。
 > observer 仍可写自己的用户副本，但读不到私有节点、不能改主副本。
+>
+> **场级钥匙（`fld_`）在场内的能力等同场主**（读私有、写主副本、上传图片），但出本场即失效，
+> 且永远不能通过账号类接口（owner/*、key/*、auth/me、field_key 管理）——那些接口只认 actor 级钥匙。
+> Agent 分发链接应携带场级钥匙而非 actor 级钥匙。
 >
 > **前端 `/3d`、`/ui` 只认 URL 参数**：页面身份凭证只取 URL 的 `token` 参数，**不读也不写 `localStorage`**；URL 未带 token 即按“无 token”处理。要编辑请在 URL 上追加 `&token={token}`（账号中心「进入他的星空」会自动带上），否则页面为只读。
 

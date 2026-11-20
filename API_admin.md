@@ -30,7 +30,7 @@
 |{owner_id}|{actor_id}|私有场|{token}|
 
 
-**基础地址**: `https://wwww.aicity.wang`
+**基础地址**: `https://www.aicity.wang`
 **Content-Type**: `application/json` (POST/PUT 请求)
 本系统允许 Agent 通过 HTTP 接口操作因果星空系统。
 
@@ -770,30 +770,38 @@ curl -X POST "https://www.aicity.wang/api/v1/auth/password/reset" \
 
 ### 20. 创建场（场域）
 
-**功能**: 创建一个场（owner_id），创建者成为该场的主人（owner）。
+**功能**: 创建一个场，创建者成为该场的主人（owner）。`owner_id` 由服务端按场类型统一生成（与切片器复合场约定一致），**不由调用方指定**。建场成功即同步签发**场级钥匙**（见 §27）。
 
 **请求**:
 - **URL**: `/api/v1/owner/create`
 - **Method**: `POST`
+- **鉴权**: 必须携带 `actor_id` 本人的有效 **actor 级**钥匙 token（场级钥匙无权建场）
 
 **参数说明**:
 
 | 字段 | 类型 | 必填 | 说明 |
 | :--- | :--- | :--- | :--- |
-| `owner_id` | String | 是 | 场 ID（owner_id，全局唯一） |
 | `name` | String | 是 | 场名称 |
-| `actor_id` | String | 是 | 创建者（actor 身份 ID） |
+| `actor_id` | String | 是 | 创建者（actor 身份 ID，即场主） |
+| `method` | String | 是 | 场类型：`"private"`（私聊）或 `"group"`（群聊） |
+| `bot_id` | String | 是 | 机器人 ID |
+| `source_id` | String | 群聊必填 | 群 ID；私聊留空 |
+
+**owner_id 生成规则**:
+- `method=private` → `owner_id = {actor_id}_{bot_id}`
+- `method=group` → `owner_id = {source_id}_{bot_id}`
 
 **返回说明**:
-- `status`: `"success"` 或 `"error"`
-- `message`: 操作结果描述
-- `data`: 包含 `owner_id` 与 `name`
+- `status`: `"success"` 或 `"error"`（场已有主人时报"该场已经有了主人"）
+- `data`: 包含 `owner_id`、`name`、`method`、`bot_id`、`source_id`、**`field_token`（本场场级钥匙）**
 
 **调用示例**:
 ```bash
 curl -X POST "https://www.aicity.wang/api/v1/owner/create" \
      -H "Content-Type: application/json" \
-     -d '{"owner_id": "cbf", "name": "因果观测站", "actor_id": "415135222"}'
+     -d '{"name": "因果观测站", "actor_id": "415135222", "method": "group",
+          "bot_id": "3787687088", "source_id": "454652835",
+          "auth_token": "abc123|def456..."}'
 ```
 
 ---
@@ -811,21 +819,24 @@ curl -X POST "https://www.aicity.wang/api/v1/owner/create" \
 | 字段 | 类型 | 必填 | 说明 |
 | :--- | :--- | :--- | :--- |
 | `actor_id` | String | 是 | actor 身份 ID（query 参数） |
+| `token` / `auth_token` | String | 是 | 该 actor 本人的有效 actor 级钥匙（或 admin 钥匙） |
 
 **返回说明**:
 - `status`: `"success"` 或 `"error"`
-- `data`: 场列表，每条包含 `owner_id` 与 `name`
+- `data`: 场列表，每条包含 `owner_id`、`name`、`actor_id`、`method`、`bot_id`、`source_id`、`is_locked`（场级锁状态）
 
 **调用示例**:
 ```bash
-curl -X GET "https://www.aicity.wang/api/v1/owner/list?actor_id=415135222"
+curl -G "https://www.aicity.wang/api/v1/owner/list" \
+     --data-urlencode "actor_id=415135222" \
+     --data-urlencode "token=abc123|def456..."
 ```
 
 ---
 
 ### 22. 场改名
 
-**功能**: 重命名指定 actor 名下的场。
+**功能**: 重命名指定 actor 名下的场。需携带该 actor 本人的有效 actor 级钥匙 token（场级钥匙无权改名）。
 
 **请求**:
 - **URL**: `/api/v1/owner/update`
@@ -854,7 +865,8 @@ curl -X POST "https://www.aicity.wang/api/v1/owner/update" \
 
 ### 23. 删除场
 
-**功能**: 删除指定 actor 名下的场（不删除该场的节点数据）。
+**功能**: 删除指定 actor 名下的场（不删除该场的节点数据），同时注销该场的场级钥匙。需携带该 actor 本人的有效 actor 级钥匙 token。
+另有 `POST /api/v1/owner/delete_all`（同参数）可彻底删除场：活跃节点 + 地宫 + 用户副本 + 场注册 + 场级钥匙 + 跨场父子引用一并清除。
 
 **请求**:
 - **URL**: `/api/v1/owner/delete`
@@ -882,7 +894,7 @@ curl -X POST "https://www.aicity.wang/api/v1/owner/delete" \
 
 ### 24. 签发新钥匙
 
-**功能**: 为 actor 签发一把新钥匙 token（仅此一次返回明文）。
+**功能**: 为 actor 签发一把新钥匙 token（仅此一次返回明文）。需携带该 actor 本人的有效钥匙 token 作鉴权（body 或 query 的 `auth_token`/`token`，或 `Authorization: Bearer`）。
 
 **请求**:
 - **URL**: `/api/v1/key/generate`
@@ -909,7 +921,7 @@ curl -X POST "https://www.aicity.wang/api/v1/key/generate" \
 
 ### 25. 我的钥匙列表
 
-**功能**: 获取指定 actor 名下所有钥匙 token 列表。
+**功能**: 获取指定 actor 名下所有钥匙 token 列表。需携带该 actor 本人的有效钥匙 token 作鉴权。
 
 **请求**:
 - **URL**: `/api/v1/key/list`
@@ -934,7 +946,7 @@ curl -X GET "https://www.aicity.wang/api/v1/key/list?actor_id=415135222"
 
 ### 26. 吊销钥匙
 
-**功能**: 吊销指定 actor 名下的一把钥匙 token。
+**功能**: 吊销指定 actor 名下的一把钥匙 token。鉴权 token 必须是 actor 级钥匙（证明操作者身份），`token` 字段为待吊销的钥匙。
 
 **请求**:
 - **URL**: `/api/v1/key/revoke`
@@ -960,6 +972,100 @@ curl -X POST "https://www.aicity.wang/api/v1/key/revoke" \
 
 ---
 
+### 27. 场级钥匙：查看 / 补发
+
+**功能**: 查看某场的**场级钥匙**；旧场（升级前创建）没有则现场补发。
+
+**场级钥匙语义**（与 actor 级钥匙的根本区别）:
+
+| | actor 级钥匙 | 场级钥匙 |
+| :--- | :--- | :--- |
+| 格式 | `{hex}\|{md5}`（含 `|`） | `fld_` + 40 位 hex |
+| 作用域 | 该 actor 的**全部**场 + 账号中心 | **仅绑定的那一座场** |
+| 场内能力 | 场主场=全部；他场=观测者 | 本场内 = 场主级读写（读私有节点、写主副本、上传图片） |
+| 账号能力 | 登录 /auth、owner/*、key/* 全部 | **一律无权**（无 actor 身份，账号类接口全部拒绝） |
+| 分发建议 | 仅本人持有 | 可分享给群成员；泄露就在 /auth 或本接口重置 |
+
+> 场级钥匙命中本场时 `role=owner`，但不获得任何 actor 身份（`token_actor=null`）；
+> 用它请求**其他**场时按观测者处理。场钥不能管理场钥（防止偷来的钥再签新钥）。
+
+**请求**:
+- **URL**: `/api/v1/owner/field_key/show`
+- **Method**: `POST`
+- **鉴权**: 该场场主本人的 actor 级钥匙，或 admin
+
+**参数说明**:
+
+| 字段 | 类型 | 必填 | 说明 |
+| :--- | :--- | :--- | :--- |
+| `owner_id` | String | 是 | 场 ID |
+| `actor_id` | String | 是 | 场主 actor 身份 ID |
+
+**返回说明**:
+- `data.field_token`: 该场的场级钥匙（明文，可重复查看）
+
+**调用示例**:
+```bash
+curl -X POST "https://www.aicity.wang/api/v1/owner/field_key/show" \
+     -H "Content-Type: application/json" \
+     -d '{"owner_id": "454652835_3787687088", "actor_id": "415135222",
+          "auth_token": "abc123|def456..."}'
+```
+
+---
+
+### 28. 场级钥匙：重置
+
+**功能**: 重置某场的场级钥匙——**旧钥匙立即失效**，返回新钥匙明文。泄露后的标准处置。
+
+**请求**:
+- **URL**: `/api/v1/owner/field_key/reset`
+- **Method**: `POST`
+- **鉴权与参数**: 同 §27
+
+**调用示例**:
+```bash
+curl -X POST "https://www.aicity.wang/api/v1/owner/field_key/reset" \
+     -H "Content-Type: application/json" \
+     -d '{"owner_id": "454652835_3787687088", "actor_id": "415135222",
+          "auth_token": "abc123|def456..."}'
+```
+
+> `/auth` 账号中心的「场」列表每行有「⚿ 场钥」按钮：弹窗内可直接查看 / 复制 / 重置，建场成功时自动弹出。
+
+---
+
+### 28A. 场级锁（开锁 / 关锁）
+
+**功能**: 切换某场的场级锁。**上锁后该场的场级钥匙整把失效**——`token/verify` 直接返回错误
+（"该场已上锁，场级钥匙暂不可用"），持场钥者立即失去本场读写（退为观测者）；
+**actor 级钥匙不受影响**，场主本人永远进得去。默认开锁。泄露场钥时的标准处置：先上锁止损，再重置场钥，后开锁。
+
+**请求**:
+- **URL**: `/api/v1/owner/lock`
+- **Method**: `POST`
+- **鉴权**: 该场场主本人的 actor 级钥匙，或 admin
+
+**参数说明**:
+
+| 字段 | 类型 | 必填 | 说明 |
+| :--- | :--- | :--- | :--- |
+| `owner_id` | String | 是 | 场 ID |
+| `actor_id` | String | 是 | 场主 actor 身份 ID |
+| `locked` | Boolean | 是 | `true` 上锁 / `false` 开锁 |
+
+**调用示例**:
+```bash
+curl -X POST "https://www.aicity.wang/api/v1/owner/lock" \
+     -H "Content-Type: application/json" \
+     -d '{"owner_id": "454652835_3787687088", "actor_id": "415135222",
+          "locked": true, "auth_token": "abc123|def456..."}'
+```
+
+> `/auth` 场列表每行的「🔓 场锁 / 🔒 已上锁」按钮即此开关。
+
+---
+
 ### 通用参数说明
 
 | 字段 | 类型 | 说明 |
@@ -975,11 +1081,11 @@ curl -X POST "https://www.aicity.wang/api/v1/key/revoke" \
 | `actor_id` | String | 观测者/用户ID，用于个性化权重与用户副本 |
 | `survival_weight` | Float | 事件权重（0-1），大股东约 0.6，其他节点按比例分配 |
 | `max_eyes` | Float | 望远镜功率/事件视界半径，建议范围 30-60 |
-| `token` | String | 钥匙 token（也可用 `Authorization: Bearer {token}`）。**位置**决定权威：`token` 只用于判定身份与角色 |
+| `token` | String | 钥匙 token（也可用 `Authorization: Bearer {token}` 或 `auth_token` 字段）。分两层：actor 级钥匙（含 `|`，开全部场+账号中心）与场级钥匙（`fld_` 前缀，只开绑定场）。**位置**决定权威：`token` 只用于判定身份与角色 |
 
 ---
 
-### 27. 访问上下文（角色矩阵）
+### 29. 访问上下文（角色矩阵）
 
 **功能**: 解析当前请求的身份与权限，返回匿名 / 观测者 / 场主 / admin 四种角色及能力位。
 前端据此决定：是否显示抽屉、是否允许编辑、是否显示私有节点。
@@ -998,9 +1104,12 @@ curl -X POST "https://www.aicity.wang/api/v1/key/revoke" \
 
 **返回说明**:
 - `data.role`: `anonymous` / `observer` / `owner` / `admin`
+- `data.key_scope`: 钥匙层级——`"actor"`（actor 级钥匙）/ `"field"`（场级钥匙）/ `null`（无有效钥匙）
 - `data.can_read_private`: 是否可读本场私有（`is_share=false`）节点
 - `data.can_write_copy`: 是否可写自己的用户副本（权重 / 因果连线）
 - `data.can_write_master`: 是否可写主副本（正文、标签、`is_share`、删除、创世）
+- 场级钥匙命中本场时 `role=owner` 且三项能力全开；打其他场则 `role=observer`
+- `data.is_locked`: 当前视角场的场级锁状态（`true` 时场级钥匙一律失效）
 
 **调用示例**:
 ```bash
@@ -1012,7 +1121,7 @@ curl -G "https://www.aicity.wang/api/v1/auth/context" \
 
 ---
 
-### 28. 校验钥匙
+### 30. 校验钥匙
 
 **功能**: 校验一把 token 是否有效，并返回其 actor 身份、是否为指定场主、是否 admin。
 
@@ -1027,10 +1136,17 @@ curl -G "https://www.aicity.wang/api/v1/auth/context" \
 | `token` | String | 是 | 待校验的钥匙 |
 | `owner_id` | String | 否 | 用于判断是否该场场主，默认 `default` |
 
-**返回说明**:
+**返回说明**（actor 级钥匙）:
 - `data.valid`: `true` / `false`
+- `data.key_scope`: `"actor"`
 - `data.actor_id`: 钥匙归属的 actor
 - `data.is_owner` / `data.is_admin`: 是否该场场主 / 是否管理员
+
+**返回说明**（场级钥匙，`fld_` 前缀）:
+- `data.valid`: `true`，`data.key_scope`: `"field"`
+- `data.actor_id`: `null`（场钥不携带 actor 身份）
+- `data.field_owner_id`: 该场钥绑定的场
+- `data.is_owner`: 该场钥绑定的场是否等于请求的 `owner_id`；`data.is_admin` 恒为 `false`
 
 **调用示例**:
 ```bash
@@ -1041,7 +1157,7 @@ curl -X POST "https://www.aicity.wang/api/v1/auth/token/verify" \
 
 ---
 
-### 29. 我的身份（`/api/v1/auth/me`）
+### 31. 我的身份（`/api/v1/auth/me`）
 
 **功能**: 返回当前 token 对应的 actor 及其名下所有场，用于账号中心。
 
@@ -1052,7 +1168,7 @@ curl -G "https://www.aicity.wang/api/v1/auth/me" --data-urlencode "token=abc123|
 
 ---
 
-### 30. 管理接口（仅 admin）
+### 32. 管理接口（仅 admin）
 
 > **admin 的职责是「场主管理」**：看有哪些场主 → 进入其账号中心（以他身份操作）→ 重置 token → 注销并删除其全部场。
 > admin 判定（三者之一，**都必须携带有效 token**）：
@@ -1115,6 +1231,9 @@ curl -X POST "https://www.aicity.wang/api/v1/admin/actors/415135222/token/reset"
 
 > **只有 token 能证明场主 / admin 身份**：仅带 `owner_id + actor_id`（无 token）最高为 observer。
 > 该 observer 仍可建立/写入自己的用户副本（点击提权、改自己的 `parent_id`），但读不到私有节点、不能改主副本。
+>
+> **场级钥匙（`fld_`）在场内的能力等同场主**（读私有、写主副本、上传图片），但出本场即失效，
+> 且永远不能通过账号类接口（owner/*、key/*、auth/me、field_key 管理）——那些接口只认 actor 级钥匙。
 >
 > **前端 `/3d`、`/ui` 只认 URL 参数**：页面身份凭证只取 URL 的 `token` 参数，**不读也不写 `localStorage`**；URL 未带 token 即按“无 token”处理。要编辑请在 URL 上追加 `&token={token}`（账号中心「进入他的星空」会自动带上），否则页面为只读。
 

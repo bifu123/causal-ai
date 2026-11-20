@@ -29,7 +29,12 @@
         get actor() { return localStorage.getItem('causal_actor_id') || ''; },
         set actor(v) { v ? localStorage.setItem('causal_actor_id', v) : localStorage.removeItem('causal_actor_id'); },
         get token() { return localStorage.getItem('causal_token') || ''; },
-        set token(v) { v ? localStorage.setItem('causal_token', v) : localStorage.removeItem('causal_token'); }
+        set token(v) { v ? localStorage.setItem('causal_token', v) : localStorage.removeItem('causal_token'); },
+        // 场级钥匙会话：钥匙只绑定一座场，没有任何 actor 身份
+        get fieldOwner() { return localStorage.getItem('causal_field_owner_id') || ''; },
+        set fieldOwner(v) { v ? localStorage.setItem('causal_field_owner_id', v) : localStorage.removeItem('causal_field_owner_id'); },
+        get fieldName() { return localStorage.getItem('causal_field_name') || ''; },
+        set fieldName(v) { v ? localStorage.setItem('causal_field_name', v) : localStorage.removeItem('causal_field_name'); }
     };
 
     // ---------- 管理员「以场主身份操作」状态（仅内存，不写 localStorage） ----------
@@ -40,6 +45,16 @@
     function currentActor() { return (ACT_AS && ACT_AS.actor) || LS.actor; }
     function authToken() { return (ACT_AS && ACT_AS.token) || LS.token; }
     function isActingAs() { return !!ACT_AS; }
+
+    // 场级钥匙会话：持有有效场钥、但不属于任何 actor 身份（LS.actor 为空）
+    function isFieldSession() { return !currentActor() && !!LS.token && !!LS.fieldOwner; }
+
+    // 进入/退出场级钥匙会话时同步 localStorage
+    function setFieldSession(ownerId, name) {
+        LS.fieldOwner = ownerId || '';
+        LS.fieldName = name || '';
+    }
+    function clearFieldSession() { setFieldSession('', ''); }
 
     function renderActAsBanner() {
         const bar = document.getElementById('act-as-bar');
@@ -193,10 +208,14 @@
             text.textContent = isActingAs()
                 ? ('管理员视角 · 以 ' + who + ' 身份操作')
                 : ('已登录: ' + who);
+        } else if (isFieldSession()) {
+            bar.classList.add('online');
+            text.textContent = '场级钥匙 · 场：' + (LS.fieldName || LS.fieldOwner) + '（仅此场可读写）';
         } else {
             bar.classList.remove('online');
             text.textContent = '未登录';
         }
+        text.title = text.textContent;   // 顶栏宽度有限，长文本省略后悬浮可见全文
         updateAuthCardVisibility();
     }
 
@@ -221,6 +240,7 @@
         renderActAsBanner();
         LS.actor = '';
         LS.token = '';
+        clearFieldSession();
         updateStatus();
         toast('已退出登录', 'success');
         refreshAll();
@@ -255,6 +275,7 @@
             if (r.status === 'success') {
                 LS.actor = actor;
                 LS.token = (r.data.tokens && r.data.tokens[0]) || '';
+                clearFieldSession();
                 updateStatus();
                 toast('登录成功', 'success');
                 refreshAll();
@@ -272,6 +293,7 @@
             if (r.status === 'success') {
                 LS.actor = actor;
                 LS.token = r.data.token || '';
+                clearFieldSession();
                 document.getElementById('register-form').reset();
                 updateStatus();
                 toast('注册成功，首把钥匙已签发', 'success');
@@ -337,6 +359,10 @@
                 syncOwnerMethodFields();
                 toast('场已创建：' + ((r.data && r.data.owner_id) || ''), 'success');
                 refreshOwners();
+                // 建场即签发场级钥匙：直接弹窗展示（可复制给群成员）
+                if (r.data && r.data.field_token) {
+                    openFieldKeyModal(r.data.owner_id, r.data.field_token);
+                }
             } else {
                 toast(r.message || '创建失败', 'error');
             }
@@ -497,7 +523,11 @@
         if (!box) return;
         if (!currentActor()) {
             OWNERS_CACHE = [];
-            box.innerHTML = '<p class="empty">请先登录后查看名下场</p>';
+            if (isFieldSession()) {
+                renderFieldSession(box);
+            } else {
+                box.innerHTML = '<p class="empty">请先登录后查看名下场</p>';
+            }
             updateOwnerCount(0, 0);
             return;
         }
@@ -519,6 +549,38 @@
         if (!el) return;
         if (!total) { el.textContent = ''; return; }
         el.textContent = (shown === total) ? ('共 ' + total + ' 座') : ('命中 ' + shown + ' / ' + total + ' 座');
+    }
+
+    /** 场级钥匙会话：只展示钥匙绑定的这座场，提供进入/复制；管理操作需 actor 级钥匙 */
+    function renderFieldSession(box) {
+        const ownerId = LS.fieldOwner;
+        const name = LS.fieldName || ownerId;
+        const id = escapeHtml(ownerId);
+        box.innerHTML = `
+            <div class="item field-session">
+                <div class="meta">
+                    <div class="name">${escapeHtml(name)}</div>
+                    <div class="id">${id}</div>
+                    <p class="hint" style="margin-top:6px">当前为「场级钥匙」会话：凭此钥匙可读写这一座场（仅这一座）。
+                        改名 / 场锁 / 重置场钥 / 删除等管理操作，需场主持 actor 级钥匙登录后进行。</p>
+                </div>
+                <div class="actions">
+                    <button class="btn small ghost" id="fs-enter-read" title="进入星空（只读）">◉ 只读</button>
+                    <button class="btn small primary" id="fs-enter-edit" title="进入星空（可写/可编辑）">◐ 可写</button>
+                    <button class="btn small ghost" id="fs-copy" title="复制场级钥匙">⧉ 复制场钥</button>
+                </div>
+            </div>`;
+        const enterFs = (isEdit) => {
+            const actorId = resolveOwnerActorId(ownerId, null) || 'guest';
+            const url = '/3d?owner_id=' + encodeURIComponent(ownerId)
+                + '&actor_id=' + encodeURIComponent(actorId)
+                + '&token=' + encodeURIComponent(LS.token)
+                + (isEdit ? '&edit=true' : '');
+            window.open(url, '_blank');
+        };
+        box.querySelector('#fs-enter-read').addEventListener('click', () => enterFs(false));
+        box.querySelector('#fs-enter-edit').addEventListener('click', () => enterFs(true));
+        box.querySelector('#fs-copy').addEventListener('click', () => copyText(LS.token));
     }
 
     function renderOwners() {
@@ -549,6 +611,8 @@
                     <button class="btn small primary" data-enter="${id}" data-edit="true" title="进入星空（可写/可编辑）">◐ 可写</button>
                     ${o.owner_id.includes('_') ? '<button class="btn small memory" data-memory="' + id + '">◈ Memory</button>' : ''}
                     <button class="btn small ghost" data-rename="${id}">✎ 改名</button>
+                    <button class="btn small api" data-fkey="${id}" title="场级钥匙：只开这一座场，可查看/复制/重置">⚿ 场钥</button>
+                    <button class="btn small ${o.is_locked ? 'danger' : 'ghost'}" data-lock="${id}" data-locked="${o.is_locked ? '1' : ''}" title="场级锁：上锁后该场的场级钥匙全部失效（actor 级钥匙不受影响）">${o.is_locked ? '🔒 已上锁' : '🔓 场锁'}</button>
                     <button class="btn small api" data-api="${id}">⌁ 获取API</button>
                     <button class="btn small api" data-skill="${id}">⌁ 获取SKILL</button>
                     <button class="btn small danger" data-del="${id}">⌫ 删除</button>
@@ -580,6 +644,14 @@
         }));
         box.querySelectorAll('[data-api]').forEach(b => b.addEventListener('click', () => openApiSkillModal(b.dataset.api, 'api')));
         box.querySelectorAll('[data-skill]').forEach(b => b.addEventListener('click', () => openApiSkillModal(b.dataset.skill, 'skill')));
+        box.querySelectorAll('[data-fkey]').forEach(b => b.addEventListener('click', () => openFieldKeyModal(b.dataset.fkey)));
+        box.querySelectorAll('[data-lock]').forEach(b => b.addEventListener('click', async () => {
+            const locked = b.dataset.locked !== '1';
+            if (locked && !confirm('上锁后，该场所有场级钥匙立即失效（持钥者校验直接报错）；\n你的 actor 级钥匙不受影响。确定上锁？')) return;
+            const r = await post('/api/v1/owner/lock', { owner_id: b.dataset.lock, actor_id: currentActor(), locked });
+            toast(r.message || (r.status === 'success' ? '已切换' : '操作失败'), r.status === 'success' ? 'success' : 'error');
+            refreshOwners();
+        }));
     }
 
     /** 搜索框：按场名 / owner_id 实时过滤已缓存的场列表 */
@@ -592,6 +664,59 @@
         });
     }
 
+
+    // ---------- 场级钥匙弹窗（查看 / 复制 / 重置） ----------
+    let FKEY_CURRENT_OWNER = '';
+
+    function openFieldKeyModal(ownerId, knownToken) {
+        FKEY_CURRENT_OWNER = ownerId;
+        document.getElementById('fkey-modal-owner').textContent = ownerId;
+        const valEl = document.getElementById('fkey-modal-value');
+        valEl.textContent = knownToken || '加载中…';
+        document.getElementById('fkey-modal').classList.add('show');
+        if (!knownToken) {
+            post('/api/v1/owner/field_key/show', { owner_id: ownerId, actor_id: currentActor() })
+                .then(r => {
+                    if (r.status === 'success' && r.data && r.data.field_token) {
+                        valEl.textContent = r.data.field_token;
+                    } else {
+                        valEl.textContent = r.message || '获取失败';
+                    }
+                })
+                .catch(() => { valEl.textContent = '网络错误'; });
+        }
+    }
+
+    function bindFieldKeyModal() {
+        const modal = document.getElementById('fkey-modal');
+        if (!modal) return;
+        document.getElementById('fkey-modal-close').addEventListener('click', () => modal.classList.remove('show'));
+        modal.addEventListener('click', e => { if (e.target === modal) modal.classList.remove('show'); });
+        document.getElementById('fkey-modal-copy').addEventListener('click', async () => {
+            const v = document.getElementById('fkey-modal-value').textContent.trim();
+            if (!v || v === '加载中…') return;
+            try {
+                await navigator.clipboard.writeText(v);
+                toast('场级钥匙已复制', 'success');
+            } catch (e) {
+                const ta = document.createElement('textarea');
+                ta.value = v; document.body.appendChild(ta); ta.select();
+                document.execCommand('copy'); ta.remove();
+                toast('场级钥匙已复制', 'success');
+            }
+        });
+        document.getElementById('fkey-modal-reset').addEventListener('click', async () => {
+            if (!FKEY_CURRENT_OWNER) return;
+            if (!confirm('确定重置该场的场级钥匙？\n旧钥匙立即失效，持有旧钥匙的人将无法再进入本场。')) return;
+            const r = await post('/api/v1/owner/field_key/reset', { owner_id: FKEY_CURRENT_OWNER, actor_id: currentActor() });
+            if (r.status === 'success' && r.data && r.data.field_token) {
+                document.getElementById('fkey-modal-value').textContent = r.data.field_token;
+                toast('场钥已重置，旧钥匙立即失效', 'success');
+            } else {
+                toast(r.message || '重置失败', 'error');
+            }
+        });
+    }
 
     // ---------- 钥匙管理 ----------
     function bindKeys() {
@@ -798,12 +923,27 @@
 
             const r = await post('/api/v1/auth/token/verify', { token, owner_id: 'default' });
             if (r.status !== 'success' || !r.data || !r.data.valid) {
-                toast(r.message || '钥匙无效', 'error');
+                if (r.data && r.data.is_locked) {
+                    toast(r.message || '该场已上锁，场级钥匙暂不可用', 'error');
+                } else {
+                    toast(r.message || '钥匙无效', 'error');
+                }
                 return;
             }
-            const actorId = r.data.actor_id || hintActor;
             ACT_AS = null;               // 手动换钥匙即退出管理员视角
             renderActAsBanner();
+            if (r.data.key_scope === 'field') {
+                // 场级钥匙：不绑定任何 actor，进入「单场会话」
+                LS.token = token;
+                LS.actor = '';
+                setFieldSession(r.data.field_owner_id || '', r.data.field_name || '');
+                updateStatus();
+                toast('场级钥匙有效，已入场：' + (r.data.field_name || r.data.field_owner_id), 'success');
+                refreshAll();
+                return;
+            }
+            clearFieldSession();
+            const actorId = r.data.actor_id || hintActor;
             LS.token = token;
             LS.actor = actorId;
             updateStatus();
@@ -819,12 +959,21 @@
                     ACT_AS = null;
                     renderActAsBanner();
                     LS.token = urlToken;
-                    LS.actor = r.data.actor_id;
-                    updateStatus();
-                    toast('已用地址栏钥匙登录：' + r.data.actor_id, 'success');
+                    if (r.data.key_scope === 'field') {
+                        // 场级钥匙：进入「单场会话」，不缓存 actor 身份
+                        LS.actor = '';
+                        setFieldSession(r.data.field_owner_id || '', r.data.field_name || '');
+                        updateStatus();
+                        toast('已用地址栏场级钥匙入场：' + (r.data.field_name || r.data.field_owner_id), 'success');
+                    } else {
+                        clearFieldSession();
+                        LS.actor = r.data.actor_id;
+                        updateStatus();
+                        toast('已用地址栏钥匙登录：' + r.data.actor_id, 'success');
+                    }
                     refreshAll();
                 } else {
-                    toast('地址栏钥匙无效', 'error');
+                    toast((r && r.message) || '地址栏钥匙无效', 'error');
                 }
                 const url = new URL(window.location.href);
                 url.searchParams.delete('token');
@@ -1099,6 +1248,7 @@
         bindOwner();
         bindOwnerSearch();
         bindKeys();
+        bindFieldKeyModal();
         bindApiModal();
         bindLogout();
         bindAdmin();

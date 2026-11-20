@@ -61,6 +61,8 @@ class AccessInfo(dict):
             "can_write_copy": self["can_write_copy"],
             "can_write_master": self["can_write_master"],
             "is_admin": self["is_admin"],
+            "key_scope": self.get("key_scope"),
+            "is_locked": self.get("is_locked", False),
         }
 
 
@@ -99,6 +101,7 @@ def resolve_access(request=None, data=None, owner_id=None, actor_id=None):
 
     token_actor = None
     token_valid = False
+    field_key_owner = None
     if token:
         try:
             token_actor = db.get_actor_by_token(token)
@@ -106,6 +109,22 @@ def resolve_access(request=None, data=None, owner_id=None, actor_id=None):
             print(f"[鉴权警告] 校验 token 失败: {e}")
             token_actor = None
         token_valid = bool(token_actor)
+        if not token_valid:
+            # 场级钥匙：一场一把，只开它绑定的那座场；不携带任何 actor 身份，
+            # 因此永远不能通过账号管理类接口（那些接口另查 token_actor）。
+            try:
+                field_key_owner = db.get_owner_by_field_token(token)
+            except Exception as e:
+                print(f"[鉴权警告] 校验场级钥匙失败: {e}")
+                field_key_owner = None
+            # 场级锁：场上锁后场级钥匙整把失效（actor 级钥匙不受影响，场主永远进得去）
+            if field_key_owner:
+                try:
+                    if db.is_field_locked(field_key_owner):
+                        field_key_owner = None
+                except Exception as e:
+                    print(f"[鉴权警告] 查询场级锁失败: {e}")
+            token_valid = bool(field_key_owner)
 
     # token 有效时，token 身份优先于 URL 参数（防止冒名）
     effective_actor = token_actor or url_actor_id or None
@@ -124,7 +143,12 @@ def resolve_access(request=None, data=None, owner_id=None, actor_id=None):
 
     master = db.get_owner_master(owner_id) or {}
     master_actor = (master.get("actor_id") or "").strip()
+    field_locked = bool(master.get("is_locked"))
     is_owner = bool(token_valid and token_actor and master_actor and token_actor == master_actor)
+    # 场级钥匙命中本场 → 本场范围内等同于场主（但不获得 actor 身份，出本场无效）
+    field_key_match = bool(field_key_owner and field_key_owner == owner_id)
+    if field_key_match:
+        is_owner = True
 
     if is_admin:
         role = "admin"
@@ -149,6 +173,9 @@ def resolve_access(request=None, data=None, owner_id=None, actor_id=None):
         unclaimed_field=(not master_actor),
         has_token=token_valid,
         token_actor=token_actor,
+        key_scope=("field" if field_key_owner else ("actor" if token_actor else None)),
+        field_key_owner=field_key_owner,
+        is_locked=field_locked,
         is_admin=is_admin,
         is_owner=is_owner,
         can_read_private=can_read_private,
