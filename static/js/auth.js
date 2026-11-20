@@ -1121,16 +1121,12 @@
 
     /**
      * 「进入他的星空」：以该场主身份进入。
-     * 单场 → 直接打开该场可写 3D；多场 → 进他的账号中心「场」列表挑选。
+     * 统一进他的账号中心「场」列表（管理卡片集），由 admin 自行点任一场进入 3D。
      */
     async function enterOwnerStar(actorId, fields) {
         const ok = await enterActAs(actorId, null, { silent: true });
         if (!ok) return;
         const list = fields || [];
-        if (list.length === 1) {
-            enter(list[0].owner_id, true);
-            return;
-        }
         switchTab('owner');
         toast('已进入 ' + actorId + ' 的星空 · ' + list.length + ' 座场，点任一场进入 3D', 'success');
     }
