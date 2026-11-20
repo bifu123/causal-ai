@@ -4997,6 +4997,19 @@ window.addEventListener('load', () => {
                 // If serialId comes from URL, it's a string, which can cause type mismatch when finding node. Stringifying both for robust matching.
                 const displayNodeId = nodeId || (data.node && data.node.node_id) || String(serialId);
                 showSelectionHint(`已瞄定事件 "${displayNodeId}"，权重提升到60%`);
+                // 【Kimi fix】result-action-btn 点击与直接点击/拉滑杆路径的关键差异：
+                // 必须同步更新 currentBossNodeId 和 horizonNodes，否则大股东节点
+                // 在 updateEventHorizonVisibility 里仍被视为视界外，opacity 保持为 0。
+                currentBossNodeId = displayNodeId;
+                if (data.event_horizon && data.event_horizon.length > 0) {
+                    horizonNodes.clear();
+                    if (isGodView) {
+                        isGodView = false;
+                        const btn = document.getElementById('btn-fit-view');
+                        if (btn) btn.setAttribute('data-tooltip', '上帝视角');
+                    }
+                    data.event_horizon.forEach(id => horizonNodes.add(id));
+                }
                 
                 // 同步更新语义连线，让物理引擎重新计算距离
                 if (data.semantic_links && data.semantic_links.length > 0) {
