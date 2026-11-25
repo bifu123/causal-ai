@@ -127,6 +127,18 @@ const highlightLinks = new Set();
 const horizonNodes = new Set(); // 存储事件视界内的节点ID
 let currentBossNodeId = null; // 记录当前的大股东节点ID
 let isGodView = true; // 当前是否处于上帝视角
+
+// 首屏/编辑恢复后的大股东相机跟随。只在观测者视角运行，用户主动操作后立即释放。
+const observerCameraFollow = {
+    active: false,
+    nodeId: null,
+    rafId: null,
+    startedAt: 0,
+    lastFrameAt: 0,
+    offset: null,
+    lookAtOffset: null
+};
+let observerFollowReleaseBound = false;
 const savedHorizonNodes = new Set(); // 缓存的事件视界节点
 let savedBossNodeId = null; // 缓存的大股东节点ID
 
@@ -788,6 +800,120 @@ function calculateOffsetView(node, distance = 350) {
     }
 
     return { camPos: newCamPos, lookAt: lookAtPos };
+}
+
+/**
+ * 停止大股东相机跟随。用户主动操作或其他相机动画接管镜头时调用。
+ */
+function stopObserverCameraFollow(reason = '') {
+    if (!observerCameraFollow.active) return;
+    observerCameraFollow.active = false;
+    observerCameraFollow.nodeId = null;
+    if (observerCameraFollow.rafId !== null) {
+        cancelAnimationFrame(observerCameraFollow.rafId);
+        observerCameraFollow.rafId = null;
+    }
+    if (reason) console.log(`[观测者跟随] 已释放相机：${reason}`);
+}
+
+/**
+ * 跟随只读监听，不阻止原有交互。全局 pointerdown 可覆盖节点、按钮、滑杆和导航盘。
+ */
+function bindObserverFollowRelease() {
+    if (observerFollowReleaseBound) return;
+    observerFollowReleaseBound = true;
+
+    const releaseForPointer = () => stopObserverCameraFollow('用户主动操作');
+    document.addEventListener('pointerdown', releaseForPointer, { capture: true, passive: true });
+    document.addEventListener('touchstart', releaseForPointer, { capture: true, passive: true });
+    document.addEventListener('wheel', (event) => {
+        if (!observerCameraFollow.active || !Graph) return;
+        const renderer = Graph.renderer ? Graph.renderer() : null;
+        const canvas = renderer && renderer.domElement;
+        if (canvas && (event.target === canvas || canvas.contains(event.target))) {
+            stopObserverCameraFollow('用户缩放星图');
+        }
+    }, { capture: true, passive: true });
+}
+
+/**
+ * 首屏和编辑恢复共用的大股东居中跟随。
+ * 前 1.8 秒从当前相机平滑过渡；之后相机与观察目标使用固定相对偏移，
+ * 大股东被力导向移动时，两者获得相同位移，因此大股东始终保持在屏幕中心。
+ * 不固定节点坐标，不修改力导向仿真，也不发起任何数据写请求。
+ */
+function startObserverCameraFollow(node, distance = 500) {
+    if (!Graph || !node || isGodView || typeof THREE === 'undefined') return false;
+    const camera = Graph.camera ? Graph.camera() : null;
+    const controls = Graph.controls ? Graph.controls() : null;
+    const nodeId = node.id || node.node_id;
+    if (!camera || !controls || !nodeId || nodeId !== currentBossNodeId) return false;
+    if (!Number.isFinite(node.x) || !Number.isFinite(node.y) || !Number.isFinite(node.z)) return false;
+
+    stopObserverCameraFollow();
+    bindObserverFollowRelease();
+
+    const { camPos, lookAt } = calculateOffsetView(node, distance);
+    const bossWorld = new THREE.Vector3(node.x, node.y, node.z);
+    if (node.__threeObj) node.__threeObj.getWorldPosition(bossWorld);
+
+    observerCameraFollow.offset = new THREE.Vector3(
+        camPos.x - lookAt.x,
+        camPos.y - lookAt.y,
+        camPos.z - lookAt.z
+    );
+    observerCameraFollow.lookAtOffset = new THREE.Vector3(
+        lookAt.x - bossWorld.x,
+        lookAt.y - bossWorld.y,
+        lookAt.z - bossWorld.z
+    );
+    observerCameraFollow.nodeId = nodeId;
+    observerCameraFollow.startedAt = performance.now();
+    observerCameraFollow.lastFrameAt = observerCameraFollow.startedAt;
+    observerCameraFollow.active = true;
+
+    const followFrame = (now) => {
+        if (!observerCameraFollow.active) return;
+        observerCameraFollow.rafId = null;
+
+        if (!Graph || isGodView || currentBossNodeId !== observerCameraFollow.nodeId) {
+            stopObserverCameraFollow('大股东或视角状态已变化');
+            return;
+        }
+        if (document.hidden) {
+            observerCameraFollow.lastFrameAt = now;
+            observerCameraFollow.rafId = requestAnimationFrame(followFrame);
+            return;
+        }
+
+        const liveNode = Graph.graphData().nodes.find(n =>
+            (n.id || n.node_id) === observerCameraFollow.nodeId
+        );
+        if (!liveNode || !Number.isFinite(liveNode.x) || !Number.isFinite(liveNode.y) || !Number.isFinite(liveNode.z)) {
+            stopObserverCameraFollow('大股东坐标已失效');
+            return;
+        }
+
+        const currentWorld = new THREE.Vector3(liveNode.x, liveNode.y, liveNode.z);
+        if (liveNode.__threeObj) liveNode.__threeObj.getWorldPosition(currentWorld);
+        const desiredTarget = currentWorld.clone().add(observerCameraFollow.lookAtOffset);
+        const desiredCamera = desiredTarget.clone().add(observerCameraFollow.offset);
+
+        const dt = Math.min(0.05, Math.max(0.001, (now - observerCameraFollow.lastFrameAt) / 1000));
+        observerCameraFollow.lastFrameAt = now;
+        const settling = now - observerCameraFollow.startedAt < 1800;
+        const blend = settling ? 1 - Math.exp(-6 * dt) : 1;
+
+        camera.position.lerp(desiredCamera, blend);
+        controls.target.lerp(desiredTarget, blend);
+        controls.update();
+
+        observerCameraFollow.rafId = requestAnimationFrame(followFrame);
+    };
+
+    observerCameraFollow.rafId = requestAnimationFrame(followFrame);
+    console.log(`[观测者跟随] 已启动，大股东 ${nodeId} 将保持居中，用户操作后释放`);
+    return true;
 }
 
 /**
@@ -1888,6 +2014,10 @@ async function fetchAndRenderGraph(options) {
             if (Array.isArray(res.event_horizon)) {
                 res.event_horizon.forEach(id => horizonNodes.add(id));
             }
+            if (!currentBossNodeId || horizonNodes.size === 0) {
+                isGodView = true;
+                stopObserverCameraFollow('history 中没有有效大股东或事件视界');
+            }
             
             // 坐标自检（只做补救，不再重灌数据，避免重新引爆仿真）
             setTimeout(() => {
@@ -1967,8 +2097,7 @@ async function fetchAndRenderGraph(options) {
                         const shouldAutoFrame = !opts.background && !__loadState.hasAutoFitted;
                         if (shouldAutoFrame) {
                             if (!isNaN(bossNode.x) && !isNaN(bossNode.y) && !isNaN(bossNode.z)) {
-                                const { camPos, lookAt } = calculateOffsetView(bossNode, 500);
-                                Graph.cameraPosition(camPos, lookAt, 1500);
+                                startObserverCameraFollow(bossNode, 500);
                                 __loadState.hasAutoFitted = true;
                                 console.log(`[事件视界] 已进入事件视界模式，以 ${res.boss_node_id} 为中心`);
                             } else {
@@ -2822,6 +2951,7 @@ function applyDrawerPermissions() {
 }
 
 function closeDrawer() {
+    stopObserverCameraFollow('抽屉相机动画接管');
     document.getElementById('drawer').classList.add('drawer-hidden');
     
     // 隐藏展开按钮
@@ -2996,6 +3126,7 @@ async function restoreObserverAfterEdit(expectedBossNodeId) {
     }
 
     if (!bossNode) {
+        stopObserverCameraFollow('编辑后没有可瞄定的大股东');
         currentBossNodeId = null;
         horizonNodes.clear();
         isGodView = true;
@@ -3012,6 +3143,7 @@ async function restoreObserverAfterEdit(expectedBossNodeId) {
         observerReady = await promoteNodeWeight(bossNode, maxEyes);
     }
     if (!observerReady) {
+        stopObserverCameraFollow('编辑后观测者视角恢复失败');
         isGodView = true;
         updateHighlight();
         return;
@@ -3025,8 +3157,7 @@ async function restoreObserverAfterEdit(expectedBossNodeId) {
     lastLocalActionTime = Date.now();
 
     if (Number.isFinite(bossNode.x) && Number.isFinite(bossNode.y) && Number.isFinite(bossNode.z)) {
-        const { camPos, lookAt } = calculateOffsetView(bossNode, 350);
-        Graph.cameraPosition(camPos, lookAt, 1200);
+        startObserverCameraFollow(bossNode, 350);
     }
     updateHighlight();
 }
@@ -3226,6 +3357,7 @@ function buildCausalChain(startNode) {
  * 修复版：寻龙函数（增加安全检查与详细调试输出）
  */
 async function startDragonCruise() {
+    stopObserverCameraFollow('因果巡航接管相机');
     console.log('[因果巡航] === 开始启动巡航 ===');
     
     // 增加：必须先选中一个节点作为起点，否则不知道巡航哪条链
@@ -3829,6 +3961,7 @@ function initTelescopeSlider() {
     // 这里用 300ms 窗口丢弃紧随其后的重复 change。
     let __sliderChangeLock = 0;
     slider.addEventListener('change', (e) => {
+        stopObserverCameraFollow('用户调整望远镜');
         hideReticle();
         const nowMs = Date.now();
         if (nowMs - __sliderChangeLock < 300) {
@@ -4062,6 +4195,7 @@ window.addEventListener('load', () => {
         })
         .onNodeClick(node => {
             if (!node) return;
+            stopObserverCameraFollow('用户点击节点');
 
             // --- 长按松手抑制：长按已打开内容查看器，忽略随后派发的那次“单击” ---
             if (Date.now() < suppressNodeClickUntil) {
@@ -4651,6 +4785,7 @@ window.addEventListener('load', () => {
     
     document.getElementById('btn-fit-view').onclick = () => {
         const btn = document.getElementById('btn-fit-view');
+        stopObserverCameraFollow('用户切换视角');
         
         if (!isGodView) {
             // 从 观测者视角 -> 上帝视角
@@ -4697,9 +4832,11 @@ window.addEventListener('load', () => {
             }
             
             if (targetNode) {
-                // 如果是观测者视角恢复，将相机距离默认拉至900附近（保持观测者体验不过远）
-                const { camPos, lookAt } = calculateOffsetView(targetNode, 800);
-                Graph.cameraPosition(camPos, lookAt, 3000);
+                // 手动回到观测者视角也使用同一套可释放的居中跟随。
+                if (!currentBossNodeId || !startObserverCameraFollow(targetNode, 800)) {
+                    const { camPos, lookAt } = calculateOffsetView(targetNode, 800);
+                    Graph.cameraPosition(camPos, lookAt, 3000);
+                }
             } else if (horizonNodes.size > 0) {
                 Graph.zoomToFit(800, 40); 
             }
