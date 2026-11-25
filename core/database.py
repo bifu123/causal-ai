@@ -1755,16 +1755,17 @@ class CausalDatabase:
     
     def get_zero_weight_xiang_nodes(self, threshold=0.0):
         """
-        职责：查询"全员遗忘"的"相"事件（候选删除名单）
-        判据：block_tag='相' 且所有用户权重都 <= threshold（即没有任何用户还记得它）
+        职责：查询需要遗忘清理的"相"事件（候选删除名单）
+        判据：block_tag='相'，且没有任何用户副本，或现有用户副本的平均权重 <= threshold。
+        LEFT JOIN 确保无用户副本的事件也会进入候选。
         """
         sql = """
             SELECT b.serial_id, b.node_id
-            FROM ains_user_weights a
-            INNER JOIN ains_active_nodes b ON a.serial_id = b.serial_id
+            FROM ains_active_nodes b
+            LEFT JOIN ains_user_weights a ON a.serial_id = b.serial_id
             WHERE b.block_tag = '相'
             GROUP BY b.serial_id, b.node_id
-            HAVING MAX(a.survival_weight) <= %s
+            HAVING COUNT(a.actor_id) = 0 OR AVG(a.survival_weight) <= %s
         """
         with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute(sql, (threshold,))

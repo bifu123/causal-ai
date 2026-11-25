@@ -80,7 +80,7 @@ class MetabolismEngine:
         self.is_running = False
         self.event_max = int(os.getenv("EVENT_MAX", 4000))
         self.event_loss = int(os.getenv("EVENT_LOSS", 3000))  # 距上次访问时间（秒）大于此值，且权重为0，event_tuple为NULL
-        self.xiang_forget_threshold = Decimal(os.getenv("XIANG_FORGET_THRESHOLD", "0.0"))  # "相"事件遗忘阈值
+        self.xiang_forget_threshold = Decimal(os.getenv("XIANG_FORGET_THRESHOLD", "0.0"))  # "相"事件平均遗忘阈值
 
     async def run(self):
         """
@@ -104,7 +104,7 @@ class MetabolismEngine:
         2. 检查是否需要根据权重分配字符长度
         3. 根据 EVENT_LOSS 决定是否将 event_tuple 设置为 null
         """
-        # 0. 清理"全员遗忘"的"相"事件（所有用户权重 <= 阈值即彻底删除并重组连线）
+        # 0. 清理无用户副本或整体遗忘的"相"事件（平均权重 <= 阈值即彻底删除并重组连线）
         candidates = db.get_zero_weight_xiang_nodes(self.xiang_forget_threshold)
         for cand in candidates:
             node_id = cand.get('node_id')
@@ -114,7 +114,7 @@ class MetabolismEngine:
             if not node:
                 continue
             previous_ids = node.get('previous_ids', [])
-            print(f"[代谢] 删除全员遗忘的'相'事件: {node_id} (serial_id={cand.get('serial_id')}, 阈值={self.xiang_forget_threshold})")
+            print(f"[代谢] 删除无副本或平均遗忘的'相'事件: {node_id} (serial_id={cand.get('serial_id')}, 阈值={self.xiang_forget_threshold})")
             # 删除事件（活跃表+地宫表显式删，权重表靠外键级联自动删）
             db.delete_node_with_necropolis(node_id)
             # 更新子事件的前事件ID（孙子给爷爷养）
