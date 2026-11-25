@@ -1661,7 +1661,17 @@ async function promoteNodeWeight(node, maxEyes = null) {
         if (data.status === 'success') {
             selectNode = true;
             selectedNodeObj = node;
-            currentBossNodeId = node.id; // 记录当前大股东
+            currentBossNodeId = data.boss_node_id || node.id; // 记录当前大股东
+            // /click 已返回完整视界，不依赖 socket 广播的到达时序。
+            // 编辑保存后的恢复观测者视角与滑杆调整都复用这条同步路径。
+            horizonNodes.clear();
+            if (Array.isArray(data.event_horizon)) {
+                data.event_horizon.forEach(id => horizonNodes.add(id));
+            }
+            isGodView = false;
+            const viewBtn = document.getElementById('btn-fit-view');
+            if (viewBtn) viewBtn.setAttribute('data-tooltip', '上帝视角');
+            updateHighlight();
             console.log(`全局权重提升成功: ${data.message}`);
             showSelectionHint(`节点权重已提升到所有节点总权重的60%，更新了 ${data.updated_count} 个节点。等待Socket.IO广播具体权重...`);
             return true;
@@ -1870,9 +1880,13 @@ async function fetchAndRenderGraph(options) {
             seedNodePositions(Graph.graphData().nodes);
             __loadState.hasLoadedOnce = true;
 
-            // 解决刷新后大股东变量丢失的问题：如果后端返回了大股东，在此处初始化
-            if (res.boss_node_id && res.event_horizon && res.event_horizon.length > 0) {
-                currentBossNodeId = res.boss_node_id;
+            // history 是大股东与视界状态的权威来源。必须在等待 Three.js 对象前同步，
+            // 并覆盖旧值：编辑改名或副本清理后，旧 boss 可能已不存在，
+            // 否则后续滑杆仍会瞄定旧 ID，且因为没有有效 boss 而静默失效。
+            currentBossNodeId = res.boss_node_id || null;
+            horizonNodes.clear();
+            if (Array.isArray(res.event_horizon)) {
+                res.event_horizon.forEach(id => horizonNodes.add(id));
             }
             
             // 坐标自检（只做补救，不再重灌数据，避免重新引爆仿真）
@@ -1939,9 +1953,7 @@ async function fetchAndRenderGraph(options) {
                     const bossNode = latestNodes.find(n => n.id === res.boss_node_id || n.node_id === res.boss_node_id);
                     
                     if (bossNode) {
-                        // 将视界内节点加入 horizonNodes
-                        horizonNodes.clear();
-                        res.event_horizon.forEach(id => horizonNodes.add(id));
+                        // 视界集合已在收到 history 响应时同步，这里只处理视角与相机。
                         updateHighlight();
                         // 任何时候后端返回新的事件视界，都要退出上帝视角强制进入观测者视角
                         if (isGodView) {
@@ -2965,6 +2977,60 @@ async function handleUploadImage() {
     }
 }
 
+/**
+ * 编辑保存后恢复观测者视角。
+ * 场主编辑大股东时，后端会清理该节点的个人副本；若主副本权重已代谢到 0.59 以下，
+ * history 会暂时没有 boss。此时重新瞄定编辑前的大股东（改名后使用新 ID），
+ * 而不是带着失效引用进入事实上的上帝视角。
+ */
+async function restoreObserverAfterEdit(expectedBossNodeId) {
+    await loadInitialData();
+    if (!Graph) return;
+
+    const { nodes } = Graph.graphData();
+    let bossNode = currentBossNodeId
+        ? nodes.find(n => n.id === currentBossNodeId || n.node_id === currentBossNodeId)
+        : null;
+    if (!bossNode && expectedBossNodeId) {
+        bossNode = nodes.find(n => n.id === expectedBossNodeId || n.node_id === expectedBossNodeId);
+    }
+
+    if (!bossNode) {
+        currentBossNodeId = null;
+        horizonNodes.clear();
+        isGodView = true;
+        updateHighlight();
+        showSelectionHint('当前没有可瞄定的大股东，请点击一个节点进入观测者视角');
+        return;
+    }
+
+    // history 已给出有效大股东时直接复用；缺失时才通过 /click 恢复，避免多余写权重。
+    let observerReady = currentBossNodeId === bossNode.id && horizonNodes.size > 0;
+    if (!observerReady) {
+        const slider = document.getElementById('telescope-slider');
+        const maxEyes = slider ? parseFloat(slider.value) : 40;
+        observerReady = await promoteNodeWeight(bossNode, maxEyes);
+    }
+    if (!observerReady) {
+        isGodView = true;
+        updateHighlight();
+        return;
+    }
+
+    isGodView = false;
+    currentBossNodeId = bossNode.id || bossNode.node_id;
+    selectedNodeObj = null; // promoteNodeWeight 会暂时选中节点，保存结束后不应重新进入编辑选中态
+    const viewBtn = document.getElementById('btn-fit-view');
+    if (viewBtn) viewBtn.setAttribute('data-tooltip', '上帝视角');
+    lastLocalActionTime = Date.now();
+
+    if (Number.isFinite(bossNode.x) && Number.isFinite(bossNode.y) && Number.isFinite(bossNode.z)) {
+        const { camPos, lookAt } = calculateOffsetView(bossNode, 350);
+        Graph.cameraPosition(camPos, lookAt, 1200);
+    }
+    updateHighlight();
+}
+
 async function handleSaveNode() {
     // 鉴权：写主副本需要场主 / admin；有身份的观测者只能保存自己副本的连线
     const scope = ACCESS.can_write_master ? 'master' : (ACCESS.can_write_copy ? 'copy' : null);
@@ -2975,6 +3041,11 @@ async function handleSaveNode() {
 
     // 获取表单字段的值（使用HTML中实际存在的ID）
     const nodeId = document.getElementById('d-node-id').value.trim();
+    const editedNodeId = currentSelectedNodeId;
+    // 如果正在编辑大股东且修改了标题，保存后应以新 ID 恢复瞄定。
+    const expectedBossNodeId = currentBossNodeId
+        ? (currentBossNodeId === editedNodeId ? nodeId : currentBossNodeId)
+        : null;
     const eventTupleField = document.getElementById('d-event-tuple');
     const content = eventTupleField ? eventTupleField.value.trim() : '';
     const actionTagField = document.getElementById('d-action-tag');
@@ -3059,8 +3130,8 @@ async function handleSaveNode() {
             console.log('保存修改完成，重置 is_change = true');
             closeDrawer();
             
-            // 【关键修复】表单保存后，由于可能修改了节点ID、连线关系(父ID)、动作标签(颜色)，必须强制重绘全图
-            loadInitialData();
+            // 表单保存后可能修改节点ID、连线和标签；重载后必须恢复有效大股东与观测者视角。
+            await restoreObserverAfterEdit(expectedBossNodeId);
         } else {
             showSelectionHint(`更新失败: ${result.message}`);
         }
@@ -3792,6 +3863,12 @@ function initTelescopeSlider() {
                 }
             } else {
                 console.warn(`[望远镜] 未找到当前大股东节点: ${currentBossNodeId}`);
+                // 编辑改名等场景可能留下失效引用；明确提示并清理，不能静默停留在伪观测者状态。
+                currentBossNodeId = null;
+                horizonNodes.clear();
+                isGodView = true;
+                updateHighlight();
+                showSelectionHint('当前大股东已失效，请重新点击一个节点进入观测者视角');
             }
         } else {
             console.warn(`[望远镜] 当前没有大股东节点，无法调整视界`);
