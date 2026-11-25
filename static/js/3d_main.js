@@ -5524,7 +5524,23 @@ setInterval(() => {
         const sprite = node.__threeObj.children[1];
         if (!sphere || !sphere.material) return;
 
-        // 判断是否为大股东 (survival_weight > 0.59)
+        // 1. 视界内节点必须可见。首屏 Three.js 对象创建可能晚于 800ms 后的全量更新，
+        // 也可能被广播动画中断；旧监控只检查“视界外误亮”，会漏掉这里的“视界内误隐藏”。
+        // updateEventHorizonVisibility 中视界内节点的最低本体透明度为 0.2，
+        // 因此低于 0.15 或 visible=false 均可明确判定为异常，而无需重复整套透明度计算。
+        const isInHorizon = hasHorizon && horizonNodes.has(node.id);
+        if (isInHorizon) {
+            const sphereHidden = !sphere.visible || sphere.material.opacity < 0.15;
+            const spriteHidden = sprite && sprite.material && (!sprite.visible || sprite.material.opacity < 0.1);
+            if (sphereHidden || spriteHidden) {
+                horizonNeedsRefresh = true;
+                if (debugLogs.length < 5) {
+                    debugLogs.push(`Horizon node ${String(node.id).substring(0,6)}: visible=${sphere.visible}, opacity=${sphere.material.opacity.toFixed(2)}`);
+                }
+            }
+        }
+
+        // 2. 判断是否为大股东 (survival_weight > 0.59)
         // 后端 promote_all_weights 严格按 60/40 分配：大股东唯一 0.60，其余按比例瓜分 0.40
         // （必然远低于 0.59），因此该阈值只会命中唯一节点。
         // 叠加视界限定，避免历史残留的 0.60 节点在视界外被错误拉亮。
@@ -5538,7 +5554,7 @@ setInterval(() => {
                 sprite.material.needsUpdate = true;
             }
         }
-        // 2. 对于普通节点，如果存在视界，检查视界外节点是否异常显示
+        // 3. 对于普通节点，如果存在视界，检查视界外节点是否异常显示
         else if (hasHorizon && bossNode && !horizonNodes.has(node.id)) {
             const expectedDimmedOpacity = isMemoryMode ? 0 : 0.05;
             
@@ -5578,7 +5594,7 @@ setInterval(() => {
     });
 
     if (horizonNeedsRefresh && !document.hidden) {
-        console.log("[Monitor] 检测到视界外普通节点透明度异常，触发全局视界重绘");
+        console.log("[Monitor] 检测到视界节点可见性异常，触发全局视界重绘");
         // 轻量重绘：只修复 opacity / visible / 连线可见性，不重建全图标签纹理
         if (typeof updateEventHorizonVisibility === 'function') {
             updateEventHorizonVisibility({ skipLabels: true });
