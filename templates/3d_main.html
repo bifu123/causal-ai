@@ -20,7 +20,8 @@
     <!-- 然后加载3d-force-graph，它会使用已存在的THREE实例 -->
     <script src="/static/js/3d-force-graph.min.js"></script>
     
-    <link rel="stylesheet" href="/static/css/3d_main.css?v=20261126shi10">
+    <link rel="preload" href="/static/fonts/dseg7-classic-latin-700-normal.woff2?v=20261126shi12" as="font" type="font/woff2" crossorigin>
+    <link rel="stylesheet" href="/static/css/3d_main.css?v=20261126shi12">
     <link rel="stylesheet" href="/static/css/3d_form.css">
     <!-- EasyMDE Markdown编辑器 -->
     <link rel="stylesheet" href="/static/css/font-awesome.min.css">
@@ -54,153 +55,13 @@
             </div>
         </div>
 
-        <!-- 相事件的瞬时势：天球星盘弧形仪轨，仅响应 /click，不进入 Three.js 渲染循环 -->
+        <!-- 相事件的瞬时势：电子计数器，仅响应 /click，不进入 Three.js 渲染循环 -->
         <div id="shi-meter" class="shi-meter hidden" role="status" aria-live="polite" aria-atomic="true">
-            <svg class="shi-meter-svg" viewBox="0 0 800 520" aria-hidden="true">
-                <defs>
-                    <radialGradient id="shi-dome-glow" cx="50%" cy="0%" r="68%" fx="50%" fy="0%">
-                        <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.20" />
-                        <stop offset="48%" stop-color="#0ea5e9" stop-opacity="0.11" />
-                        <stop offset="82%" stop-color="#0284c7" stop-opacity="0.04" />
-                        <stop offset="100%" stop-color="#020617" stop-opacity="0" />
-                    </radialGradient>
-                    <linearGradient id="shi-track-grad" x1="18%" y1="0%" x2="82%" y2="0%">
-                        <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.06" />
-                        <stop offset="50%" stop-color="#7dd3fc" stop-opacity="0.18" />
-                        <stop offset="100%" stop-color="#f6d365" stop-opacity="0.10" />
-                    </linearGradient>
-                    <linearGradient id="shi-rim-grad" x1="14%" y1="0%" x2="86%" y2="0%">
-                        <stop offset="0%" stop-color="#7dd3fc" stop-opacity="0" />
-                        <stop offset="12%" stop-color="#7dd3fc" stop-opacity="0.55" />
-                        <stop offset="52%" stop-color="#bae6fd" stop-opacity="0.85" />
-                        <stop offset="88%" stop-color="#fde68a" stop-opacity="0.72" />
-                        <stop offset="100%" stop-color="#f59e0b" stop-opacity="0" />
-                    </linearGradient>
-                    <linearGradient id="shi-arc-grad" x1="20%" y1="0%" x2="80%" y2="0%">
-                        <stop offset="0%" stop-color="#0284c7" stop-opacity="0.28" />
-                        <stop offset="28%" stop-color="#38bdf8" stop-opacity="0.72" />
-                        <stop offset="56%" stop-color="#67e8f9" stop-opacity="0.92" />
-                        <stop offset="78%" stop-color="#fef08a" stop-opacity="0.98" />
-                        <stop offset="100%" stop-color="#f59e0b" stop-opacity="0.95" />
-                    </linearGradient>
-                    <linearGradient id="shi-crest-grad" x1="20%" y1="0%" x2="80%" y2="0%">
-                        <stop offset="0%" stop-color="#7dd3fc" stop-opacity="0.45" />
-                        <stop offset="45%" stop-color="#e0f2fe" stop-opacity="0.95" />
-                        <stop offset="78%" stop-color="#fef9c3" stop-opacity="1" />
-                        <stop offset="100%" stop-color="#fbbf24" stop-opacity="0.95" />
-                    </linearGradient>
-                    <linearGradient id="shi-ribbon-cyan" x1="0%" y1="0%" x2="0%" y2="100%">
-                        <stop offset="0%" stop-color="#7dd3fc" stop-opacity="0" />
-                        <stop offset="28%" stop-color="#38bdf8" stop-opacity="0.34" />
-                        <stop offset="65%" stop-color="#5eead4" stop-opacity="0.22" />
-                        <stop offset="100%" stop-color="#38bdf8" stop-opacity="0" />
-                    </linearGradient>
-                    <linearGradient id="shi-ribbon-gold" x1="0%" y1="0%" x2="0%" y2="100%">
-                        <stop offset="0%" stop-color="#fde68a" stop-opacity="0" />
-                        <stop offset="26%" stop-color="#fde68a" stop-opacity="0.32" />
-                        <stop offset="62%" stop-color="#5eead4" stop-opacity="0.20" />
-                        <stop offset="100%" stop-color="#38bdf8" stop-opacity="0" />
-                    </linearGradient>
-                    <filter id="shi-glow" x="-25%" y="-35%" width="150%" height="170%">
-                        <feGaussianBlur stdDeviation="5.5" result="blurWide" />
-                        <feGaussianBlur in="SourceGraphic" stdDeviation="2" result="blurCore" />
-                        <feMerge>
-                            <feMergeNode in="blurWide" />
-                            <feMergeNode in="blurCore" />
-                            <feMergeNode in="SourceGraphic" />
-                        </feMerge>
-                    </filter>
-                    <filter id="shi-star-glow" x="-100%" y="-100%" width="300%" height="300%">
-                        <feGaussianBlur stdDeviation="2.2" result="starBlur" />
-                        <feMerge>
-                            <feMergeNode in="starBlur" />
-                            <feMergeNode in="SourceGraphic" />
-                        </feMerge>
-                    </filter>
-                </defs>
-                <g class="shi-astrolabe-dome">
-                    <circle cx="400" cy="-12" r="346" fill="url(#shi-dome-glow)" />
-                    <circle cx="400" cy="-12" r="346" fill="none" stroke="rgba(125, 211, 252, 0.34)" stroke-width="1.2" />
-                    <circle cx="400" cy="-12" r="338" fill="none" stroke="rgba(125, 211, 252, 0.28)" stroke-width="5" stroke-dasharray="1 5.2" />
-                    <circle cx="400" cy="-12" r="338" fill="none" stroke="rgba(186, 230, 253, 0.42)" stroke-width="8" stroke-dasharray="1.4 31.2" />
-                    <circle cx="400" cy="-12" r="330" fill="none" stroke="rgba(125, 211, 252, 0.24)" stroke-width="1" />
-                    <circle cx="400" cy="-12" r="276" fill="none" stroke="rgba(125, 211, 252, 0.14)" stroke-width="0.9" stroke-dasharray="3 5" />
-                    <circle cx="400" cy="-12" r="218" fill="none" stroke="rgba(125, 211, 252, 0.15)" stroke-width="0.9" />
-                    <circle cx="400" cy="-12" r="154" fill="none" stroke="rgba(125, 211, 252, 0.12)" stroke-width="0.8" stroke-dasharray="2 4" />
-                    <ellipse cx="400" cy="-12" rx="330" ry="195" fill="none" stroke="rgba(125, 211, 252, 0.13)" stroke-width="0.9" transform="rotate(-14 400 -12)" />
-                    <ellipse cx="400" cy="-12" rx="330" ry="195" fill="none" stroke="rgba(125, 211, 252, 0.11)" stroke-width="0.9" transform="rotate(14 400 -12)" />
-                    <line x1="400" y1="0" x2="400" y2="334" stroke="rgba(125, 211, 252, 0.18)" stroke-width="0.9" />
-                    <line x1="400" y1="-12" x2="227" y2="288" stroke="rgba(125, 211, 252, 0.14)" stroke-width="0.85" />
-                    <line x1="400" y1="-12" x2="573" y2="288" stroke="rgba(125, 211, 252, 0.14)" stroke-width="0.85" />
-                    <line x1="400" y1="-12" x2="100" y2="161" stroke="rgba(125, 211, 252, 0.13)" stroke-width="0.85" />
-                    <line x1="400" y1="-12" x2="700" y2="161" stroke="rgba(125, 211, 252, 0.13)" stroke-width="0.85" />
-                    <line x1="400" y1="-12" x2="66" y2="78" stroke="rgba(125, 211, 252, 0.10)" stroke-width="0.8" />
-                    <line x1="400" y1="-12" x2="734" y2="78" stroke="rgba(125, 211, 252, 0.10)" stroke-width="0.8" />
-                    <polyline points="148,54 196,92 252,74 294,126 238,162" fill="none" stroke="rgba(186, 230, 253, 0.24)" stroke-width="0.9" />
-                    <polyline points="646,48 594,88 542,68 506,122 564,158" fill="none" stroke="rgba(186, 230, 253, 0.24)" stroke-width="0.9" />
-                    <polyline points="318,46 364,76 436,72 484,42" fill="none" stroke="rgba(186, 230, 253, 0.18)" stroke-width="0.8" />
-                    <g fill="#e0f2fe" filter="url(#shi-star-glow)">
-                        <circle cx="148" cy="54" r="2.1" opacity="0.85" />
-                        <circle cx="196" cy="92" r="2.6" opacity="0.92" />
-                        <circle cx="252" cy="74" r="1.9" opacity="0.78" />
-                        <circle cx="294" cy="126" r="2.3" opacity="0.85" />
-                        <circle cx="238" cy="162" r="1.8" opacity="0.72" />
-                        <circle cx="646" cy="48" r="2.1" opacity="0.85" />
-                        <circle cx="594" cy="88" r="2.7" opacity="0.95" />
-                        <circle cx="542" cy="68" r="1.9" opacity="0.78" />
-                        <circle cx="506" cy="122" r="2.3" opacity="0.86" />
-                        <circle cx="564" cy="158" r="1.8" opacity="0.74" />
-                        <circle cx="364" cy="76" r="1.7" opacity="0.70" />
-                        <circle cx="436" cy="72" r="1.8" opacity="0.72" />
-                    </g>
-                </g>
-                <g class="shi-energy-ribbons" fill="none">
-                    <path d="M 218 216 C 312 284, 376 348, 396 515" stroke="url(#shi-ribbon-cyan)" stroke-width="1.8" />
-                    <path d="M 258 188 C 338 268, 392 342, 404 515" stroke="url(#shi-ribbon-cyan)" stroke-width="1.2" />
-                    <path d="M 582 216 C 488 284, 424 348, 404 515" stroke="url(#shi-ribbon-gold)" stroke-width="2.0" />
-                    <path d="M 542 188 C 462 268, 408 342, 394 515" stroke="url(#shi-ribbon-gold)" stroke-width="1.3" />
-                    <path d="M 612 242 C 546 310, 434 380, 412 515" stroke="url(#shi-ribbon-cyan)" stroke-width="1.1" />
-                    <path d="M 188 242 C 254 310, 366 380, 388 515" stroke="url(#shi-ribbon-cyan)" stroke-width="1.0" />
-                </g>
-                <g class="shi-dial-arcs">
-                    <path d="M 177.7 251.0 A 286 286 0 0 1 622.3 251.0"
-                          fill="none" stroke="url(#shi-rim-grad)" stroke-width="2" stroke-linecap="round" />
-                    <path d="M 201.1 245.5 A 272 272 0 0 1 598.9 245.5"
-                          fill="none" stroke="url(#shi-track-grad)" stroke-width="22" stroke-linecap="butt" />
-                    <path d="M 206.8 257.0 A 260 260 0 0 1 593.2 257.0"
-                          fill="none" stroke="rgba(125, 211, 252, 0.24)" stroke-width="1" />
-                    <path d="M 217.3 254.5 A 254 254 0 0 1 582.7 254.5"
-                          fill="none" stroke="rgba(186, 230, 253, 0.36)" stroke-width="8"
-                          stroke-dasharray="1.2 6.95" />
-                    <path d="M 220.2 257.3 A 250 250 0 0 1 579.8 257.3"
-                          fill="none" stroke="rgba(224, 242, 254, 0.68)" stroke-width="15"
-                          stroke-dasharray="1.6 38.6" />
-                    <path id="shi-meter-arc" class="shi-meter-arc"
-                          d="M 201.1 245.5 A 272 272 0 0 1 598.9 245.5"
-                          pathLength="100" fill="none" stroke="url(#shi-arc-grad)"
-                          stroke-width="22" stroke-linecap="butt" filter="url(#shi-glow)" />
-                    <path id="shi-meter-arc-crest" class="shi-meter-arc-crest"
-                          d="M 193.0 238.0 A 283 283 0 0 1 607.0 238.0"
-                          pathLength="100" fill="none" stroke="url(#shi-crest-grad)"
-                          stroke-width="2.6" stroke-linecap="round" filter="url(#shi-glow)" />
-                </g>
-                <g class="shi-core-rings">
-                    <circle cx="400" cy="272" r="72" fill="rgba(2, 6, 23, 0.58)" stroke="rgba(125, 211, 252, 0.20)" stroke-width="1" />
-                    <circle cx="400" cy="272" r="67" fill="none" stroke="rgba(226, 232, 240, 0.42)" stroke-width="5" stroke-dasharray="1.1 3.4" />
-                    <circle cx="400" cy="272" r="61" fill="rgba(7, 13, 28, 0.78)" stroke="rgba(241, 245, 249, 0.84)" stroke-width="1.8" filter="url(#shi-star-glow)" />
-                    <circle cx="400" cy="272" r="55" fill="none" stroke="rgba(186, 230, 253, 0.45)" stroke-width="1" />
-                    <path d="M 354 237 A 58 58 0 0 1 446 237" fill="none" stroke="rgba(254, 249, 195, 0.65)" stroke-width="1.6" stroke-linecap="round" />
-                    <path d="M 360 310 A 56 56 0 0 0 440 310" fill="none" stroke="rgba(125, 211, 252, 0.45)" stroke-width="1.3" stroke-linecap="round" />
-                </g>
-            </svg>
-            <div class="shi-meter-heading">
-                <span id="shi-meter-state" class="shi-meter-state">正在观测</span>
-                <span class="shi-meter-title">无寿者相</span>
-            </div>
-            <div class="shi-meter-core">
+            <span id="shi-meter-state" class="shi-meter-state">正在观测</span>
+            <div class="shi-counter-row">
                 <output id="shi-meter-value" class="shi-meter-value">—</output>
+                <div id="shi-meter-detail" class="shi-meter-detail">正在生成当前相事件视界</div>
             </div>
-            <div id="shi-meter-detail" class="shi-meter-detail">正在生成当前相事件视界</div>
         </div>
         
         <div id="node-info">
@@ -634,6 +495,6 @@
     </script>
 
     <script src="/static/js/3d_editor.js"></script>
-    <script src="/static/js/3d_main.js?v=20261126shi10"></script>
+    <script src="/static/js/3d_main.js?v=20261126shi12"></script>
 </body>
 </html>

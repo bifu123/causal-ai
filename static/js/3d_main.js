@@ -1751,14 +1751,6 @@ function cancelShiObservation() {
     hideShiMeter();
 }
 
-function setShiArcProgress(pct) {
-    const offset = String(100 - Math.max(0, Math.min(100, pct)));
-    const arc = document.getElementById('shi-meter-arc');
-    const crest = document.getElementById('shi-meter-arc-crest');
-    if (arc) arc.style.strokeDashoffset = offset;
-    if (crest) crest.style.strokeDashoffset = offset;
-}
-
 function beginShiObservation(node) {
     const version = ++shiObservationVersion;
     // 保存本次真实焦点；搜索结果可能尚未加载到图中，此时先隐藏，等待响应确认。
@@ -1774,7 +1766,6 @@ function beginShiObservation(node) {
     document.getElementById('shi-meter-state').textContent = '正在观测';
     document.getElementById('shi-meter-value').textContent = '—';
     document.getElementById('shi-meter-detail').textContent = '正在生成当前相事件视界';
-    setShiArcProgress(0);
     meter.title = '每次点击均根据当前距离与关系重新观测，不使用旧势值';
     return version;
 }
@@ -1805,7 +1796,6 @@ function applyShiObservation(data, version) {
         complete: ''
     }[state];
     document.getElementById('shi-meter-value').textContent = value === null ? '—' : value.toFixed(2);
-    setShiArcProgress(value === null ? 0 : value);
     const details = [];
     if (isEmpty) {
         details.push(meta.reason === 'private_focal' ? '私密焦点不参与势计算' : '视界内只有焦点相事件');
