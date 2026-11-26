@@ -1,0 +1,337 @@
+要实现设计图中的**天球星盘 + 弧形势能仪轨**效果，并保持原有的响应式状态机（`loading` / `complete` / `partial` / `empty` / `error`）和零帧循环开销约束，只需修改 `3d_main.html`、`3d_main.css` 和 `3d_main.js` 中与 `#shi-meter` 相关的局部代码。
+
+---
+
+### 1. 修改 `3d_main.html`（替换 `#shi-meter` 节点）
+
+用带 SVG 弧形刻度和天球星轨背景的仪轨结构替换原有的线性进度条容器，保留原有的 ID（`shi-meter-state`、`shi-meter-value`、`shi-meter-detail`）并新增弧形填充路径 `shi-meter-arc`：
+
+```html
+<!-- 相事件的瞬时势：天球星盘弧形仪轨（仅响应 /click，不进入 Three.js 渲染循环） -->
+<div id="shi-meter" class="shi-meter hidden" role="status" aria-live="polite" aria-atomic="true">
+    <!-- 顶部状态微标 -->
+    <div class="shi-meter-heading">
+        <span class="shi-meter-title">势</span>
+        <span id="shi-meter-state" class="shi-meter-state">正在观测</span>
+    </div>
+
+    <!-- SVG 星盘刻度与弧形势能槽 -->
+    <div class="shi-meter-dial">
+        <svg class="shi-meter-svg" viewBox="0 0 360 155" aria-hidden="true">
+            <defs>
+                <!-- 势能流光渐变：冷青 -> 琉璃金 -->
+                <linearGradient id="shi-arc-grad" x1="0%" y1="0%" x2="100%" y2="0%">
+                    <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.65" />
+                    <stop offset="55%" stop-color="#34d399" stop-opacity="0.95" />
+                    <stop offset="100%" stop-color="#f6d365" stop-opacity="1" />
+                </linearGradient>
+                <filter id="shi-glow" x="-20%" y="-20%" width="140%" height="140%">
+                    <feGaussianBlur stdDeviation="3.5" result="blur" />
+                    <feMerge>
+                        <feMergeNode in="blur" />
+                        <feMergeNode in="SourceGraphic" />
+                    </feMerge>
+                </filter>
+            </defs>
+
+            <!-- 背景天球辅助星轨与经纬线 -->
+            <g class="shi-astrolabe-bg">
+                <circle cx="180" cy="215" r="196" fill="none" stroke="rgba(125, 211, 252, 0.14)" stroke-width="1" stroke-dasharray="2 4" />
+                <circle cx="180" cy="215" r="142" fill="none" stroke="rgba(125, 211, 252, 0.10)" stroke-width="1" />
+                <line x1="180" y1="12" x2="180" y2="95" stroke="rgba(125, 211, 252, 0.14)" stroke-width="1" />
+                <line x1="75" y1="45" x2="132" y2="112" stroke="rgba(125, 211, 252, 0.08)" stroke-width="1" />
+                <line x1="285" y1="45" x2="228" y2="112" stroke="rgba(125, 211, 252, 0.08)" stroke-width="1" />
+            </g>
+
+            <!-- 外圈细刻度弧（半径 172，圆心 (180, 215)，从 -52° 到 +52°） -->
+            <path d="M 44.5 109.1 A 172 172 0 0 1 315.5 109.1"
+                  fill="none"
+                  stroke="rgba(148, 163, 184, 0.35)"
+                  stroke-width="6"
+                  stroke-dasharray="1.5 6.8" />
+
+            <!-- 主弧形底槽 -->
+            <path d="M 52.3 115.3 A 162 162 0 0 1 307.7 115.3"
+                  fill="none"
+                  stroke="rgba(148, 163, 184, 0.18)"
+                  stroke-width="7"
+                  stroke-linecap="round" />
+
+            <!-- 动态势能填充弧（pathLength="100" 便于 JS 直接按 0~100 控制） -->
+            <path id="shi-meter-arc"
+                  class="shi-meter-arc"
+                  d="M 52.3 115.3 A 162 162 0 0 1 307.7 115.3"
+                  pathLength="100"
+                  fill="none"
+                  stroke="url(#shi-arc-grad)"
+                  stroke-width="7"
+                  stroke-linecap="round"
+                  filter="url(#shi-glow)" />
+        </svg>
+
+        <!-- 中央圆环数值视窗 -->
+        <div class="shi-meter-core">
+            <output id="shi-meter-value" class="shi-meter-value">—</output>
+        </div>
+    </div>
+
+    <!-- 底部观测样本明细 -->
+    <div id="shi-meter-detail" class="shi-meter-detail">正在生成当前相事件视界</div>
+</div>
+
+```
+
+---
+
+### 2. 修改 `3d_main.css`（替换 `#shi-meter` 相关样式）
+
+将原有的 `#shi-meter` 至 `@media (prefers-reduced-motion: reduce)` 段落替换为以下样式，实现无边框悬浮融入星空、金色/青色微光仪轨以及中央双圈读数视窗：
+
+```css
+/* ========== 相事件：天球星盘瞬时势仪轨 ========== */
+#shi-meter {
+    position: fixed;
+    top: 14px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 360px;
+    max-width: calc(100vw - 32px);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    color: rgba(235, 244, 255, 0.94);
+    background: radial-gradient(ellipse at 50% 35%, rgba(56, 189, 248, 0.08) 0%, transparent 72%);
+    pointer-events: none;
+    z-index: 30;
+    user-select: none;
+}
+
+#shi-meter.hidden {
+    display: none;
+}
+
+.shi-meter-heading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    margin-bottom: -8px;
+    z-index: 2;
+}
+
+.shi-meter-title {
+    font-family: "STKaiti", "KaiTi", "Songti SC", serif;
+    font-size: 24px;
+    font-weight: 600;
+    line-height: 1.1;
+    color: #e2e8f0;
+    text-shadow: 0 0 14px rgba(125, 211, 252, 0.55);
+    letter-spacing: 2px;
+}
+
+.shi-meter-state {
+    font-size: 10px;
+    letter-spacing: 1.5px;
+    color: rgba(148, 163, 184, 0.78);
+}
+
+.shi-meter-dial {
+    position: relative;
+    width: 100%;
+    height: 148px;
+    display: flex;
+    justify-content: center;
+    align-items: flex-end;
+}
+
+.shi-meter-svg {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+}
+
+.shi-meter-arc {
+    stroke-dasharray: 100;
+    stroke-dashoffset: 100;
+    transition: stroke-dashoffset 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* 中央双圈数值视窗 */
+.shi-meter-core {
+    position: relative;
+    width: 82px;
+    height: 82px;
+    margin-bottom: 12px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: radial-gradient(circle, rgba(15, 23, 42, 0.78) 0%, rgba(2, 6, 23, 0.45) 100%);
+    border: 1px solid rgba(226, 232, 240, 0.42);
+    box-shadow:
+        0 0 0 4px rgba(125, 211, 252, 0.08),
+        0 0 22px rgba(56, 189, 248, 0.22),
+        inset 0 0 12px rgba(125, 211, 252, 0.16);
+    backdrop-filter: blur(4px);
+}
+
+.shi-meter-value {
+    font-family: "Fira Code", "Monaco", monospace;
+    font-size: 21px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    font-variant-numeric: tabular-nums;
+    color: #f8fafc;
+    text-shadow: 0 0 12px rgba(246, 211, 101, 0.55);
+}
+
+.shi-meter-detail {
+    margin-top: -2px;
+    padding: 2px 10px;
+    font-size: 11px;
+    letter-spacing: 0.8px;
+    color: rgba(186, 230, 253, 0.78);
+    text-shadow: 0 1px 6px rgba(0, 0, 0, 0.9);
+    white-space: nowrap;
+}
+
+/* 状态变体 */
+#shi-meter[data-state="partial"] .shi-meter-value {
+    color: #fde68a;
+}
+
+#shi-meter[data-state="empty"] .shi-meter-value,
+#shi-meter[data-state="error"] .shi-meter-value {
+    color: rgba(148, 163, 184, 0.75);
+    text-shadow: none;
+}
+
+/* 通用业务提示避让 */
+#selection-hint.with-shi-meter {
+    top: 196px;
+    box-sizing: border-box;
+    max-width: min(400px, calc(100vw - 32px));
+}
+
+@media (max-width: 1180px) and (min-width: 769px) {
+    #shi-meter {
+        top: 96px;
+    }
+
+    #selection-hint.with-shi-meter {
+        top: 278px;
+    }
+}
+
+@media (max-width: 768px) {
+    #shi-meter {
+        top: 8px;
+        width: min(290px, calc(100vw - 110px));
+    }
+
+    .shi-meter-dial {
+        height: 120px;
+    }
+
+    .shi-meter-title {
+        font-size: 20px;
+    }
+
+    .shi-meter-core {
+        width: 68px;
+        height: 68px;
+        margin-bottom: 8px;
+    }
+
+    .shi-meter-value {
+        font-size: 17px;
+    }
+
+    #selection-hint.with-shi-meter {
+        top: 162px;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .shi-meter-arc {
+        transition: none;
+    }
+}
+
+```
+
+---
+
+### 3. 修改 `3d_main.js`（驱动弧形 `strokeDashoffset`）
+
+由于 SVG `<path>` 设置了 `pathLength="100"`，`strokeDashoffset` 可以直接通过 `100 - score` 精确映射 `0~100` 的势值，无需计算圆周弧长。修改 `beginShiObservation` 和 `applyShiObservation` 两处更新逻辑即可：
+
+```javascript
+function beginShiObservation(node) {
+    const version = ++shiObservationVersion;
+    const meter = document.getElementById('shi-meter');
+    if (!meter) return version;
+    if (!node || node.block_tag !== '相') {
+        hideShiMeter();
+        return version;
+    }
+    meter.classList.remove('hidden');
+    meter.dataset.state = 'loading';
+    document.getElementById('shi-meter-state').textContent = '正在观测';
+    document.getElementById('shi-meter-value').textContent = '—';
+    document.getElementById('shi-meter-detail').textContent = '正在生成当前相事件视界';
+    const arc = document.getElementById('shi-meter-arc');
+    if (arc) arc.style.strokeDashoffset = '100';
+    meter.title = '每次点击均根据当前距离与关系重新观测，不使用旧势值';
+    return version;
+}
+
+function applyShiObservation(data, version) {
+    if (version !== shiObservationVersion) return;
+    const meter = document.getElementById('shi-meter');
+    if (!meter) return;
+    if (!data || data.status !== 'success' || !data.shi_meta) {
+        hideShiMeter();
+        return;
+    }
+    const meta = data.shi_meta;
+    const value = (typeof data.shi === 'number' && Number.isFinite(data.shi)) ? data.shi : null;
+    const isEmpty = meta.sample_count === 0 || meta.reason === 'no_samples' || meta.reason === 'private_focal';
+    const state = isEmpty ? 'empty' : (meta.status === 'partial' ? 'partial' : (value === null ? 'error' : 'complete'));
+    meter.classList.remove('hidden');
+    meter.dataset.state = state;
+    document.getElementById('shi-meter-state').textContent = {
+        empty: '暂无可比较样本',
+        partial: '部分观测',
+        error: '本次势暂不可得',
+        complete: '瞬时观测'
+    }[state];
+    document.getElementById('shi-meter-value').textContent = value === null ? '—' : value.toFixed(2);
+
+    // 映射 0~100 到 SVG 弧形路径偏移量（100 为空，0 为满弧）
+    const pct = value === null ? 0 : Math.max(0, Math.min(100, value));
+    const arc = document.getElementById('shi-meter-arc');
+    if (arc) arc.style.strokeDashoffset = String(100 - pct);
+
+    const details = [];
+    if (isEmpty) {
+        details.push(meta.reason === 'private_focal' ? '私密焦点不参与势计算' : '视界内只有焦点相事件');
+    } else {
+        details.push(`样本 ${meta.sample_count || 0}`);
+        details.push(`同向 ${meta.same_count || 0}`);
+        details.push(`反向 ${meta.opposite_count || 0}`);
+        if (meta.uncertain_count) details.push(`不确定 ${meta.uncertain_count}`);
+    }
+    if (meta.truncated) details.push('候选已截断');
+    document.getElementById('shi-meter-detail').textContent = details.join(' · ');
+    meter.title = `观测时刻：${meta.observed_at || '本次'}；公式版本：${meta.formula_version || '1.0'}`;
+}
+
+```
+
+### 4. 更新静态资源版本号
+
+修改完成后，把 `3d_main.html` 里引用的版本号顺手递增（例如 `?v=20261126shi5`），防止浏览器命中旧 CSS/JS 缓存。
