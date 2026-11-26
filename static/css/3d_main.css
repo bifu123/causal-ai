@@ -90,6 +90,7 @@ body::after {
     border-radius: 8px;
     padding: 12px 20px;
     pointer-events: auto;
+    z-index: 20;
 }
 
 #header h1 {
@@ -1919,159 +1920,181 @@ body::after {
     max-width: 90vw;
 }
 
-/* ========== 相事件：瞬时势仪表 ========== */
+/* ========== 相事件：天球星盘瞬时势仪轨（按《势设计图.jpg》等比构建） ========== */
 #shi-meter {
+    --shi-width: min(680px, 62vw, 68vh);
     position: fixed;
-    top: 20px;
+    top: 0;
     left: 50%;
     transform: translateX(-50%);
-    width: 320px;
-    max-width: calc(100vw - 32px);
-    box-sizing: border-box;
-    padding: 10px 14px 9px;
-    color: rgba(235, 244, 255, 0.92);
+    width: var(--shi-width);
+    aspect-ratio: 800 / 520;
+    color: rgba(235, 244, 255, 0.95);
     background: transparent;
     border: none;
-    border-radius: 8px;
     box-shadow: none;
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
     pointer-events: none;
-    z-index: 30;
+    z-index: 6;
+    user-select: none;
 }
 
 #shi-meter.hidden {
     display: none;
 }
 
-.shi-meter-heading,
-.shi-meter-reading {
-    display: flex;
-    align-items: center;
-}
-
-.shi-meter-heading {
-    justify-content: space-between;
-    gap: 12px;
-    margin-bottom: 7px;
-    font-size: 12px;
-    line-height: 1.4;
-    color: rgba(148, 163, 184, 0.92);
-}
-
-.shi-meter-title {
-    color: #60a5fa;
-    font-size: 14px;
-    font-weight: bold;
-    letter-spacing: 2px;
-}
-
-.shi-meter-reading {
-    gap: 12px;
-}
-
-.shi-meter-track {
-    position: relative;
-    flex: 1;
-    height: 5px;
-    overflow: hidden;
-    border-radius: 999px;
-    background: rgba(148, 163, 184, 0.18);
-}
-
-.shi-meter-fill {
+.shi-meter-svg {
+    position: absolute;
+    inset: 0;
     width: 100%;
     height: 100%;
-    border-radius: inherit;
-    background: #10b981;
-    box-shadow: 0 0 10px rgba(16, 185, 129, 0.45);
-    transform: scaleX(0);
-    transform-origin: left center;
-    transition: transform 0.22s ease-out;
+    overflow: visible;
 }
 
-.shi-meter-value {
-    min-width: 54px;
-    color: #10b981;
-    font-size: 20px;
-    font-variant-numeric: tabular-nums;
-    line-height: 1;
-    text-align: right;
+.shi-meter-arc,
+.shi-meter-arc-crest {
+    stroke-dasharray: 100 100;
+    stroke-dashoffset: 100;
+    transition: stroke-dashoffset 0.42s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-.shi-meter-detail {
-    margin-top: 7px;
-    overflow: hidden;
-    color: rgba(148, 163, 184, 0.88);
-    font-size: 11px;
-    line-height: 1.4;
-    text-overflow: ellipsis;
+/* 弧轨正上方标题区（对齐 viewBox y ≈ 104 / 520 = 20.0%） */
+.shi-meter-heading {
+    position: absolute;
+    top: 19.6%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    z-index: 2;
     white-space: nowrap;
 }
 
-#shi-meter[data-state="partial"] .shi-meter-value {
-    color: #f0c977;
+.shi-meter-title {
+    font-family: "Songti SC", "STSong", "SimSun", "STKaiti", "KaiTi", serif;
+    font-size: clamp(22px, calc(var(--shi-width) * 0.044), 32px);
+    font-weight: 500;
+    line-height: 1.1;
+    color: rgba(241, 245, 249, 0.96);
+    text-shadow:
+        0 0 18px rgba(125, 211, 252, 0.62),
+        0 2px 10px rgba(2, 6, 23, 0.85);
+    letter-spacing: 5px;
+    padding-left: 5px;
 }
 
-#shi-meter[data-state="partial"] .shi-meter-fill {
-    background: #f0c977;
+.shi-meter-state {
+    font-size: 11px;
+    line-height: 1.3;
+    letter-spacing: 2px;
+    color: rgba(186, 230, 253, 0.86);
+    text-shadow: 0 1px 6px rgba(2, 6, 23, 0.92);
+}
+
+#shi-meter[data-state="complete"] .shi-meter-state {
+    display: none;
+}
+
+/* 中央数值视窗（严格对齐 SVG 圆环圆心 400, 272 => left 50%, top 52.31%） */
+.shi-meter-core {
+    position: absolute;
+    top: 52.31%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 15.2%;
+    aspect-ratio: 1 / 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2;
+}
+
+.shi-meter-value {
+    font-family: "Bahnschrift", "DIN Condensed", "Arial Narrow", "Roboto Condensed", "Fira Code", sans-serif;
+    font-stretch: condensed;
+    font-size: clamp(23px, calc(var(--shi-width) * 0.052), 38px);
+    font-weight: 500;
+    line-height: 1;
+    letter-spacing: 1px;
+    font-variant-numeric: tabular-nums;
+    color: #f8fafc;
+    text-shadow:
+        0 0 14px rgba(254, 240, 138, 0.45),
+        0 0 26px rgba(56, 189, 248, 0.35);
+}
+
+/* 圆环正下方观测样本明细（对齐 viewBox y ≈ 368 / 520 = 70.8%） */
+.shi-meter-detail {
+    position: absolute;
+    top: 70.6%;
+    left: 50%;
+    transform: translateX(-50%);
+    max-width: 92%;
+    padding: 2px 12px;
+    overflow: hidden;
+    font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
+    font-size: clamp(12px, calc(var(--shi-width) * 0.019), 14px);
+    line-height: 1.4;
+    letter-spacing: 1.4px;
+    color: rgba(203, 213, 225, 0.88);
+    text-shadow:
+        0 1px 8px rgba(2, 6, 23, 0.95),
+        0 0 12px rgba(56, 189, 248, 0.28);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    z-index: 2;
+}
+
+#shi-meter[data-state="partial"] .shi-meter-value {
+    color: #fde68a;
 }
 
 #shi-meter[data-state="empty"] .shi-meter-value,
 #shi-meter[data-state="error"] .shi-meter-value {
-    color: rgba(148, 163, 184, 0.88);
+    color: rgba(148, 163, 184, 0.82);
+    text-shadow: none;
 }
 
-/* 通用业务提示仍正常展示；势仪表可见时移到其下方，避免遮挡读数。 */
+/* 通用业务提示仍正常展示；势仪轨可见时移到样本明细下方。 */
 #selection-hint.with-shi-meter {
-    top: 112px;
+    top: calc(var(--shi-width, min(740px, 68vw, 76vh)) * 0.54);
     box-sizing: border-box;
-    max-width: min(400px, calc(100vw - 32px));
+    max-width: min(420px, calc(100vw - 32px));
 }
 
-@media (max-width: 1180px) and (min-width: 769px) {
+@media (max-width: 1280px) and (min-width: 769px) {
     #shi-meter {
-        top: 112px;
-    }
-
-    #selection-hint.with-shi-meter {
-        top: 204px;
+        --shi-width: min(580px, 58vw, 68vh);
     }
 }
 
 @media (max-width: 768px) {
     #shi-meter {
-        top: 12px;
-        width: min(320px, calc(100vw - 128px));
-        max-width: none;
-        padding: 8px 10px;
-    }
-
-    #selection-hint.with-shi-meter {
-        top: 104px;
-    }
-
-    .shi-meter-heading {
-        margin-bottom: 5px;
-        font-size: 11px;
+        --shi-width: min(400px, calc(100vw - 16px));
+        top: 2px;
     }
 
     .shi-meter-title {
-        font-size: 13px;
-    }
-
-    .shi-meter-value {
-        min-width: 44px;
-        font-size: 17px;
+        letter-spacing: 3px;
+        padding-left: 3px;
     }
 
     .shi-meter-detail {
-        font-size: 10px;
+        font-size: 11px;
+        letter-spacing: 0.5px;
+    }
+
+    #selection-hint.with-shi-meter {
+        top: 228px;
     }
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .shi-meter-fill {
+    .shi-meter-arc,
+    .shi-meter-arc-crest {
         transition: none;
     }
 }

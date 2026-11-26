@@ -1737,14 +1737,32 @@ async function restoreFromNecropolis(node) {
 
 // --- 相事件“势”：只由 /click 响应驱动，不进入逐帧渲染 ---
 let shiObservationVersion = 0;
+let shiObservationFocal = null;
 
 function hideShiMeter() {
     const meter = document.getElementById('shi-meter');
     if (meter) meter.classList.add('hidden');
 }
 
+function cancelShiObservation() {
+    // 跨场或退出观测者视角时作废旧响应，避免上一场仪轨残留或被回写。
+    shiObservationVersion += 1;
+    shiObservationFocal = null;
+    hideShiMeter();
+}
+
+function setShiArcProgress(pct) {
+    const offset = String(100 - Math.max(0, Math.min(100, pct)));
+    const arc = document.getElementById('shi-meter-arc');
+    const crest = document.getElementById('shi-meter-arc-crest');
+    if (arc) arc.style.strokeDashoffset = offset;
+    if (crest) crest.style.strokeDashoffset = offset;
+}
+
 function beginShiObservation(node) {
     const version = ++shiObservationVersion;
+    // 保存本次真实焦点；搜索结果可能尚未加载到图中，此时先隐藏，等待响应确认。
+    shiObservationFocal = node ? { blockTag: node.block_tag || null } : null;
     const meter = document.getElementById('shi-meter');
     if (!meter) return version;
     if (!node || node.block_tag !== '相') {
@@ -1756,7 +1774,7 @@ function beginShiObservation(node) {
     document.getElementById('shi-meter-state').textContent = '正在观测';
     document.getElementById('shi-meter-value').textContent = '—';
     document.getElementById('shi-meter-detail').textContent = '正在生成当前相事件视界';
-    document.getElementById('shi-meter-fill').style.transform = 'scaleX(0)';
+    setShiArcProgress(0);
     meter.title = '每次点击均根据当前距离与关系重新观测，不使用旧势值';
     return version;
 }
@@ -1765,7 +1783,12 @@ function applyShiObservation(data, version) {
     if (version !== shiObservationVersion) return;
     const meter = document.getElementById('shi-meter');
     if (!meter) return;
-    if (!data || data.status !== 'success' || !data.shi_meta) {
+    const responseFocal = data && data.data && typeof data.data === 'object' ? data.data : null;
+    // 响应焦点优先于本地标签；非相焦点即使异常携带 shi_meta 也绝不显示仪轨。
+    const focalBlockTag = responseFocal && typeof responseFocal.block_tag === 'string'
+        ? responseFocal.block_tag
+        : (shiObservationFocal && shiObservationFocal.blockTag);
+    if (!data || data.status !== 'success' || focalBlockTag !== '相' || !data.shi_meta) {
         hideShiMeter();
         return;
     }
@@ -1779,11 +1802,10 @@ function applyShiObservation(data, version) {
         empty: '暂无可比较样本',
         partial: '部分观测',
         error: '本次势暂不可得',
-        complete: '瞬时观测'
+        complete: ''
     }[state];
     document.getElementById('shi-meter-value').textContent = value === null ? '—' : value.toFixed(2);
-    const scale = value === null ? 0 : Math.max(0, Math.min(100, value)) / 100;
-    document.getElementById('shi-meter-fill').style.transform = `scaleX(${scale})`;
+    setShiArcProgress(value === null ? 0 : value);
     const details = [];
     if (isEmpty) {
         details.push(meta.reason === 'private_focal' ? '私密焦点不参与势计算' : '视界内只有焦点相事件');
@@ -4320,6 +4342,7 @@ window.addEventListener('load', () => {
             // 不管是否携带 bot_id，只要点击异场节点就立即跨场跳转
             if (isForeignNode) {
                 console.log(`[星空跳跃] 即将前往异场 ${node.owner_id}，目标焦点 ${node.id}`);
+                cancelShiObservation();
                 const url = new URL(window.location.href);
                 url.searchParams.set('owner_id', node.owner_id);
                 // 使用 serial_id 定位节点
@@ -4891,8 +4914,7 @@ window.addEventListener('load', () => {
             horizonNodes.clear();
             currentBossNodeId = null; // 清除大股东状态以隐藏望远镜面板和光圈
             isGodView = true;
-            shiObservationVersion += 1;
-            hideShiMeter();
+            cancelShiObservation();
             
             btn.setAttribute('data-tooltip', '观测者视角');
             
@@ -5232,6 +5254,7 @@ window.addEventListener('load', () => {
         const currentOwnerId = window.currentOwnerId || 'default';
         if (resultOwnerId && resultOwnerId !== currentOwnerId) {
             console.log(`[星空跳跃] 搜索结果点击，即将前往异场 ${resultOwnerId}，目标焦点 ${nodeId}`);
+            cancelShiObservation();
             const url = new URL(window.location.href);
             url.searchParams.set('owner_id', resultOwnerId);
             url.searchParams.set('serial_id', serialId || nodeId);
@@ -5278,7 +5301,14 @@ window.addEventListener('load', () => {
         }
 
         lastLocalActionTime = Date.now(); // 记录操作时间，屏蔽远端跃迁干扰
-        const shiVersion = beginShiObservation(selectedNodeObj);
+        // 必须使用本次搜索结果，不得沿用上一次 selectedNodeObj 的相／非相标签。
+        const graphNodes = (typeof Graph !== 'undefined' && Graph) ? Graph.graphData().nodes : [];
+        const searchFocalNode = graphNodes.find(n =>
+            String(n.serial_id || n.本事件ID || '') === String(serialId) ||
+            String(n.id || '') === String(nodeId) ||
+            String(n.node_id || '') === String(nodeId)
+        ) || null;
+        const shiVersion = beginShiObservation(searchFocalNode);
 
         try {
             // 调用点击事件API
