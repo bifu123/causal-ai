@@ -14,6 +14,7 @@ from typing import Optional, List, Union
 from core.database import db
 from core.metabolism import MetabolismEngine
 from core.access import resolve_access, sanitize_nodes, node_visible, is_shared, is_builtin_admin
+from core.shi import shi_enabled, filter_shi_horizon, observe_shi, error_shi_meta
 
 # --- 应用初始化 ---
 app = FastAPI(title="AINS Causal Station")
@@ -1147,6 +1148,7 @@ async def handle_node_click(request: Request):
             "action_tag": search_result.get("动作标签"),
             "full_image_url": search_result.get("截图"),
             "owner_id": search_result.get("事件拥有者"),
+            "is_share": search_result.get("is_share"),
             "previous_ids": search_result.get("前事件ID列表", []) or [],
             "next_ids": search_result.get("后续事件ID列表", []) or []
         }
@@ -1243,7 +1245,25 @@ async def handle_node_click(request: Request):
                     existing_horizon_ids.add(n['node_id'])
                     visible_horizon_ids.add(n['node_id'])
             print(f"[点击事件] 纳入 bot({bot_id}) 的异场 chat 节点 {len(bot_nodes)} 个（参与重排）")
-                    
+
+        # “势”只在相节点点击时触发。先保留 /click 原有的本场＋接触面返回集合，
+        # 再用 block_tag="相" 过滤；extra_nodes 与后续权重行为不被该过滤改变。
+        shi = None
+        shi_meta = None
+        if shi_enabled() and node.get('block_tag') == '相':
+            event_horizon_nodes = filter_shi_horizon(node, event_horizon_nodes, max_eyes)
+            try:
+                shi, shi_meta = await observe_shi(node, event_horizon_nodes, max_eyes)
+                print(
+                    f"[势观测] 焦点={node_id}，相视界={len(event_horizon_nodes)}，"
+                    f"样本={shi_meta.get('sample_count')}，状态={shi_meta.get('status')}，shi={shi}"
+                )
+            except Exception as shi_error:
+                # 势计算失败不破坏原点击、权重与浏览能力，也绝不回填旧值。
+                print(f"[势观测] 本次计算失败: {shi_error}")
+                shi = None
+                shi_meta = error_shi_meta(max_eyes)
+
         event_horizon_ids = [n['node_id'] for n in event_horizon_nodes]
         print(f"[点击事件] 视界扫描完成，半径: {max_eyes}，视界内节点数: {len(event_horizon_ids)}，extra_nodes(异场并入重排): {len(extra_nodes)}")
         for en in extra_nodes:
@@ -1277,7 +1297,9 @@ async def handle_node_click(request: Request):
                 "owner_id": owner_id,
                 "access": access.to_public(),
                 "event_horizon": event_horizon_ids,
-                "event_horizon_details": event_horizon_nodes
+                "event_horizon_details": event_horizon_nodes,
+                "shi": shi,
+                "shi_meta": shi_meta
             }
         
         if not updated_nodes:
@@ -1289,7 +1311,9 @@ async def handle_node_click(request: Request):
                 "data": node,
                 "updated_count": 0,
                 "event_horizon": event_horizon_ids,
-                "event_horizon_details": event_horizon_nodes
+                "event_horizon_details": event_horizon_nodes,
+                "shi": shi,
+                "shi_meta": shi_meta
             }
         
         
@@ -1400,7 +1424,9 @@ async def handle_node_click(request: Request):
             "owner_id": owner_id,
             "access": access.to_public(),
             "event_horizon": event_horizon_ids,
-            "event_horizon_details": event_horizon_nodes
+            "event_horizon_details": event_horizon_nodes,
+            "shi": shi,
+            "shi_meta": shi_meta
         }
     
     except Exception as e:
@@ -1550,6 +1576,7 @@ async def get_current_event_horizon(request: Request):
             "action_tag": search_result.get("动作标签"),
             "full_image_url": search_result.get("截图"),
             "owner_id": search_result.get("事件拥有者"),
+            "is_share": search_result.get("is_share"),
             "previous_ids": search_result.get("前事件ID列表", []) or [],
             "next_ids": search_result.get("后续事件ID列表", []) or []
         }

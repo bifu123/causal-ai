@@ -20,7 +20,7 @@
     <!-- 然后加载3d-force-graph，它会使用已存在的THREE实例 -->
     <script src="/static/js/3d-force-graph.min.js"></script>
     
-    <link rel="stylesheet" href="/static/css/3d_main.css">
+    <link rel="stylesheet" href="/static/css/3d_main.css?v=20261126shi4">
     <link rel="stylesheet" href="/static/css/3d_form.css">
     <!-- EasyMDE Markdown编辑器 -->
     <link rel="stylesheet" href="/static/css/font-awesome.min.css">
@@ -52,6 +52,21 @@
                 </div>
                 <div class="header-hud-event" id="hud-event">-</div>
             </div>
+        </div>
+
+        <!-- 相事件的瞬时势：仅响应 /click，不进入 Three.js 渲染循环 -->
+        <div id="shi-meter" class="shi-meter hidden" role="status" aria-live="polite" aria-atomic="true">
+            <div class="shi-meter-heading">
+                <span class="shi-meter-title">势</span>
+                <span id="shi-meter-state">正在观测</span>
+            </div>
+            <div class="shi-meter-reading">
+                <div class="shi-meter-track" aria-hidden="true">
+                    <div id="shi-meter-fill" class="shi-meter-fill"></div>
+                </div>
+                <output id="shi-meter-value" class="shi-meter-value">—</output>
+            </div>
+            <div id="shi-meter-detail" class="shi-meter-detail">正在生成当前相事件视界</div>
         </div>
         
         <div id="node-info">
@@ -485,6 +500,6 @@
     </script>
 
     <script src="/static/js/3d_editor.js"></script>
-    <script src="/static/js/3d_main.js?v=20261125observerfollow2"></script>
+    <script src="/static/js/3d_main.js?v=20261126shi4"></script>
 </body>
 </html>

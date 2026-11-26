@@ -1546,7 +1546,7 @@ class CausalDatabase:
 
         sql = (
             f"SELECT n.serial_id, n.node_id, {parent_expr} AS parent_id, n.event_tuple,\n"
-            "       n.owner_id, n.is_share, n.full_image_url,\n"
+            "       n.block_tag, n.owner_id, n.is_share, n.full_image_url,\n"
             "       (n.semantic_vector <=> (\n"
             "           SELECT a.semantic_vector FROM ains_active_nodes a WHERE a.node_id = %s\n"
             "       )) * 100 as distance,\n"

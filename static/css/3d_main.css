@@ -1918,3 +1918,160 @@ body::after {
     width: 600px;
     max-width: 90vw;
 }
+
+/* ========== 相事件：瞬时势仪表 ========== */
+#shi-meter {
+    position: fixed;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 320px;
+    max-width: calc(100vw - 32px);
+    box-sizing: border-box;
+    padding: 10px 14px 9px;
+    color: rgba(235, 244, 255, 0.92);
+    background: transparent;
+    border: none;
+    border-radius: 8px;
+    box-shadow: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    pointer-events: none;
+    z-index: 30;
+}
+
+#shi-meter.hidden {
+    display: none;
+}
+
+.shi-meter-heading,
+.shi-meter-reading {
+    display: flex;
+    align-items: center;
+}
+
+.shi-meter-heading {
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 7px;
+    font-size: 12px;
+    line-height: 1.4;
+    color: rgba(148, 163, 184, 0.92);
+}
+
+.shi-meter-title {
+    color: #60a5fa;
+    font-size: 14px;
+    font-weight: bold;
+    letter-spacing: 2px;
+}
+
+.shi-meter-reading {
+    gap: 12px;
+}
+
+.shi-meter-track {
+    position: relative;
+    flex: 1;
+    height: 5px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: rgba(148, 163, 184, 0.18);
+}
+
+.shi-meter-fill {
+    width: 100%;
+    height: 100%;
+    border-radius: inherit;
+    background: #10b981;
+    box-shadow: 0 0 10px rgba(16, 185, 129, 0.45);
+    transform: scaleX(0);
+    transform-origin: left center;
+    transition: transform 0.22s ease-out;
+}
+
+.shi-meter-value {
+    min-width: 54px;
+    color: #10b981;
+    font-size: 20px;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+    text-align: right;
+}
+
+.shi-meter-detail {
+    margin-top: 7px;
+    overflow: hidden;
+    color: rgba(148, 163, 184, 0.88);
+    font-size: 11px;
+    line-height: 1.4;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+#shi-meter[data-state="partial"] .shi-meter-value {
+    color: #f0c977;
+}
+
+#shi-meter[data-state="partial"] .shi-meter-fill {
+    background: #f0c977;
+}
+
+#shi-meter[data-state="empty"] .shi-meter-value,
+#shi-meter[data-state="error"] .shi-meter-value {
+    color: rgba(148, 163, 184, 0.88);
+}
+
+/* 通用业务提示仍正常展示；势仪表可见时移到其下方，避免遮挡读数。 */
+#selection-hint.with-shi-meter {
+    top: 112px;
+    box-sizing: border-box;
+    max-width: min(400px, calc(100vw - 32px));
+}
+
+@media (max-width: 1180px) and (min-width: 769px) {
+    #shi-meter {
+        top: 112px;
+    }
+
+    #selection-hint.with-shi-meter {
+        top: 204px;
+    }
+}
+
+@media (max-width: 768px) {
+    #shi-meter {
+        top: 12px;
+        width: min(320px, calc(100vw - 128px));
+        max-width: none;
+        padding: 8px 10px;
+    }
+
+    #selection-hint.with-shi-meter {
+        top: 104px;
+    }
+
+    .shi-meter-heading {
+        margin-bottom: 5px;
+        font-size: 11px;
+    }
+
+    .shi-meter-title {
+        font-size: 13px;
+    }
+
+    .shi-meter-value {
+        min-width: 44px;
+        font-size: 17px;
+    }
+
+    .shi-meter-detail {
+        font-size: 10px;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .shi-meter-fill {
+        transition: none;
+    }
+}

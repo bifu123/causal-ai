@@ -455,6 +455,8 @@ function getThreeInstance() {
 function showSelectionHint(msg) {
     const hint = document.getElementById('selection-hint');
     if (!hint) return;
+    const meter = document.getElementById('shi-meter');
+    hint.classList.toggle('with-shi-meter', Boolean(meter && !meter.classList.contains('hidden')));
     hint.textContent = msg;
     hint.classList.remove('hidden');
     setTimeout(() => hint.classList.add('hidden'), 3000);
@@ -1733,6 +1735,73 @@ async function restoreFromNecropolis(node) {
     }
 }
 
+// --- 相事件“势”：只由 /click 响应驱动，不进入逐帧渲染 ---
+let shiObservationVersion = 0;
+
+function hideShiMeter() {
+    const meter = document.getElementById('shi-meter');
+    if (meter) meter.classList.add('hidden');
+}
+
+function beginShiObservation(node) {
+    const version = ++shiObservationVersion;
+    const meter = document.getElementById('shi-meter');
+    if (!meter) return version;
+    if (!node || node.block_tag !== '相') {
+        hideShiMeter();
+        return version;
+    }
+    meter.classList.remove('hidden');
+    meter.dataset.state = 'loading';
+    document.getElementById('shi-meter-state').textContent = '正在观测';
+    document.getElementById('shi-meter-value').textContent = '—';
+    document.getElementById('shi-meter-detail').textContent = '正在生成当前相事件视界';
+    document.getElementById('shi-meter-fill').style.transform = 'scaleX(0)';
+    meter.title = '每次点击均根据当前距离与关系重新观测，不使用旧势值';
+    return version;
+}
+
+function applyShiObservation(data, version) {
+    if (version !== shiObservationVersion) return;
+    const meter = document.getElementById('shi-meter');
+    if (!meter) return;
+    if (!data || data.status !== 'success' || !data.shi_meta) {
+        hideShiMeter();
+        return;
+    }
+    const meta = data.shi_meta;
+    const value = (typeof data.shi === 'number' && Number.isFinite(data.shi)) ? data.shi : null;
+    const isEmpty = meta.sample_count === 0 || meta.reason === 'no_samples' || meta.reason === 'private_focal';
+    const state = isEmpty ? 'empty' : (meta.status === 'partial' ? 'partial' : (value === null ? 'error' : 'complete'));
+    meter.classList.remove('hidden');
+    meter.dataset.state = state;
+    document.getElementById('shi-meter-state').textContent = {
+        empty: '暂无可比较样本',
+        partial: '部分观测',
+        error: '本次势暂不可得',
+        complete: '瞬时观测'
+    }[state];
+    document.getElementById('shi-meter-value').textContent = value === null ? '—' : value.toFixed(2);
+    const scale = value === null ? 0 : Math.max(0, Math.min(100, value)) / 100;
+    document.getElementById('shi-meter-fill').style.transform = `scaleX(${scale})`;
+    const details = [];
+    if (isEmpty) {
+        details.push(meta.reason === 'private_focal' ? '私密焦点不参与势计算' : '视界内只有焦点相事件');
+    } else {
+        details.push(`样本 ${meta.sample_count || 0}`);
+        details.push(`同向 ${meta.same_count || 0}`);
+        details.push(`反向 ${meta.opposite_count || 0}`);
+        if (meta.uncertain_count) details.push(`不确定 ${meta.uncertain_count}`);
+    }
+    if (meta.truncated) details.push('候选已截断');
+    document.getElementById('shi-meter-detail').textContent = details.join(' · ');
+    meter.title = `观测时刻：${meta.observed_at || '本次'}；公式版本：${meta.formula_version || '1.0'}`;
+}
+
+function failShiObservation(version) {
+    if (version === shiObservationVersion) hideShiMeter();
+}
+
 /**
  * 提升节点权重（与原始实现一致）
  * @param {Object} node 目标节点
@@ -1747,6 +1816,7 @@ async function promoteNodeWeight(node, maxEyes = null) {
     // 【本地操作登记】这是本地主动发起的权重提升，其广播回声不应被当作远端跃迁，
     // 否则本机会额外叠一束圣光并把镜头抢走（远端客户端不受影响，只需屏蔽本机）。
     lastLocalActionTime = Date.now();
+    const shiVersion = beginShiObservation(node);
     
     try {
         console.log(`尝试提升节点 ${node.id} 到所有节点总权重的60%`);
@@ -1783,6 +1853,7 @@ async function promoteNodeWeight(node, maxEyes = null) {
         
         const data = await response.json();
         console.log(`[权重提升] API响应:`, data);
+        applyShiObservation(data, shiVersion);
         
         if (data.status === 'success') {
             selectNode = true;
@@ -1798,8 +1869,13 @@ async function promoteNodeWeight(node, maxEyes = null) {
             const viewBtn = document.getElementById('btn-fit-view');
             if (viewBtn) viewBtn.setAttribute('data-tooltip', '上帝视角');
             updateHighlight();
-            console.log(`全局权重提升成功: ${data.message}`);
-            showSelectionHint(`节点权重已提升到所有节点总权重的60%，更新了 ${data.updated_count} 个节点。等待Socket.IO广播具体权重...`);
+            if (!actorId && !data.actor_id) {
+                console.log(`匿名观测完成: ${data.message}`);
+                showSelectionHint('匿名观测完成，未写入权重');
+            } else {
+                console.log(`全局权重提升成功: ${data.message}`);
+                showSelectionHint(`节点权重已提升到所有节点总权重的60%，更新了 ${data.updated_count} 个节点。等待Socket.IO广播具体权重...`);
+            }
             return true;
         } else {
             console.log(`全局权重提升失败: ${data.message}`);
@@ -1807,6 +1883,7 @@ async function promoteNodeWeight(node, maxEyes = null) {
             return false;
         }
     } catch (error) {
+        failShiObservation(shiVersion);
         console.error(`全局权重提升失败:`, error);
         showSelectionHint(`全局权重提升失败: ${error.message}`);
         return false;
@@ -3671,6 +3748,7 @@ function handleNodeClick(node) {
     }
     
     console.log(`[点击事件] 请求数据:`, requestData);
+    const shiVersion = beginShiObservation(node);
     
     fetch('/api/v1/causal/click', {
         method: 'POST',
@@ -3679,6 +3757,7 @@ function handleNodeClick(node) {
     })
     .then(response => response.json())
     .then(data => {
+        applyShiObservation(data, shiVersion);
         if (data.status === 'success' && data.event_horizon) {
             console.log(`[事件视界] 收到视界内节点数: ${data.event_horizon.length}`);
             horizonNodes.clear();
@@ -3722,7 +3801,10 @@ function handleNodeClick(node) {
             updateHighlight();
         }
     })
-    .catch(error => console.error('[点击事件] 请求失败:', error));
+    .catch(error => {
+        failShiObservation(shiVersion);
+        console.error('[点击事件] 请求失败:', error);
+    });
 }
 
 /**
@@ -4294,6 +4376,7 @@ window.addEventListener('load', () => {
                     requestData.max_eyes = parseFloat(slider.value);
                 }
                 console.log(`[点击事件(只读)] 请求数据:`, requestData);
+                const shiVersion = beginShiObservation(node);
                 fetch('/api/v1/causal/click', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -4301,6 +4384,7 @@ window.addEventListener('load', () => {
                 })
                 .then(response => response.json())
                 .then(data => {
+                    applyShiObservation(data, shiVersion);
                     if (data.status === 'success') {
                         currentBossNodeId = node.id; // 记录当前大股东
                     }
@@ -4342,7 +4426,10 @@ window.addEventListener('load', () => {
                         updateHighlight();
                     }
                 })
-                .catch(error => console.error('[API-only点击] 请求失败:', error));
+                .catch(error => {
+                    failShiObservation(shiVersion);
+                    console.error('[API-only点击] 请求失败:', error);
+                });
                 setTimeout(() => { node.fx = node.fy = node.fz = null; }, 1000);
                 return;
             }
@@ -4381,6 +4468,7 @@ window.addEventListener('load', () => {
             }
             
             console.log(`[点击事件(编辑)] 请求数据:`, requestData);
+            const shiVersion = beginShiObservation(node);
             
             fetch('/api/v1/causal/click', {
                 method: 'POST',
@@ -4389,6 +4477,7 @@ window.addEventListener('load', () => {
             })
             .then(response => response.json())
             .then(data => {
+                applyShiObservation(data, shiVersion);
                 if (data.status === 'success') {
                     currentBossNodeId = node.id; // 记录当前大股东
                 }
@@ -4430,7 +4519,10 @@ window.addEventListener('load', () => {
                     updateHighlight();
                 }
             })
-            .catch(error => console.error('[点击事件] 请求失败:', error));
+            .catch(error => {
+                failShiObservation(shiVersion);
+                console.error('[点击事件] 请求失败:', error);
+            });
         })
 
         // --- [5. 连线与细节配置] ---
@@ -4678,6 +4770,7 @@ window.addEventListener('load', () => {
             };
             
             showSelectionHint('正在扫描事件视界...');
+            const shiVersion = beginShiObservation(selectedNodeObj);
             
             fetch('/api/v1/causal/click', {
                 method: 'POST',
@@ -4686,6 +4779,7 @@ window.addEventListener('load', () => {
             })
             .then(res => res.json())
             .then(data => {
+                applyShiObservation(data, shiVersion);
                 if (data.status === 'success' && data.event_horizon) {
                     const horizonIds = data.event_horizon;
                     showSelectionHint(`视界扫描完成：发现 ${horizonIds.length} 个节点`);
@@ -4757,6 +4851,7 @@ window.addEventListener('load', () => {
                 }
             })
             .catch(err => {
+                failShiObservation(shiVersion);
                 console.error('视界扫描异常:', err);
                 showSelectionHint('视界扫描异常');
             });
@@ -4796,6 +4891,8 @@ window.addEventListener('load', () => {
             horizonNodes.clear();
             currentBossNodeId = null; // 清除大股东状态以隐藏望远镜面板和光圈
             isGodView = true;
+            shiObservationVersion += 1;
+            hideShiMeter();
             
             btn.setAttribute('data-tooltip', '观测者视角');
             
@@ -5181,6 +5278,7 @@ window.addEventListener('load', () => {
         }
 
         lastLocalActionTime = Date.now(); // 记录操作时间，屏蔽远端跃迁干扰
+        const shiVersion = beginShiObservation(selectedNodeObj);
 
         try {
             // 调用点击事件API
@@ -5205,12 +5303,17 @@ window.addEventListener('load', () => {
             });
 
             const data = await response.json();
+            applyShiObservation(data, shiVersion);
 
             if (data.status === 'success') {
                 // 如果 nodeId 为空（例如通过 URL 触发），尝试从返回数据中获取
                 // If serialId comes from URL, it's a string, which can cause type mismatch when finding node. Stringifying both for robust matching.
                 const displayNodeId = nodeId || (data.node && data.node.node_id) || String(serialId);
-                showSelectionHint(`已瞄定事件 "${displayNodeId}"，权重提升到60%`);
+                if (!window.currentActorId && !data.actor_id) {
+                    showSelectionHint(`已瞄定事件 "${displayNodeId}"，匿名观测未写入权重`);
+                } else {
+                    showSelectionHint(`已瞄定事件 "${displayNodeId}"，权重提升到60%`);
+                }
                 // 【Kimi fix】result-action-btn 点击与直接点击/拉滑杆路径的关键差异：
                 // 必须同步更新 currentBossNodeId 和 horizonNodes，否则大股东节点
                 // 在 updateEventHorizonVisibility 里仍被视为视界外，opacity 保持为 0。
@@ -5273,6 +5376,7 @@ window.addEventListener('load', () => {
                 showSelectionHint(`瞄定失败: ${data.message}`);
             }
         } catch (error) {
+            failShiObservation(shiVersion);
             console.error('[搜索点击] 点击事件处理失败:', error);
             showSelectionHint(`瞄定失败: ${error.message}`);
         }

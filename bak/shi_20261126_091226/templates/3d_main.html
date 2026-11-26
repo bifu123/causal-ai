@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
+    <meta charset="UTF-8">
+    <meta name="referrer" content="no-referrer">
+    <title>因果星空</title>
+    <script src="/static/js/socket.io.min.js"></script>
+    
+    <!-- 关键修复：先加载THREE.js -->
+    <!-- 使用明确创建全局THREE变量的版本 -->
+    <script src="/static/js/three.min.js"></script>
+    
+    <!-- 添加Tween.js用于相机动画 -->
+    <script src="/static/js/tween.umd.js"></script>
+    
+    <!-- 加载d3.js库（3d-force-graph依赖） -->
+    <script src="/static/js/d3.min.js"></script>
+    
+    <!-- 然后加载3d-force-graph，它会使用已存在的THREE实例 -->
+    <script src="/static/js/3d-force-graph.min.js"></script>
+    
+    <link rel="stylesheet" href="/static/css/3d_main.css?v=20261126shi1">
+    <link rel="stylesheet" href="/static/css/3d_form.css">
+    <!-- EasyMDE Markdown编辑器 -->
+    <link rel="stylesheet" href="/static/css/font-awesome.min.css">
+    <link rel="stylesheet" href="/static/css/easymde.min.css">
+    <!-- 全部第三方资源已本地化（内网/无外网环境可用） -->
+    <link rel="stylesheet" href="/static/css/katex.min.css">
+    <script src="/static/js/marked.min.js"></script>
+    <script src="/static/js/katex.min.js"></script>
+    <script src="/static/js/marked-katex-extension.umd.js"></script>
+
+    <script src="/static/js/easymde.min.js"></script>
+</head>
+<body>
+    <div id="3d-graph"></div>
+    
+    <!-- 移动端 header 折叠按钮 -->
+    <div id="header-toggle" onclick="document.getElementById('header').classList.toggle('expanded')">➥</div>
+    
+    <div id="ui-overlay">
+        <div id="header">
+            <h1>因果星空 · 3D 视觉实现</h1>
+            <!-- <div class="subtitle">阶段一：逻辑建模期 · 骨架与巡航</div> -->
+            <div class="subtitle"></div>
+            <div id="header-hud" class="header-hud">
+                <div class="header-hud-row">
+                    <span id="hud-serial">序列 <span>-</span></span>
+                    <span class="hud-sep">|</span>
+                    <span id="hud-weight">权重 <span class="hud-w-val">-</span> <span class="hud-w-stat"></span></span>
+                </div>
+                <div class="header-hud-event" id="hud-event">-</div>
+            </div>
+        </div>
+
+        <!-- 相事件的瞬时势：仅响应 /click，不进入 Three.js 渲染循环 -->
+        <div id="shi-meter" class="shi-meter hidden" role="status" aria-live="polite" aria-atomic="true">
+            <div class="shi-meter-heading">
+                <span class="shi-meter-title">势</span>
+                <span id="shi-meter-state">正在观测</span>
+            </div>
+            <div class="shi-meter-reading">
+                <div class="shi-meter-track" aria-hidden="true">
+                    <div id="shi-meter-fill" class="shi-meter-fill"></div>
+                </div>
+                <output id="shi-meter-value" class="shi-meter-value">—</output>
+            </div>
+            <div id="shi-meter-detail" class="shi-meter-detail">正在生成当前相事件视界</div>
+        </div>
+        
+        <div id="node-info">
+            <!-- <h3>节点详情</h3>
+            <div class="info-row">
+                <div class="info-label">ID:</div>
+                <div class="info-value" id="info-node-id">-</div>
+            </div>
+            <div class="info-row">
+                <div class="info-label">动作标签:</div>
+                <div class="info-value" id="info-action-tag">-</div>
+            </div>
+            <div class="info-row">
+                <div class="info-label">因缘标签:</div>
+                <div class="info-value" id="info-block-tag">-</div>
+            </div>
+            <div class="info-row">
+                <div class="info-label">权重:</div>
+                <div class="info-value" id="info-weight">-</div>
+            </div>
+            <div class="info-row">
+                <div class="info-label">父节点:</div>
+                <div class="info-value" id="info-parents">-</div>
+            </div>
+            <div class="info-row"> -->
+                <div class="info-label">事件叙述:</div>
+                <div class="info-value" id="info-event-tuple">-</div>
+            </div>
+        </div>
+        
+        <div id="controls">
+            <div class="control-icon" id="btn-fit-view" data-tooltip="上帝视角" onclick="handleFitViewClick()">
+                <div class="icon-zoom">⛶</div>
+            </div>
+            <div class="control-icon" id="btn-dragon-cruise" data-tooltip="因果寻龙">
+                <div class="icon-compass">➤</div>
+            </div>
+            <div class="control-icon owner-edit-only hidden" id="btn-create-node" data-tooltip="发起首贞">
+                <div class="icon-plus">贞</div>
+            </div>
+        </div>
+
+        <!-- 望远镜控制面板 -->
+        <div id="telescope-panel">
+            <input type="range" id="telescope-slider" class="telescope-slider" min="0" max="100" step="1" value="{{ max_eyes }}">
+        </div>
+
+        <!-- 屏幕中央瞄准刻度：无外圈水平刻度 + 滑块 -->
+        <div id="telescope-reticle" class="hidden">
+            <div class="reticle-scale">
+                <div class="reticle-track">
+                    <div class="reticle-tick" style="left: 0%;"></div>
+                    <div class="reticle-tick" style="left: 10%;"></div>
+                    <div class="reticle-tick" style="left: 20%;"></div>
+                    <div class="reticle-tick" style="left: 30%;"></div>
+                    <div class="reticle-tick" style="left: 40%;"></div>
+                    <div class="reticle-tick reticle-tick-center" style="left: 50%;"></div>
+                    <div class="reticle-tick" style="left: 60%;"></div>
+                    <div class="reticle-tick" style="left: 70%;"></div>
+                    <div class="reticle-tick" style="left: 80%;"></div>
+                    <div class="reticle-tick" style="left: 90%;"></div>
+                    <div class="reticle-tick" style="left: 100%;"></div>
+                    <div class="reticle-thumb" id="reticle-thumb"></div>
+                </div>
+            </div>
+            <div class="reticle-value" id="reticle-value-display">30</div>
+        </div>
+
+        <!-- 星际导航盘 -->
+        <div id="nav-container">
+            <div id="nav-pad">
+                <div class="nav-row">
+                    <div class="nav-btn nav-in" data-dir="in" title="向深处飞行">＋</div>
+                    <div class="nav-btn nav-up" data-dir="up" title="向上平移">▲</div>
+                    <div class="nav-btn nav-out" data-dir="out" title="向近处退回">－</div>
+                </div>
+                <div class="nav-row">
+                    <div class="nav-btn nav-left" data-dir="left" title="向左平移">◀</div>
+                    <div class="nav-btn nav-center" data-dir="reset" title="复位到标准观测点">⌂</div>
+                    <div class="nav-btn nav-right" data-dir="right" title="向右平移">▶</div>
+                </div>
+                <div class="nav-row">
+                    <div class="nav-btn empty"></div>
+                    <div class="nav-btn nav-down" data-dir="down" title="向下平移">▼</div>
+                    <div class="nav-btn empty"></div>
+                </div>
+            </div>
+            <div id="nav-toggle" title="拖拽移动 / 点击折叠">🔋</div>
+        </div>
+        
+        <!-- 搜索面板 - 右上角可折叠 -->
+        <div id="search-panel">
+            <!-- 搜索图标按钮 - 默认显示 -->
+            <div class="search-toggle" id="btn-toggle-search" title="展开搜索面板">
+                🔍
+            </div>
+            
+            <!-- 搜索表单容器 - 默认隐藏 -->
+            <div class="search-form-container" id="search-form-container">
+                <div class="search-form-header">
+                    <div class="search-form-title">事件搜索</div>
+                    <div class="search-form-close" id="btn-close-search" title="关闭搜索面板">✕</div>
+                </div>
+                
+                <div class="search-input-group">
+                    <input type="text" id="search-input" class="search-input" placeholder="输入关键词搜索事件...">
+                    <select id="search-type" class="search-select">
+                        <option value="keyword">关键字搜索</option>
+                        <option value="vector">语义搜索</option>
+                        <option value="serial">序列ID搜索</option>
+                    </select>
+                </div>
+                
+                <button id="btn-search" class="search-submit-button">搜索</button>
+                
+                <!-- 搜索结果区域 - 默认隐藏 -->
+                <div id="search-results" class="search-results" style="display: none;">
+                    <div class="search-empty">输入关键词开始搜索</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 抽屉：节点增删改功能 -->
+    <div id="drawer" class="drawer drawer-hidden">
+        <div class="drawer-header">
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <h2>龙穴详情</h2>
+                <button id="btn-collapse-drawer" class="drawer-collapse-btn" title="折叠抽屉">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
+                    </svg>
+                </button>
+            </div>
+            <button id="btn-close-drawer" class="drawer-close" title="关闭并取消选择">✕</button>
+        </div>
+        
+        <div class="drawer-content">
+            <section>
+                <label class="drawer-label">卜辞（最简二元组描述）</label>
+                <input id="d-node-id" type="text" class="drawer-input">
+            </section>
+
+            <section>
+                <label class="drawer-label">动作标签 (Action Tag)</label>
+                <select id="d-action-tag" class="drawer-select">
+                    <option value="贞">贞</option>
+                    <option value="又贞">又贞</option>
+                    <option value="对贞">对贞</option>
+                </select>
+            </section>
+
+            <section>
+                <label class="drawer-label">因缘标签 (Block Tag)</label>
+                <select id="d-block-tag" class="drawer-select">
+                    <option value="因">因 (原因/起因)</option>
+                    <option value="相">相 (现象/状态)</option>
+                    <option value="果">果 (结果/成果)</option>
+                </select>
+            </section>
+
+            <section class="copy-edit-only">
+                <label class="drawer-label">父节点 ID (Parent IDs)</label>
+                <div class="relative">
+                    <input id="d-parent-ids" type="text" class="drawer-input" placeholder="点击节点图标自动填充，多个ID用|分隔">
+                    <div class="drawer-hint hidden" id="parent-id-hint">点击节点填充</div>
+                </div>
+                <div class="drawer-tip">
+                    提示：点击此输入框获得焦点后，再点击图中的节点图标，节点ID将自动填入
+                </div>
+            </section>
+
+            <section>
+                <label class="drawer-label">事件叙述 (Event Tuple)</label>
+                <div class="relative">
+                    <textarea id="d-event-tuple" class="drawer-textarea"></textarea>
+                    <!-- 放大图标 -->
+                    <button id="expand-event-tuple-btn" class="expand-btn" title="放大编辑">⛶</button>
+                </div>
+            </section>
+
+            <section>
+                <label class="drawer-label">生存权重 (Survival Weight)</label>
+                <div class="weight-container">
+                    <div class="weight-bar-bg">
+                        <div id="d-weight-bar" class="weight-bar-fill"></div>
+                    </div>
+                    <span id="d-weight-value" class="weight-value">0.0000</span>
+                </div>
+            </section>
+
+            <section>
+                <div style="display: flex; align-items: center; justify-content: space-between;">
+                    <label class="drawer-label" style="margin-bottom: 0;">对外场开放 (is_share)</label>
+                    <input id="d-is-share" type="checkbox" style="cursor: pointer;">
+                </div>
+            </section>
+
+            <section>
+                <label class="drawer-label">图片上传</label>
+                <div class="image-upload-container">
+                    <div class="image-upload-row">
+                        <input id="d-image-file" type="file" accept="image/*" class="image-file-input">
+                        <button id="btn-upload-image" class="image-upload-btn">上传</button>
+                    </div>
+                    <div id="d-image-preview" class="image-preview hidden">
+                        <img id="d-preview-img" class="preview-image">
+                    </div>
+                    <input id="d-full-image-url" type="text" class="drawer-input" placeholder="或直接输入图片URL">
+                </div>
+            </section>
+
+            <div class="drawer-actions">
+                <button id="btn-save-node" class="btn-save copy-edit-only hidden">保存修改</button>
+                <button id="btn-delete-node" class="btn-delete owner-edit-only hidden">删除事件</button>
+            </div>
+
+            <div class="drawer-derive">
+                <button id="btn-derive-youzhen" class="btn-derive owner-edit-only hidden">又贞</button>
+                <button id="btn-derive-duizhen" class="btn-derive owner-edit-only hidden">对贞</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 抽屉展开按钮（默认隐藏） -->
+    <button id="btn-expand-drawer" class="drawer-expand-btn hidden" title="展开抽屉">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
+        </svg>
+    </button>
+
+    <!-- 模态框：创建新节点 -->
+    <div id="create-modal" class="modal modal-hidden">
+        <div class="modal-content">
+            <h3>发起首贞</h3>
+            
+            <div class="modal-form">
+                <div class="form-group">
+                    <label>卜辞（最简二元组描述）</label>
+                    <input id="modal-node-id" type="text" class="modal-input">
+                </div>
+                
+                <div class="form-group">
+                    <label>事件叙述</label>
+                    <textarea id="modal-event-tuple" class="modal-textarea" style="min-height: 250px; resize: vertical;"></textarea>
+                </div>
+                
+                <div class="form-group" style="display: flex; align-items: center; gap: 8px;">
+                    <label style="margin-bottom: 0;">对外场开放 (is_share)</label>
+                    <input id="modal-is-share" type="checkbox" style="cursor: pointer;">
+                </div>
+                
+                <div class="form-group">
+                    <label>图片上传</label>
+                    <input id="modal-image-file" type="file" accept="image/*" class="modal-file-input">
+                    <div id="modal-image-preview" class="modal-image-preview hidden">
+                        <img id="modal-preview-img" class="modal-preview-image">
+                    </div>
+                </div>
+            </div>
+            
+            <div class="modal-actions">
+                <button id="btn-cancel-create" class="btn-cancel">取消</button>
+                <button id="btn-submit-create" class="btn-submit">创建</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 模态框：创建衍生节点 -->
+    <div id="derive-modal" class="modal modal-hidden">
+        <div class="modal-content">
+            <h3 id="derive-title">又贞</h3>
+            
+            <div class="modal-form">
+                <div class="form-group">
+                    <label>卜辞（最简二元组描述）</label>
+                    <input id="derive-node-id" type="text" class="modal-input">
+                </div>
+                
+                <div class="form-group">
+                    <label>动作标签</label>
+                    <input id="derive-action-tag" type="text" class="modal-input" readonly>
+                </div>
+                
+                <div class="form-group">
+                    <label>因缘标签</label>
+                    <select id="derive-block-tag" class="modal-select">
+                        <option value="">请选择因缘标签</option>
+                        <option value="因">因 (原因/起因)</option>
+                        <option value="相">相 (现象/状态)</option>
+                        <option value="果">果 (结果/成果)</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label>事件叙述</label>
+                    <textarea id="derive-event-tuple" class="modal-textarea"></textarea>
+                </div>
+                
+                <div class="form-group" style="display: flex; align-items: center; gap: 8px;">
+                    <label style="margin-bottom: 0;">对外场开放 (is_share)</label>
+                    <input id="derive-is-share" type="checkbox" style="cursor: pointer;">
+                </div>
+                
+                <div class="form-group">
+                    <label>图片上传</label>
+                    <input id="derive-image-file" type="file" accept="image/*" class="modal-file-input">
+                    <div id="derive-image-preview" class="modal-image-preview hidden">
+                        <img id="derive-preview-img" class="modal-preview-image">
+                    </div>
+                </div>
+            </div>
+            
+            <div class="modal-actions">
+                <button id="btn-cancel-derive" class="btn-cancel">取消</button>
+                <button id="btn-submit-derive" class="btn-submit">创建</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 图片全屏模态框 -->
+    <div id="image-modal" class="modal modal-hidden">
+        <div class="modal-image-content">
+            <button id="btn-close-image" class="image-close">✕</button>
+            <img id="full-image" class="full-image">
+            <div class="image-caption">点击图片外区域关闭</div>
+        </div>
+    </div>
+
+    <!-- 提示信息 -->
+    <div id="selection-hint" class="hint hidden"></div>
+
+    <!-- 事件叙述放大模态框 -->
+    <div id="event-tuple-modal" class="event-tuple-modal hidden">
+        <div class="event-tuple-modal-content">
+            <!-- 模态框头部 -->
+            <div class="event-tuple-modal-header">
+                <h3>事件叙述编辑器</h3>
+                <div class="event-tuple-modal-buttons">
+                    <!-- 复制按钮 -->
+                    <button id="copy-event-tuple-btn" class="event-tuple-modal-button copy-button" title="复制内容">📋</button>
+                    <!-- 分享按钮 -->
+                    <button id="share-event-tuple-btn" class="event-tuple-modal-button share-button" title="分享节点链接">🔗</button>
+                    <!-- 关闭按钮 -->
+                    <button id="close-event-tuple-modal-btn" class="event-tuple-modal-button close-button" title="保存并关闭">💾</button>
+                </div>
+            </div>
+            
+            <!-- 模态框内容区域 -->
+            <div class="event-tuple-modal-body">
+                <!-- EasyMDE编辑器容器 -->
+                <textarea id="modal-event-tuple-editor" class="event-tuple-editor-textarea"></textarea>
+            </div>
+            
+            <!-- 模态框底部提示 -->
+            <div class="event-tuple-modal-footer">
+                使用Markdown编辑器编辑事件叙述，点击复制按钮复制内容，点击关闭按钮保存并返回
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 从URL参数获取用户ID和拥有者ID
+        function getActorIdFromURL() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const actorId = urlParams.get('actor_id');
+            return actorId || '';
+        }
+        
+        function getOwnerIdFromURL() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const ownerId = urlParams.get('owner_id');
+            return ownerId || 'default';
+        }
+        
+        function getBotIdFromURL() {
+            const urlParams = new URLSearchParams(window.location.search);
+            return urlParams.get('bot_id') || '';
+        }
+        
+        // 设置全局用户ID和拥有者ID变量
+        // 服务端已依据 token 裁决身份：优先使用服务端解析出的 actor_id（防冒名）
+        window.currentActorId = {{ (resolved_actor_id or '') | tojson }};
+        window.currentOwnerId = {{ (resolved_owner_id or getOwnerIdFromURL()) | tojson }};
+        window.currentBotId = getBotIdFromURL();
+        // 服务端裁决的角色矩阵（anonymous / observer / owner / admin）
+        window.ACCESS_SEED = {{ (access or {}) | tojson }};
+
+        // 身份漂移：URL 中的 actor_id 与服务端裁决结果不一致时提示（token 身份优先）
+        const urlActorId = getActorIdFromURL();
+        if (urlActorId && window.currentActorId && urlActorId !== window.currentActorId) {
+            console.warn(`[鉴权] URL actor_id="${urlActorId}" 与钥匙身份 "${window.currentActorId}" 不一致，以钥匙身份为准`);
+        }
+        
+        // 配置Socket.IO连接，确保与服务器兼容（带上 owner_id/actor_id 用于房间隔离）
+        const socket = io({
+            path: '/socket.io',
+            transports: ['websocket', 'polling'],
+            reconnection: true,
+            reconnectionAttempts: 5,
+            reconnectionDelay: 1000,
+            query: {
+                owner_id: window.currentOwnerId,
+                actor_id: window.currentActorId || '',
+                role: (window.ACCESS_SEED && window.ACCESS_SEED.role) || ''
+            }
+        });
+        
+        // 设置全局socket变量供其他脚本使用
+        window.socket = socket;
+        
+        // 初始化用户ID和拥有者ID显示
+        const accessSeed = window.ACCESS_SEED || {};
+        if (window.currentActorId || window.currentOwnerId !== 'default') {
+            console.log(`[用户初始化] 服务端裁决: actor_id=${window.currentActorId}, owner_id=${window.currentOwnerId}, role=${accessSeed.role}`);
+            // 可以在页面上显示当前用户ID和拥有者ID
+            const header = document.querySelector('#header h1');
+            if (header) {
+                let infoHtml = ` <span id="access-badge" style="font-size: 13px; padding: 2px 8px; border-radius: 10px; background: #1f2937; color: #10b981;">${accessSeed.role || 'anonymous'}</span>`;
+                if (window.currentActorId) {
+                    infoHtml += ` <span style="font-size: 14px;">观察者: <font color="#10b981">${window.currentActorId}</font></span>`;
+                }
+                if (window.currentOwnerId !== 'default') {
+                    infoHtml += ` <span style="font-size: 14px;">场主: <font color="#10b981">${window.currentOwnerId}</font></span>`;
+                }
+                header.innerHTML += infoHtml;
+            }
+        } else {
+            console.log(`[用户初始化] 未指定用户ID和拥有者ID，使用默认视图（匿名浏览）`);
+        }
+    </script>
+
+    <script src="/static/js/3d_editor.js"></script>
+    <script src="/static/js/3d_main.js?v=20261126shi1"></script>
+</body>
+</html>

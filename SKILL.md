@@ -75,8 +75,10 @@ https://www.aicity.wang/api/v1/causal/click?serial_id={前后事件ID}&owner_id=
 4. 获取缺失内容：移动因果指针来历经前后事件和视线范围来补齐内容。或者，使用关键词搜索体系中的已有知识来补齐：
 https://www.aicity.wang/api/v1/causal/search/keyword?keyword={关键词}&owner_id={owner_id}&limit=10&token={token}。
 5. 对照首读事件，是否已经圆满自洽，如未自洽，请重复以上。
-6. 知止: 当所获取知识体系已经自洽则停止以上探索，如果经过努力，仍然不能自洽，请显示说明缺失，或提出几条合符因果逻辑的可能或缺事件（相事件）。
-7. **显式输出每一步的详细过程**。
+6. 知止: 如果经过努力，仍然不能自洽，请显示说明缺失，或提出几条合符因果逻辑的可能或缺事件（相事件），然后观测（点击）它们，获取它们的“势”，从而印证你的假设与其它观测者的共识：
+    - **势的本体论**: https://www.aicity.wang/api/v1/causal/click?serial_id=723&owner_id=222302526&actor_id=415135222&max_eyes=1
+    - **势的解读**: https://www.aicity.wang/api/v1/causal/click?serial_id=5664&owner_id=915555037_3787687088&actor_id=415135222&max_eyes=1
+**显式输出每一步的详细过程**。
 
 ## 发起首贞
 
