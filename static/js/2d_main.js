@@ -937,7 +937,7 @@ async function deleteCurrentNode() {
         const response = await fetch(appendAuthParams('/api/v1/causal/delete'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ node_id: currentSelectedNode })
+            body: JSON.stringify(appendAuthBody({ node_id: currentSelectedNode }))
         });
         
         const data = await response.json();
