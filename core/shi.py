@@ -47,6 +47,16 @@ def shi_enabled() -> bool:
     return os.getenv("SHI_ENABLED", "1").strip().lower() not in {"0", "false", "no", "off"}
 
 
+def shi_horizon_enabled() -> bool:
+    """是否在 /click 响应中附加势视界明细；默认关闭以控制响应体积。"""
+    return os.getenv("IS_SHOW_SHI_HORIZON", "0").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def always_show_shi() -> bool:
+    """是否对所有焦点返回势字段；关闭时仅相事件焦点返回。默认开启。"""
+    return os.getenv("ALWAYS_SHOW_SHI", "1").strip().lower() not in {"0", "false", "no", "off"}
+
+
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 

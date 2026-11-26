@@ -14,7 +14,7 @@ from typing import Optional, List, Union
 from core.database import db
 from core.metabolism import MetabolismEngine
 from core.access import resolve_access, sanitize_nodes, node_visible, is_shared, is_builtin_admin
-from core.shi import shi_enabled, filter_shi_horizon, observe_shi, error_shi_meta
+from core.shi import shi_enabled, shi_horizon_enabled, always_show_shi, filter_shi_horizon, observe_shi, error_shi_meta
 
 # --- 应用初始化 ---
 app = FastAPI(title="AINS Causal Station")
@@ -1246,16 +1246,19 @@ async def handle_node_click(request: Request):
                     visible_horizon_ids.add(n['node_id'])
             print(f"[点击事件] 纳入 bot({bot_id}) 的异场 chat 节点 {len(bot_nodes)} 个（参与重排）")
 
-        # “势”只在相节点点击时触发。先保留 /click 原有的本场＋接触面返回集合，
-        # 再用 block_tag="相" 过滤；extra_nodes 与后续权重行为不被该过滤改变。
+        # “势”只在相节点点击时触发。普通 /click 视界保持完整，相过滤结果独立用于势计算，
+        # 不再覆盖 event_horizon_nodes；extra_nodes 与后续权重行为也不受该过滤影响。
         shi = None
         shi_meta = None
+        shi_event_horizon_nodes = []
+        shi_event_horizon_ids = []
         if shi_enabled() and node.get('block_tag') == '相':
-            event_horizon_nodes = filter_shi_horizon(node, event_horizon_nodes, max_eyes)
+            shi_event_horizon_nodes = filter_shi_horizon(node, event_horizon_nodes, max_eyes)
+            shi_event_horizon_ids = [n['node_id'] for n in shi_event_horizon_nodes]
             try:
-                shi, shi_meta = await observe_shi(node, event_horizon_nodes, max_eyes)
+                shi, shi_meta = await observe_shi(node, shi_event_horizon_nodes, max_eyes)
                 print(
-                    f"[势观测] 焦点={node_id}，相视界={len(event_horizon_nodes)}，"
+                    f"[势观测] 焦点={node_id}，相视界={len(shi_event_horizon_nodes)}，"
                     f"样本={shi_meta.get('sample_count')}，状态={shi_meta.get('status')}，shi={shi}"
                 )
             except Exception as shi_error:
@@ -1265,6 +1268,17 @@ async def handle_node_click(request: Request):
                 shi_meta = error_shi_meta(max_eyes)
 
         event_horizon_ids = [n['node_id'] for n in event_horizon_nodes]
+        # 较大的势视界字段仅按环境开关附加，默认关闭。
+        shi_horizon_fields = {
+            "shi_event_horizon": shi_event_horizon_ids,
+            "shi_event_horizon_details": shi_event_horizon_nodes
+        } if shi_horizon_enabled() else {}
+        # 默认保持所有响应都有势字段；关闭后，非相焦点省略两个空值字段。
+        # 相焦点无论开关如何都返回，前端相事件势观测不受影响。
+        shi_fields = {
+            "shi": shi,
+            "shi_meta": shi_meta
+        } if always_show_shi() or node.get('block_tag') == '相' else {}
         print(f"[点击事件] 视界扫描完成，半径: {max_eyes}，视界内节点数: {len(event_horizon_ids)}，extra_nodes(异场并入重排): {len(extra_nodes)}")
         for en in extra_nodes:
             print(f"[点击事件]   extra_node: node_id={en.get('node_id')}, owner_id={en.get('owner_id')}, serial_id={en.get('serial_id')}, weight={en.get('survival_weight')}")
@@ -1298,8 +1312,8 @@ async def handle_node_click(request: Request):
                 "access": access.to_public(),
                 "event_horizon": event_horizon_ids,
                 "event_horizon_details": event_horizon_nodes,
-                "shi": shi,
-                "shi_meta": shi_meta
+                **shi_horizon_fields,
+                **shi_fields
             }
         
         if not updated_nodes:
@@ -1312,8 +1326,8 @@ async def handle_node_click(request: Request):
                 "updated_count": 0,
                 "event_horizon": event_horizon_ids,
                 "event_horizon_details": event_horizon_nodes,
-                "shi": shi,
-                "shi_meta": shi_meta
+                **shi_horizon_fields,
+                **shi_fields
             }
         
         
@@ -1425,8 +1439,8 @@ async def handle_node_click(request: Request):
             "access": access.to_public(),
             "event_horizon": event_horizon_ids,
             "event_horizon_details": event_horizon_nodes,
-            "shi": shi,
-            "shi_meta": shi_meta
+            **shi_horizon_fields,
+            **shi_fields
         }
     
     except Exception as e:
