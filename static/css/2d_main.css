@@ -939,20 +939,26 @@ header {
         background: rgba(0, 0, 0, 0.7);
     }
 
-    /* 移动端 header 默认隐藏（向上滑出屏幕） */
+    /* 移动端 header 默认隐藏（向上滑出屏幕）；展开后严格限制在视口内。 */
     header {
+        box-sizing: border-box;
         position: fixed !important;
         top: 0;
         left: 0;
-        right: 80px;
+        right: 0;
+        width: 100%;
+        height: 48px;
+        min-height: 48px;
+        padding: 0 8px !important;
+        overflow: hidden;
         z-index: 10000 !important;
         transform: translateY(-100%);
         transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         background: rgba(17, 24, 39, 0.92) !important;
         backdrop-filter: blur(10px);
         border-bottom: 1px solid rgba(75, 85, 99, 0.5);
-        border-right: 1px solid rgba(75, 85, 99, 0.5);
-        border-radius: 0 0 12px 0;
+        border-right: none;
+        border-radius: 0 0 12px 12px;
     }
     header.expanded {
         transform: translateY(0);
@@ -966,13 +972,59 @@ header {
         transform: none !important;
     }
 
-    /* 移动端 header 内容缩小 */
+    /* 两组 Flex 都允许正确收缩；覆盖 space-x-4，避免固定外边距把操作区推出屏幕。 */
+    header > div:first-child {
+        flex: 1 1 0;
+        min-width: 0;
+        overflow: hidden;
+    }
+
+    header > div:last-child {
+        flex: 0 0 auto;
+        min-width: 0;
+    }
+
+    header .space-x-4 > * + * {
+        margin-left: 6px !important;
+    }
+
+    /* 移动端 header 内容缩小，标题只允许单行省略，不再向下溢出。 */
     header span {
         font-size: 12px !important;
+    }
+
+    header > div:first-child > span:first-child {
+        display: block;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        letter-spacing: 0.05em;
+    }
+
+    header > div:first-child > span:last-child {
+        flex: 0 0 auto;
+        white-space: nowrap;
+    }
+
+    header #btn-create-node {
+        padding: 4px 6px !important;
+        white-space: nowrap;
+    }
+
+    header .search-toggle {
+        flex: 0 0 48px;
     }
 
     .view-switch-from-2d {
         width: 44px;
         height: 44px;
+    }
+}
+
+@media (max-width: 480px) {
+    /* 小屏优先保留场名与操作按钮，版本信息不占用标题空间。 */
+    header > div:first-child > span:last-child {
+        display: none;
     }
 }
