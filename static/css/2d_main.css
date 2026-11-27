@@ -964,12 +964,27 @@ header {
         transform: translateY(0);
     }
 
-    /* 移动端抽屉覆盖画布，不预留桌面抽屉宽度，也不横向偏移 */
+    /* 移动端抽屉覆盖画布；100dvh 跟随浏览器地址栏收缩，避免底部按钮被挤出屏幕。 */
     #network {
         right: 0 !important;
         left: 0 !important;
         height: 100vh !important;
+        height: 100dvh !important;
         transform: none !important;
+    }
+
+    /* vis-network 默认仅距底部 10px；为浏览器工具栏与系统手势区留出空间。 */
+    #network .vis-button.vis-down,
+    #network .vis-button.vis-left,
+    #network .vis-button.vis-right,
+    #network .vis-button.vis-zoomIn,
+    #network .vis-button.vis-zoomOut {
+        bottom: calc(24px + env(safe-area-inset-bottom, 0px)) !important;
+    }
+
+    #network .vis-button.vis-up,
+    #network .vis-button.vis-zoomExtends {
+        bottom: calc(64px + env(safe-area-inset-bottom, 0px)) !important;
     }
 
     /* 两组 Flex 都允许正确收缩；覆盖 space-x-4，避免固定外边距把操作区推出屏幕。 */

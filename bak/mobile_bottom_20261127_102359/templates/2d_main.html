@@ -1,0 +1,224 @@
+<!-- templates/index.html -->
+
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>历因果而知势 - 因果AI v2.6.2 - Metabolic</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
+    <!-- 全部第三方资源已本地化（内网/无外网环境可用），版本与来源见 package.json、docs/前端资源本地化说明.md -->
+    <script src="/static/js/socket.io.min.js"></script>
+    <script src="/static/js/vis-network.min.js"></script>
+    <!-- Tailwind：由 tailwind.config.js 预编译为静态 CSS（npm run build:css） -->
+    <link rel="stylesheet" href="/static/css/tailwind.min.css">
+    <!-- EasyMDE Markdown编辑器 -->
+    <link rel="stylesheet" href="/static/css/font-awesome.min.css">
+    <link rel="stylesheet" href="/static/css/easymde.min.css">
+    <script src="/static/js/easymde.min.js"></script>
+    <link rel="stylesheet" href="/static/css/2d_main.css?v=20261127view3">
+
+</head>
+<body class="bg-black text-gray-100 overflow-hidden font-mono">
+
+    <!-- 移动端 header 折叠按钮 -->
+    <div id="header-toggle" onclick="document.querySelector('header').classList.toggle('expanded')">📢</div>
+    <header class="h-12 border-b border-gray-800 flex items-center px-4 bg-gray-900 justify-between">
+        <div class="flex items-center space-x-4">
+            <span class="font-bold text-blue-500 tracking-widest">历因果而知势 - 因果AI - 元龙居士</span>
+            <span class="text-[10px] text-gray-500 border border-gray-700 px-1">v2.6.2-Metabolic</span>
+        </div>
+        <div class="flex items-center space-x-4">
+            <button id="btn-create-node" onclick="openCreateModal()" class="edit-only owner-edit-only bg-blue-700 hover:bg-blue-600 px-4 py-1 rounded-sm text-xs transition-colors" style="display:none">发起首贞</button>
+            <button id="switch-to-3d" class="view-switch-btn view-switch-from-2d" type="button"
+                    onclick="switchCausalView('3d')" title="切换到3D视图" aria-label="切换到3D视图">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+                    <path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z"></path>
+                    <path d="m4 7.5 8 4.5 8-4.5M12 12v9M8 5.3l8 4.5"></path>
+                </svg>
+            </button>
+            <!-- 搜索按钮 -->
+            <div class="search-toggle" id="btn-toggle-search" title="展开搜索面板">
+                🔍
+            </div>
+        </div>
+    </header>
+
+    <main class="relative">
+        <div id="network"></div>
+        
+        <!-- 搜索面板 - 右上角可折叠 -->
+        <div id="search-panel">
+            <!-- 搜索表单容器 - 默认隐藏 -->
+            <div class="search-form-container" id="search-form-container">
+                <div class="search-form-header">
+                    <div class="search-form-title">事件搜索</div>
+                    <div class="search-form-close" id="btn-close-search" title="关闭搜索面板">✕</div>
+                </div>
+                
+                <div class="search-input-group">
+                    <input type="text" id="search-input" class="search-input" placeholder="输入关键词搜索事件...">
+                    <select id="search-type" class="search-select">
+                        <option value="keyword">关键字搜索</option>
+                        <option value="serial">序列ID搜索</option>
+                    </select>
+                </div>
+                
+                <button id="btn-search" class="search-submit-button">搜索</button>
+                
+                <!-- 搜索结果区域 - 默认隐藏 -->
+                <div id="search-results" class="search-results" style="display: none;">
+                    <div class="search-empty">输入关键词开始搜索</div>
+                </div>
+            </div>
+        </div>
+
+        <div id="drawer" class="drawer drawer-hidden fixed right-0 top-12 w-96 h-full bg-gray-900 border-l border-gray-800 shadow-2xl z-50">
+            <div class="flex justify-between items-center p-6 border-b border-gray-800">
+                <div class="flex items-center">
+                    <h2 class="text-lg font-bold text-blue-400">龙穴详情</h2>
+                    <button id="drawer-collapse-btn" class="drawer-collapse-btn" title="折叠抽屉">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
+                        </svg>
+                    </button>
+                </div>
+                <button onclick="closeDrawer()" class="text-gray-500 hover:text-white">✕</button>
+            </div>
+
+            <div id="drawer-content" class="p-6 space-y-4 overflow-y-auto" style="max-height: calc(100vh - 120px);">
+                <section>
+                    <label class="text-[10px] text-gray-600 uppercase tracking-tighter">卜辞</label>
+                    <input id="d-node-id" type="text" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-blue-300 text-sm focus:outline-none focus:border-blue-500">
+                </section>
+
+                <section>
+                    <label class="text-[10px] text-gray-600 uppercase tracking-tighter">动作标签 (Action Tag)</label>
+                    <select id="d-action-tag" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-gray-300 text-sm focus:outline-none focus:border-blue-500" onchange="updateDrawerBlockTagOptions()">
+                        <option value="贞">贞</option>
+                        <option value="又贞">又贞</option>
+                        <option value="对贞">对贞</option>
+                    </select>
+                </section>
+
+                <section>
+                    <label class="text-[10px] text-gray-600 uppercase tracking-tighter">因缘标签 (Block Tag)</label>
+                    <select id="d-block-tag" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-gray-300 text-sm focus:outline-none focus:border-blue-500">
+                        <option value="因">因 (原因/起因)</option>
+                        <option value="相">相 (现象/状态)</option>
+                        <option value="果">果 (结果/成果)</option>
+                    </select>
+                </section>
+
+                <section>
+                    <label class="text-[10px] text-gray-600 uppercase tracking-tighter">父节点 ID (Parent IDs)</label>
+                    <div class="relative">
+                        <input id="d-parent-ids" type="text" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-gray-300 text-sm focus:outline-none focus:border-blue-500" placeholder="点击节点图标自动填充，多个ID用|分隔">
+                        <div class="absolute right-2 top-1/2 transform -translate-y-1/2">
+                            <span id="parent-id-hint" class="text-xs text-gray-500 hidden">点击节点填充</span>
+                        </div>
+                    </div>
+                    <div class="text-[9px] text-gray-600 mt-1">
+                        提示：点击此输入框获得焦点后，再点击图中的节点图标，节点ID将自动填入
+                    </div>
+                </section>
+
+                <section>
+                    <label class="text-[10px] text-gray-600 uppercase tracking-tighter">事件叙述 (Event Tuple)</label>
+                    <div class="relative">
+                        <textarea id="d-event-tuple" class="w-full h-48 bg-gray-800 border border-gray-700 rounded px-3 py-2 text-gray-300 text-sm focus:outline-none focus:border-blue-500 resize-y"></textarea>
+                        <!-- 放大图标 -->
+                        <button id="expand-event-tuple-btn" class="absolute bottom-2 right-2 w-6 h-6 bg-gray-800 border border-gray-700 rounded flex items-center justify-center text-gray-400 hover:text-blue-400 hover:border-blue-500 transition-colors" title="放大编辑">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7" />
+                            </svg>
+                        </button>
+                    </div>
+                </section>
+
+                <section>
+                <section class="flex items-center space-x-2 py-1">
+                    <input type="checkbox" id="d-is-share" class="w-4 h-4 text-blue-600 bg-gray-800 border-gray-700 rounded focus:ring-blue-500 focus:ring-2">
+                    <label for="d-is-share" class="text-xs text-gray-400 cursor-pointer">对外场开放 (is_share)</label>
+                </section>
+
+                    <label class="text-[10px] text-gray-600 uppercase tracking-tighter">生存权重 (Survival Weight)</label>
+                    <div class="flex items-center space-x-4">
+                        <div class="flex-1 bg-gray-800 h-1.5 rounded-full">
+                            <div id="d-weight-bar" class="bg-blue-600 h-1.5 rounded-full transition-all duration-500" style="width: 100%"></div>
+                        </div>
+                        <span id="d-weight-value" class="text-xs text-gray-400">1.0000</span>
+                    </div>
+                </section>
+
+                <section>
+                    <label class="text-[10px] text-gray-600 uppercase tracking-tighter">图片上传</label>
+                    <div class="space-y-2">
+                        <div class="flex items-center space-x-2">
+                            <input id="d-image-file" type="file" accept="image/*" class="flex-1 text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-700">
+                            <button onclick="uploadImageForNode()" class="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-xs rounded">上传</button>
+                        </div>
+                        <div id="d-image-preview" class="mt-2 hidden">
+                            <img id="d-preview-img" class="max-h-32 rounded border border-gray-700 cursor-pointer hover:opacity-80 transition-opacity" onclick="openImageModal(this.src)">
+                        </div>
+                        <input id="d-full-image-url" type="text" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-gray-300 text-sm focus:outline-none focus:border-blue-500 mt-2" placeholder="或直接输入图片URL">
+                    </div>
+                </section>
+
+                <div class="pt-6 border-t border-gray-800 grid grid-cols-2 gap-2">
+                    <button onclick="saveNodeChanges()" class="edit-only owner-edit-only py-2 bg-green-700 hover:bg-green-600 text-xs text-white" style="display:none">保存修改</button>
+                    <button onclick="deleteCurrentNode()" class="edit-only owner-edit-only py-2 bg-red-700 hover:bg-red-600 text-xs text-white" style="display:none">删除事件</button>
+                </div>
+
+                <div class="pt-3 border-t border-gray-800 grid grid-cols-2 gap-2">
+                    <button onclick="deriveNode('又贞')" class="edit-only owner-edit-only py-2 bg-gray-800 hover:bg-gray-700 text-xs text-gray-300" style="display:none">又贞</button>
+                    <button onclick="deriveNode('对贞')" class="edit-only owner-edit-only py-2 bg-gray-800 hover:bg-gray-700 text-xs text-gray-300" style="display:none">对贞</button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 抽屉展开按钮（默认隐藏） -->
+        <button id="drawer-expand-btn" class="drawer-expand-btn hidden" title="展开抽屉">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+            </svg>
+        </button>
+    </main>
+
+    <!-- 事件叙述放大模态框 -->
+    <div id="event-tuple-modal" class="fixed inset-0 bg-black/90 flex items-center justify-center z-[100] hidden">
+        <div class="bg-gray-900 border border-gray-700 rounded-lg w-11/12 max-w-4xl max-h-[90vh] flex flex-col">
+            <!-- 模态框头部 -->
+            <div class="flex justify-between items-center p-4 border-b border-gray-800">
+                <h3 class="text-lg font-bold text-blue-400">事件叙述编辑器</h3>
+                <div class="flex space-x-2">
+                    <!-- 复制按钮 -->
+                    <button id="copy-event-tuple-btn" class="w-8 h-8 bg-gray-800 border border-gray-700 rounded flex items-center justify-center text-gray-400 hover:text-green-400 hover:border-green-500 transition-colors" title="复制内容">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                        </svg>
+                    </button>
+                    <!-- 关闭按钮 -->
+                    <button id="close-event-tuple-modal-btn" class="w-8 h-8 bg-gray-800 border border-gray-700 rounded flex items-center justify-center text-gray-400 hover:text-red-400 hover:border-red-500 transition-colors" title="关闭并保存">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                        </svg>
+                    </button>
+                </div>
+            </div>
+            
+            <!-- 模态框内容区域 -->
+            <div class="flex-1 p-4 overflow-hidden">
+                <!-- EasyMDE编辑器容器 -->
+                <textarea id="modal-event-tuple-editor" class="w-full h-full"></textarea>
+            </div>
+            
+            <!-- 模态框底部提示 -->
+            <div class="p-3 border-t border-gray-800 text-xs text-gray-500 text-center">
+                使用Markdown编辑器编辑事件叙述，点击复制按钮复制内容，点击关闭按钮保存并返回
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/2d_main.js?v=20261127view3"></script>
+</body>
+</html>

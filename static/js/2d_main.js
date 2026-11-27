@@ -267,6 +267,22 @@ const options = {
 };
 const network = new vis.Network(container, {nodes, edges}, options);
 
+// 浏览器地址栏或系统手势区改变可视高度时，只同步画布尺寸，不重置用户当前视角。
+let mobileViewportResizeFrame = null;
+function syncNetworkToVisibleViewport() {
+    if (!window.matchMedia('(max-width: 768px)').matches) return;
+    if (mobileViewportResizeFrame !== null) cancelAnimationFrame(mobileViewportResizeFrame);
+    mobileViewportResizeFrame = requestAnimationFrame(() => {
+        mobileViewportResizeFrame = null;
+        network.setSize('100%', '100%');
+        network.redraw();
+    });
+}
+window.addEventListener('resize', syncNetworkToVisibleViewport, { passive: true });
+if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', syncNetworkToVisibleViewport, { passive: true });
+}
+
 // 首屏保留从画面中心向外喷发的物理动画，稳定后再平滑收束到完整居中视界。
 // 不调用 stabilize()：它会在后台完成迭代，把用户可见的展开过程跳过去。
 function fitNetworkWhenStable() {
