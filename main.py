@@ -129,6 +129,26 @@ sm = SocketManager(
 # 实例化代谢引擎
 metabolism = MetabolismEngine(socket_manager=sm, decay_rate=0.03, tick_interval=int(os.getenv("TICK_INTERVAL")))
 
+# 元龙因果链标签本论：动作与因缘配套，和是否存在父节点无关。
+TAG_BLOCK_OPTIONS = {
+    "贞": ("因", "相"),
+    "又贞": ("因", "相"),
+    "对贞": ("果",),
+}
+TAG_PAIR_RULE_MESSAGE = "标签配套不合法：贞→因/相；又贞→因/相；对贞→果"
+
+
+def normalize_tag_pair(action_tag, block_tag):
+    """返回规范化标签及错误；孤立与非孤立节点共用同一配套规则。"""
+    if not isinstance(action_tag, str) or not isinstance(block_tag, str):
+        return None, None, TAG_PAIR_RULE_MESSAGE
+    action_tag = action_tag.strip()
+    block_tag = block_tag.strip()
+    if block_tag not in TAG_BLOCK_OPTIONS.get(action_tag, ()):
+        return None, None, TAG_PAIR_RULE_MESSAGE
+    return action_tag, block_tag, None
+
+
 # AINS 协议模型
 class CausalNodeRequest(BaseModel):
     node_id: str
@@ -584,41 +604,21 @@ async def update_node(update_data: dict, request: Request):
         elif original_node.get('block_tag'):
             update_node_data['block_tag'] = original_node.get('block_tag')
         
-        # 处理父ID（previous_ids_list 已在上方解析）
+        # 标签只由请求值或原值决定；是否存在父节点不参与标签推断。
+        action_tag, block_tag, tag_error = normalize_tag_pair(
+            update_node_data.get('action_tag'),
+            update_node_data.get('block_tag'),
+        )
+        if tag_error:
+            return {"status": "error", "message": tag_error}
+        update_node_data['action_tag'] = action_tag
+        update_node_data['block_tag'] = block_tag
+
+        # previous_ids 缺省表示不修改连线；显式空数组才表示成为孤立节点。
         print(f"[更新节点] 父ID处理: previous_ids={previous_ids}, previous_ids_list={previous_ids_list}")
-        
-        # 检查是否为首贞（父ID为空）
-        is_first_node = not previous_ids_list
-
-
-            
-        
-        # 设置前事件
-        if is_first_node:
-            # 首贞：没有前事件，设置为空列表（数据库会转换为NULL）
-            update_node_data['previous_ids'] = []
-            print(f"[更新节点] 设置前事件为空列表（首贞）")
-        else:
-            # 非首贞：有前事件
+        if previous_ids is not None:
             update_node_data['previous_ids'] = previous_ids_list
             print(f"[更新节点] 设置前事件为: {previous_ids_list}")
-        
-        # 设置标签（如果是首贞，强制设置为"贞"和"因"）
-        if is_first_node:
-            # 首贞：强制设置为"贞"和"因"
-            update_node_data['action_tag'] = "贞"
-            update_node_data['block_tag'] = "因"
-        else:
-            # 非首贞：使用请求中的值或原始值
-            if 'action_tag' in update_data:
-                update_node_data['action_tag'] = update_data['action_tag']
-            elif original_node.get('action_tag'):
-                update_node_data['action_tag'] = original_node.get('action_tag')
-            
-            if 'block_tag' in update_data:
-                update_node_data['block_tag'] = update_data['block_tag']
-            elif original_node.get('block_tag'):
-                update_node_data['block_tag'] = original_node.get('block_tag')
         
         # 如果node_id改变了，需要更新所有子事件的previous_id
         if old_node_id != new_node_id:
@@ -1803,7 +1803,7 @@ async def create_genesis_node(node: CausalNodeRequest, request: Request):
     逻辑：
     1. 如果指定 previous_node，必须验证其在数据库中是否存在（溯源）。
     2. 严格执行 INSERT， node_id 重复则报错（禁止覆盖）。
-    3. 对于首贞（没有父节点），强制设置：previous_node=None, action_tag="贞", block_tag="因"
+    3. 父节点只决定因果连线；action_tag/block_tag 按统一配套规则校验，不因孤立而强制改写。
     鉴权：只有场主 / admin 可以录入主副本（观测者只读共享内容 + 写自己的副本）。
     """
     try:
@@ -1848,9 +1848,12 @@ async def create_genesis_node(node: CausalNodeRequest, request: Request):
             }
         
     
-    # 2. 确定是否为首贞（没有父节点）
-    is_first_node = not previous_ids
-    
+    # 2. 没有父节点仅表示孤立节点，不据此推断动作或因缘标签。
+    is_isolated_node = not previous_ids
+    action_tag, block_tag, tag_error = normalize_tag_pair(node.action_tag, node.block_tag)
+    if tag_error:
+        return {"status": "error", "message": tag_error}
+
     # 3. 构造新事件字典
     new_node = {
         "node_id": node.node_id,
@@ -1862,23 +1865,10 @@ async def create_genesis_node(node: CausalNodeRequest, request: Request):
       }
 
     
-    # 设置父节点
-    if is_first_node:
-        # 首贞：没有父节点
-        new_node["previous_node"] = None
-    else:
-        # 非首贞：有父节点
-        new_node["previous_node"] = previous_ids
-    
-    # 设置标签
-    if is_first_node:
-        # 首贞：强制设置为"贞"和"因"
-        new_node["action_tag"] = "贞"
-        new_node["block_tag"] = "因"
-    else:
-        # 非首贞：使用请求中的值或默认值
-        new_node["action_tag"] = node.action_tag
-        new_node["block_tag"] = node.block_tag
+    # 父节点与标签分别处理：孤立节点同样可以使用任意合法配套组合。
+    new_node["previous_node"] = None if is_isolated_node else previous_ids
+    new_node["action_tag"] = action_tag
+    new_node["block_tag"] = block_tag
 
     try:
         # 4. 严格 INSERT (禁止覆盖)

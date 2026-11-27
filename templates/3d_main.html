@@ -21,7 +21,7 @@
     <script src="/static/js/3d-force-graph.min.js"></script>
     
     <link rel="preload" href="/static/fonts/dseg7-classic-latin-700-normal.woff2?v=20261127view2" as="font" type="font/woff2" crossorigin>
-    <link rel="stylesheet" href="/static/css/3d_main.css?v=20261127view4">
+    <link rel="stylesheet" href="/static/css/3d_main.css?v=20261127tags1">
     <link rel="stylesheet" href="/static/css/3d_form.css">
     <!-- EasyMDE Markdown编辑器 -->
     <link rel="stylesheet" href="/static/css/font-awesome.min.css">
@@ -219,7 +219,7 @@
 
             <section>
                 <label class="drawer-label">动作标签 (Action Tag)</label>
-                <select id="d-action-tag" class="drawer-select">
+                <select id="d-action-tag" class="drawer-select" onchange="updateDrawerBlockTagOptions()">
                     <option value="贞">贞</option>
                     <option value="又贞">又贞</option>
                     <option value="对贞">对贞</option>
@@ -316,6 +316,24 @@
                     <input id="modal-node-id" type="text" class="modal-input">
                 </div>
                 
+                <div class="form-group">
+                    <label>动作标签</label>
+                    <select id="modal-action-tag" class="modal-select" onchange="updateCreateBlockTagOptions()">
+                        <option value="贞" selected>贞</option>
+                        <option value="又贞">又贞</option>
+                        <option value="对贞">对贞</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label>因缘标签</label>
+                    <select id="modal-block-tag" class="modal-select">
+                        <option value="因" selected>因 (原因/起因)</option>
+                        <option value="相">相 (现象/状态)</option>
+                    </select>
+                    <div class="drawer-tip">孤立节点不强制动作标签，只需符合标签配套规则。</div>
+                </div>
+
                 <div class="form-group">
                     <label>事件叙述</label>
                     <textarea id="modal-event-tuple" class="modal-textarea" style="min-height: 250px; resize: vertical;"></textarea>
@@ -507,6 +525,6 @@
     </script>
 
     <script src="/static/js/3d_editor.js"></script>
-    <script src="/static/js/3d_main.js?v=20261127view4"></script>
+    <script src="/static/js/3d_main.js?v=20261127tags1"></script>
 </body>
 </html>

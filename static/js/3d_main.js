@@ -2887,6 +2887,49 @@ function initSocketHandlers() {
 }
 
 // --- [4. 抽屉管理与节点 CRUD] ---
+// 元龙因果链本论：父节点只决定连线，不决定动作或因缘标签。
+const ACTION_BLOCK_OPTIONS = Object.freeze({
+    '贞': ['因', '相'],
+    '又贞': ['因', '相'],
+    '对贞': ['果']
+});
+const TAG_PAIR_RULE_MESSAGE = '标签配套不合法：贞→因/相；又贞→因/相；对贞→果';
+
+function isValidTagPair(actionTag, blockTag) {
+    return (ACTION_BLOCK_OPTIONS[actionTag] || []).includes(blockTag);
+}
+
+function setBlockTagOptions(actionTag, blockTagSelect, preferredValue) {
+    if (!blockTagSelect) return;
+    const currentValue = preferredValue === undefined ? blockTagSelect.value : preferredValue;
+    const options = ACTION_BLOCK_OPTIONS[actionTag] || [];
+    if (!options.length) {
+        blockTagSelect.innerHTML = '<option value="">请先选择动作标签</option>';
+        blockTagSelect.disabled = false;
+        return;
+    }
+    const labels = { '因': '因 (原因/起因)', '相': '相 (现象/状态)', '果': '果 (结果/成果)' };
+    blockTagSelect.innerHTML = options.map(value =>
+        `<option value="${value}">${labels[value]}</option>`
+    ).join('');
+    blockTagSelect.disabled = actionTag === '对贞';
+    blockTagSelect.value = options.includes(currentValue) ? currentValue : options[0];
+}
+
+function updateDrawerBlockTagOptions(preferredValue) {
+    setBlockTagOptions(
+        document.getElementById('d-action-tag').value,
+        document.getElementById('d-block-tag'),
+        preferredValue
+    );
+}
+
+function updateCreateBlockTagOptions() {
+    setBlockTagOptions(
+        document.getElementById('modal-action-tag').value,
+        document.getElementById('modal-block-tag')
+    );
+}
 
 function openDrawer(nodeId) {
     // 检查是否处于导航模式，如果是则不打开抽屉
@@ -2930,11 +2973,9 @@ function openDrawer(nodeId) {
         actionTagField.value = node.action_tag || '贞';
     }
     
-    // 因缘标签
+    // 因缘标签：先按动作重建合法选项，再回填节点原值。
     const blockTagField = document.getElementById('d-block-tag');
-    if (blockTagField) {
-        blockTagField.value = node.block_tag || '因';
-    }
+    updateDrawerBlockTagOptions(node.block_tag || '因');
     
     // 权重值
     const weightValueField = document.getElementById('d-weight-value');
@@ -3332,6 +3373,11 @@ async function handleSaveNode() {
         showSelectionHint('因缘标签不能为空！');
         return;
     }
+
+    if (!isValidTagPair(actionTag, blockTag)) {
+        showSelectionHint(TAG_PAIR_RULE_MESSAGE);
+        return;
+    }
     
     if (!content) {
         showSelectionHint('事件叙述不能为空！');
@@ -3605,6 +3651,9 @@ function openCreateModal() {
         
         // 清空表单
         document.getElementById('modal-node-id').value = '';
+        document.getElementById('modal-action-tag').value = '贞';
+        updateCreateBlockTagOptions();
+        document.getElementById('modal-block-tag').value = '因';
         document.getElementById('modal-event-tuple').value = '';
         document.getElementById('modal-image-file').value = '';
         document.getElementById('modal-image-preview').classList.add('hidden');
@@ -3650,10 +3699,17 @@ async function submitCreateNode() {
     console.log('[发起首贞] 提交创建节点请求');
     
     const nodeId = document.getElementById('modal-node-id').value.trim();
+    const actionTag = document.getElementById('modal-action-tag').value;
+    const blockTag = document.getElementById('modal-block-tag').value;
     const eventTuple = document.getElementById('modal-event-tuple').value.trim();
     const isShareField = document.getElementById('modal-is-share');
     const isShare = isShareField ? isShareField.checked : false;
     const imageFile = document.getElementById('modal-image-file').files[0];
+
+    if (!isValidTagPair(actionTag, blockTag)) {
+        showSelectionHint(TAG_PAIR_RULE_MESSAGE);
+        return;
+    }
     
     // 表单验证
     if (!nodeId) {
@@ -3696,15 +3752,17 @@ async function submitCreateNode() {
         }
     }
     
-    // 构建请求数据 - 首贞没有父节点，动作标签和因缘标签由后台自动添加
-    const requestData = { 
-        node_id: nodeId, 
-        event_tuple: eventTuple, 
+    // 孤立节点显式提交合法配套标签；父节点为空不再意味着强制贞/因。
+    const requestData = {
+        node_id: nodeId,
+        previous_node: [],
+        action_tag: actionTag,
+        block_tag: blockTag,
+        event_tuple: eventTuple,
         full_image_url: fullImageUrl,
         is_share: isShare,
         actor_id: window.currentActorId,
         owner_id: window.currentOwnerId || 'default'
-        // 不发送block_tag、action_tag和previous_id，让后端处理
     };
     
     console.log('[发起首贞] 提交创建请求:', requestData);
@@ -3944,6 +4002,11 @@ async function submitDeriveNode(tag, parentId) {
     const nodeId = document.getElementById('derive-node-id').value.trim();
     const blockTag = document.getElementById('derive-block-tag').value;
     const eventTuple = document.getElementById('derive-event-tuple').value.trim();
+
+    if (blockTag && !isValidTagPair(tag, blockTag)) {
+        showSelectionHint(TAG_PAIR_RULE_MESSAGE);
+        return;
+    }
     const isShareField = document.getElementById('derive-is-share');
     const isShare = isShareField ? isShareField.checked : false;
     const imageFile = document.getElementById('derive-image-file').files[0];

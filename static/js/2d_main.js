@@ -543,6 +543,42 @@ function getWeightStatus(weight) {
 }
 
 // --- 交互逻辑 ---
+// 元龙因果链本论：标签配套与父节点是否存在无关。
+const ACTION_BLOCK_OPTIONS = Object.freeze({
+    '贞': ['因', '相'],
+    '又贞': ['因', '相'],
+    '对贞': ['果']
+});
+const TAG_PAIR_RULE_MESSAGE = '标签配套不合法：贞→因/相；又贞→因/相；对贞→果';
+
+function isValidTagPair(actionTag, blockTag) {
+    return (ACTION_BLOCK_OPTIONS[actionTag] || []).includes(blockTag);
+}
+
+function setBlockTagOptions(actionTag, blockTagSelect, preferredValue) {
+    if (!blockTagSelect) return;
+    const currentValue = preferredValue === undefined ? blockTagSelect.value : preferredValue;
+    const options = ACTION_BLOCK_OPTIONS[actionTag] || [];
+    if (!options.length) {
+        blockTagSelect.innerHTML = '<option value="">请先选择动作标签</option>';
+        blockTagSelect.disabled = false;
+        return;
+    }
+    const labels = { '因': '因 (原因/起因)', '相': '相 (现象/状态)', '果': '果 (结果/成果)' };
+    blockTagSelect.innerHTML = options.map(value =>
+        `<option value="${value}">${labels[value]}</option>`
+    ).join('');
+    blockTagSelect.disabled = actionTag === '对贞';
+    blockTagSelect.value = options.includes(currentValue) ? currentValue : options[0];
+}
+
+function updateCreateBlockTagOptions() {
+    setBlockTagOptions(
+        document.getElementById('modal-action-tag').value,
+        document.getElementById('modal-block-tag')
+    );
+}
+
 async function postNode(payload) {
     const res = await fetch(appendAuthParams('/api/v1/causal/genesis'), {
         method: 'POST',
@@ -575,10 +611,24 @@ function openCreateModal() {
                         <input id="modal-node-id" type="text" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500">
                     </div>
                     
-                <input id="modal-block-tag" type="hidden" value="因">
-                <input id="modal-action-tag" type="hidden" value="贞">
-                
-                <div>
+                    <div>
+                        <label class="text-xs text-gray-400 block mb-1">动作标签</label>
+                        <select id="modal-action-tag" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500" onchange="updateCreateBlockTagOptions()">
+                            <option value="贞" selected>贞</option>
+                            <option value="又贞">又贞</option>
+                            <option value="对贞">对贞</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="text-xs text-gray-400 block mb-1">因缘标签</label>
+                        <select id="modal-block-tag" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500">
+                            <option value="因" selected>因 (原因/起因)</option>
+                            <option value="相">相 (现象/状态)</option>
+                        </select>
+                    </div>
+                    <div class="text-xs text-gray-500">创建的是孤立节点；动作与因缘按配套规则选择。</div>
+
                     <div>
                         <label class="text-xs text-gray-400 block mb-1">事件叙述</label>
                         <textarea id="modal-event-tuple" class="w-full h-64 bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500 resize-none"></textarea>
@@ -683,6 +733,8 @@ function closeCreateModal() {
 
 async function submitCreateNode() {
     const nodeId = document.getElementById('modal-node-id').value.trim();
+    const actionTag = document.getElementById('modal-action-tag').value;
+    const blockTag = document.getElementById('modal-block-tag').value;
     const eventTuple = document.getElementById('modal-event-tuple').value.trim();
     const imageFile = document.getElementById('modal-image-file').files[0];
     
@@ -693,6 +745,11 @@ async function submitCreateNode() {
     
     if (!eventTuple) {
         alert('事件叙述不能为空！');
+        return;
+    }
+
+    if (!isValidTagPair(actionTag, blockTag)) {
+        alert(TAG_PAIR_RULE_MESSAGE);
         return;
     }
     
@@ -722,14 +779,16 @@ async function submitCreateNode() {
         }
     }
     
-    // 构建请求数据 - 首贞没有父节点，动作标签和因缘标签由后台自动添加
-    const requestData = { 
-        node_id: nodeId, 
-        event_tuple: eventTuple, 
+    // 孤立节点也显式提交合法标签；后端不再根据父节点覆盖选择。
+    const requestData = {
+        node_id: nodeId,
+        previous_node: [],
+        action_tag: actionTag,
+        block_tag: blockTag,
+        event_tuple: eventTuple,
         full_image_url: fullImageUrl,
         is_share: document.getElementById("d-is-share") ? document.getElementById("d-is-share").checked : false,
         owner_id: currentOwnerId
-        // 不发送block_tag、action_tag和previous_id，让后端处理
     };
     
     // 提交事件创建
@@ -831,6 +890,11 @@ async function submitDeriveNode(tag, parentId) {
     const blockTag = document.getElementById('derive-block-tag').value;
     const eventTuple = document.getElementById('derive-event-tuple').value.trim();
     const imageFile = document.getElementById('derive-image-file').files[0];
+
+    if (blockTag && !isValidTagPair(tag, blockTag)) {
+        alert(TAG_PAIR_RULE_MESSAGE);
+        return;
+    }
     
     if (!nodeId) {
         alert('卜辞 不能为空！');
@@ -888,36 +952,13 @@ postNode({
     closeDeriveModal();
 }
 
-// 更新因缘标签选项（根据动作标签）
-function updateDrawerBlockTagOptions() {
-    const actionTag = document.getElementById('d-action-tag').value;
-    const blockTagSelect = document.getElementById('d-block-tag');
-    
-    // 保存当前选中的值
-    const currentValue = blockTagSelect.value;
-    
-    // 清空现有选项
-    blockTagSelect.innerHTML = '';
-    
-    if (actionTag === '贞' || actionTag === '又贞') {
-        // 贞和又贞：有"因"、"相"两个值
-        blockTagSelect.innerHTML = `
-            <option value="因">因 (原因/起因)</option>
-            <option value="相">相 (现象/状态)</option>
-        `;
-        blockTagSelect.disabled = false;
-    } else if (actionTag === '对贞') {
-        // 对贞：只有"果"这个值
-        blockTagSelect.innerHTML = `
-            <option value="果" selected>果 (结果/成果)</option>
-        `;
-        blockTagSelect.disabled = true;
-    }
-    
-    // 恢复之前选中的值（如果在新选项中存在）
-    if (blockTagSelect.querySelector(`option[value="${currentValue}"]`)) {
-        blockTagSelect.value = currentValue;
-    }
+// 更新抽屉因缘标签选项；优先保留仍合法的当前值。
+function updateDrawerBlockTagOptions(preferredValue) {
+    setBlockTagOptions(
+        document.getElementById('d-action-tag').value,
+        document.getElementById('d-block-tag'),
+        preferredValue
+    );
 }
 
 
@@ -1038,13 +1079,18 @@ async function saveNodeChanges() {
         alert('因缘标签不能为空！');
         return;
     }
+
+    if (!isValidTagPair(actionTag, blockTag)) {
+        alert(TAG_PAIR_RULE_MESSAGE);
+        return;
+    }
     
     if (!eventTuple) {
         alert('事件叙述不能为空！');
         return;
     }
     
-    // 父ID字段可以为空（允许根节点）
+    // 父ID字段可以为空（允许孤立节点），不影响动作或因缘标签。
     
     // 解析父ID
     let parentIds = [];
@@ -1064,10 +1110,8 @@ async function saveNodeChanges() {
         owner_id: currentOwnerId
     };
     
-    // 如果有父ID，添加到更新数据中
-    if (parentIds.length > 0) {
-        updateData.previous_ids = parentIds;
-    }
+    // 始终显式发送父节点数组：空数组表示清空连线，字段缺省则由后端保留原连线。
+    updateData.previous_ids = parentIds;
     
     console.log('发送更新数据:', updateData);
     
@@ -1313,31 +1357,12 @@ function createChildFromSelectedParents() {
     });
 }
 
-// 更新因缘标签选项（根据动作标签）
+// 更新多父创建表单的因缘标签选项。
 function updateBlockTagOptions() {
-    const actionTag = document.getElementById('child-action-tag').value;
-    const blockTagSelect = document.getElementById('child-block-tag');
-    
-    // 清空现有选项
-    blockTagSelect.innerHTML = '';
-    
-    if (actionTag === '又贞') {
-        // 又贞：只有"因"和"相"
-        blockTagSelect.innerHTML = `
-            <option value="">请选择因缘标签</option>
-            <option value="因">因 (原因/起因)</option>
-            <option value="相">相 (现象/状态)</option>
-        `;
-    } else if (actionTag === '对贞') {
-        // 对贞：自动设置为"果"
-        blockTagSelect.innerHTML = `
-            <option value="果" selected>果 (结果/成果)</option>
-        `;
-        blockTagSelect.disabled = true;
-    } else {
-        blockTagSelect.innerHTML = '<option value="">请先选择动作标签</option>';
-        blockTagSelect.disabled = false;
-    }
+    setBlockTagOptions(
+        document.getElementById('child-action-tag').value,
+        document.getElementById('child-block-tag')
+    );
 }
 
 // 关闭子节点模态框
@@ -1354,6 +1379,11 @@ async function submitChildNode(parentIds) {
     const blockTag = document.getElementById('child-block-tag').value;
     const eventTuple = document.getElementById('child-event-tuple').value.trim();
     const imageFile = document.getElementById('child-image-file').files[0];
+
+    if (actionTag && blockTag && !isValidTagPair(actionTag, blockTag)) {
+        alert(TAG_PAIR_RULE_MESSAGE);
+        return;
+    }
     
     if (!nodeId) {
         alert('卜辞 不能为空！');
