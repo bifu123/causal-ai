@@ -256,17 +256,24 @@ const options = {
 };
 const network = new vis.Network(container, {nodes, edges}, options);
 
-// 首次加载先给出完整视界，再在物理布局稳定后重新居中。
-// 仅在数据刚加入时 fit 会把后续仍移动的节点群留在旧镜头中心之外。
+// 首屏保留从画面中心向外喷发的物理动画，稳定后再平滑收束到完整居中视界。
+// 不调用 stabilize()：它会在后台完成迭代，把用户可见的展开过程跳过去。
 function fitNetworkWhenStable() {
-    network.setSize('100%', '100%');
-    network.fit({ animation: false });
-    network.once('stabilizationIterationsDone', () => {
+    let settled = false;
+    const finishInitialLayout = () => {
+        if (settled) return;
+        settled = true;
         network.setSize('100%', '100%');
         network.redraw();
-        network.fit({ animation: false });
-    });
-    network.stabilize(500);
+        network.fit({
+            animation: { duration: 450, easingFunction: 'easeInOutQuad' }
+        });
+    };
+
+    network.setSize('100%', '100%');
+    network.moveTo({ position: { x: 0, y: 0 }, scale: 1, animation: false });
+    network.once('stabilizationIterationsDone', finishInitialLayout);
+    network.once('stabilized', finishInitialLayout);
 }
 
 // --- 初始化：寻龙点穴 (加载历史) ---
