@@ -783,8 +783,8 @@ body::after {
 /* 右上角搜索面板样式 - 可折叠 */
 #search-panel {
     position: absolute;
-    top: 20px;
-    right: 20px;
+    top: 10px;
+    right: 10px;
     z-index: 9998;
     display: flex;
     flex-direction: column;
@@ -801,10 +801,11 @@ body::after {
     border: 0;
     border-radius: 8px;
     background: transparent;
-    color: #60a5fa;
-    opacity: 0.85;
+    color: #676869;
+    opacity: 0.7;
     cursor: pointer;
-    margin-top: -6px;
+    margin-right: -25px;
+    margin-top: -10px;
     transition: color 0.2s ease, background 0.2s ease, opacity 0.2s ease, transform 0.2s ease;
     -webkit-tap-highlight-color: transparent;
 }
@@ -826,9 +827,9 @@ body::after {
 }
 
 .view-switch-btn:hover {
-    color: #93c5fd;
+    color: #6f8aa8;
     background: rgba(0, 0, 0, 0.55);
-    opacity: 1;
+    opacity: 0.9;
 }
 
 .view-switch-btn:active {
@@ -857,8 +858,9 @@ body::after {
     color: #60a5fa;
     font-size: 20px;
     font-weight: bold;
+    /* margin-right: -20px; */
     margin-bottom: 10px;
-    margin-top: -4px;
+    /* margin-top: -4px; */
     opacity: 0.85;
     
 }
@@ -867,7 +869,7 @@ body::after {
     background: rgba(0, 0, 0, 0.9);
     border-color: rgba(96, 165, 250, 0.5);
     transform: scale(1.1);
-    box-shadow: 0 0 20px rgba(96, 165, 250, 0.3);
+    box-shadow: 0 0 20px #60a5fa4d;
 }
 
 .search-toggle:active {
