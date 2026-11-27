@@ -256,6 +256,19 @@ const options = {
 };
 const network = new vis.Network(container, {nodes, edges}, options);
 
+// 首次加载先给出完整视界，再在物理布局稳定后重新居中。
+// 仅在数据刚加入时 fit 会把后续仍移动的节点群留在旧镜头中心之外。
+function fitNetworkWhenStable() {
+    network.setSize('100%', '100%');
+    network.fit({ animation: false });
+    network.once('stabilizationIterationsDone', () => {
+        network.setSize('100%', '100%');
+        network.redraw();
+        network.fit({ animation: false });
+    });
+    network.stabilize(500);
+}
+
 // --- 初始化：寻龙点穴 (加载历史) ---
 async function initCausalGraph() {
     console.log("[司南] 启动感应...");
@@ -272,7 +285,7 @@ async function initCausalGraph() {
                 console.log('第一个节点因缘标签:', firstNode.block_tag, '类型:', typeof firstNode.block_tag);
             }
             res.data.forEach(node => renderNode(node));
-            network.fit(); // 渲染完成后自动缩放全景
+            fitNetworkWhenStable(); // 首屏与物理布局稳定后均保持完整居中视界
             console.log("[司南] 龙脉还原完毕。");
         }
     } catch (err) {
@@ -1802,6 +1815,16 @@ async function promoteChainWeights(nodeId) {
     }
 }
 
+// 抽屉动画结束后同步 vis-network 的真实画布尺寸，再重新居中。
+// setSize/redraw 负责消除旧窄画布，fit 负责消除旧视图偏移。
+function refreshNetworkAfterDrawerChange() {
+    setTimeout(() => {
+        network.setSize('100%', '100%');
+        network.redraw();
+        network.fit();
+    }, 320);
+}
+
 // 使用地宫恢复的数据直接更新抽屉
 function updateDrawerWithNecropolisData(nodeId, necropolisData) {
     currentSelectedNode = nodeId;
@@ -1866,18 +1889,17 @@ function updateDrawerWithNecropolisData(nodeId, necropolisData) {
         console.log('抽屉打开，网格图 right = 384px（抽屉宽度）');
     }
     
-    // 抽屉打开时，重新调整网络图使其适应新的可用空间
+    // 抽屉打开时，等待位移动画结束后按真实可用宽度重算并居中。
+    refreshNetworkAfterDrawerChange();
+
+    // 默认让d-event-tuple获得焦点
     setTimeout(() => {
-        network.fit();
-        console.log('抽屉打开，重新调整网络图');
-        
-        // 默认让d-event-tuple获得焦点
         const eventTupleField = document.getElementById('d-event-tuple');
         if (eventTupleField) {
             eventTupleField.focus();
             console.log('抽屉打开，d-event-tuple获得焦点');
         }
-    }, 100);
+    }, 320);
 }
 
 // 使用最新数据打开抽屉（确保显示从地宫恢复的全息信息）
@@ -1951,18 +1973,17 @@ function openDrawerWithLatestData(nodeId) {
         console.log('抽屉打开，网格图 right = 384px（抽屉宽度）');
     }
     
-    // 抽屉打开时，重新调整网络图使其适应新的可用空间
+    // 抽屉打开时，等待位移动画结束后按真实可用宽度重算并居中。
+    refreshNetworkAfterDrawerChange();
+
+    // 默认让d-event-tuple获得焦点
     setTimeout(() => {
-        network.fit();
-        console.log('抽屉打开，重新调整网络图');
-        
-        // 默认让d-event-tuple获得焦点
         const eventTupleField = document.getElementById('d-event-tuple');
         if (eventTupleField) {
             eventTupleField.focus();
             console.log('抽屉打开，d-event-tuple获得焦点');
         }
-    }, 100);
+    }, 320);
 }
 
 // --- 从URL参数获取用户ID和拥有者ID ---
@@ -2023,7 +2044,7 @@ async function initCausalGraph() {
                 console.log('第一个节点因缘标签:', firstNode.block_tag, '类型:', typeof firstNode.block_tag);
             }
             res.data.forEach(node => renderNode(node));
-            network.fit(); // 渲染完成后自动缩放全景
+            fitNetworkWhenStable(); // 首屏与物理布局稳定后均保持完整居中视界
             console.log("[司南] 龙脉还原完毕。");
         }
     } catch (err) {
@@ -2220,12 +2241,14 @@ function collapseDrawer() {
         expandBtn.classList.remove('hidden');
     }
     
-    // 调整网络图位置
+    // 折叠后抽屉不再占位，画布恢复全宽并重新居中。
     if (networkContainer) {
-        networkContainer.style.transform = 'translateX(384px)';
-        networkContainer.style.transition = 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)';
+        networkContainer.style.right = '';
+        networkContainer.style.transform = '';
+        networkContainer.style.transition = 'right 0.3s cubic-bezier(0.4, 0, 0.2, 1)';
     }
-    
+    refreshNetworkAfterDrawerChange();
+
     console.log('抽屉已折叠');
 }
 
@@ -2246,12 +2269,14 @@ function expandDrawer() {
         expandBtn.classList.add('hidden');
     }
     
-    // 恢复网络图位置
+    // 展开后仅在桌面端为抽屉预留 384px；移动端由 CSS 保持全宽覆盖。
     if (networkContainer) {
+        networkContainer.style.right = '384px';
         networkContainer.style.transform = '';
-        networkContainer.style.transition = 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)';
+        networkContainer.style.transition = 'right 0.3s cubic-bezier(0.4, 0, 0.2, 1)';
     }
-    
+    refreshNetworkAfterDrawerChange();
+
     console.log('抽屉已展开');
 }
 
@@ -2260,13 +2285,15 @@ function closeDrawer() {
     document.getElementById('drawer').classList.add('drawer-hidden');
     currentSelectedNode = null;
     
-    // 抽屉关闭时，移除网格图的 right 属性
+    // 抽屉关闭时恢复全宽，并清除打开状态下留下的窄画布与视图偏移。
     const networkContainer = document.getElementById('network');
     if (networkContainer) {
         networkContainer.style.right = '';
         networkContainer.style.transform = '';
-        console.log('抽屉关闭，移除网格图 right 和 transform 属性');
+        networkContainer.style.transition = 'right 0.3s cubic-bezier(0.4, 0, 0.2, 1)';
+        console.log('抽屉关闭，恢复网格图全宽');
     }
+    refreshNetworkAfterDrawerChange();
     
     // 抽屉关闭时，隐藏展开按钮
     const expandBtn = document.getElementById('drawer-expand-btn');
@@ -2369,18 +2396,17 @@ function openDrawer(nodeId) {
         console.log('抽屉打开，网格图 right = 384px（抽屉宽度）');
     }
     
-    // 抽屉打开时，重新调整网络图使其适应新的可用空间
+    // 抽屉打开时，等待位移动画结束后按真实可用宽度重算并居中。
+    refreshNetworkAfterDrawerChange();
+
+    // 默认让d-event-tuple获得焦点
     setTimeout(() => {
-        network.fit();
-        console.log('抽屉打开，重新调整网络图');
-        
-        // 默认让d-event-tuple获得焦点
         const eventTupleField = document.getElementById('d-event-tuple');
         if (eventTupleField) {
             eventTupleField.focus();
             console.log('抽屉打开，d-event-tuple获得焦点');
         }
-    }, 100);
+    }, 320);
 }
 
 // 页面启动点亮

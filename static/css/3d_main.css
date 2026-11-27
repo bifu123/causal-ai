@@ -1930,8 +1930,8 @@ body::after {
 
 #shi-meter {
     position: fixed;
-    top: 20px;
-    right: 84px;
+    top: 25px;
+    right: 150px;
     left: auto;
     transform: none;
     width: max-content;

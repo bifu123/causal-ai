@@ -19,15 +19,17 @@ body::before {
 }
 
 
-#network { 
-    width: 100%; 
-    height: calc(100vh - 60px); 
+#network {
+    width: auto;
+    height: calc(100vh - 60px);
     background: transparent;
-    position: relative;
+    position: absolute;
+    top: 0;
+    right: 0;
+    left: 0;
     z-index: 1;
-    overflow-x: auto; /* 添加横向滚动条 */
-    overflow-y: hidden; /* 隐藏纵向滚动条 */
-    transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    overflow: hidden;
+    transition: right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /* 当抽屉打开时，网络图容器宽度减少384px（抽屉宽度） */
@@ -914,9 +916,12 @@ header {
         transform: translateY(0);
     }
 
-    /* 移动端 #network 全屏 */
+    /* 移动端抽屉覆盖画布，不预留桌面抽屉宽度，也不横向偏移 */
     #network {
+        right: 0 !important;
+        left: 0 !important;
         height: 100vh !important;
+        transform: none !important;
     }
 
     /* 移动端 header 内容缩小 */
