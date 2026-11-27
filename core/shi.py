@@ -1,7 +1,7 @@
 """相事件的瞬时“势”观测。
 
 本模块不持久化势、距离或关系，也不提供跨请求缓存。每次调用均基于本次
-/click 已取得的节点与距离重新计算。私密节点不会进入样本或外部模型。
+/click 已取得的节点与距离重新计算；候选不再按 is_share 过滤，但仍排除打码桩点和视界外节点。
 """
 
 import asyncio
@@ -84,15 +84,15 @@ def _same_node(left: Dict[str, Any], right: Dict[str, Any]) -> bool:
     )
 
 
-def _public_for_shi(node: Dict[str, Any]) -> bool:
-    # is_share 缺失的旧数据沿用现有“共享”兼容规则；显式私密与打码桩点严格排除。
-    return not node.get("is_locked") and node.get("is_share") is not False
+def _usable_for_shi(node: Dict[str, Any]) -> bool:
+    """只排除不可读正文的打码桩点；is_share 不参与势样本筛选。"""
+    return not node.get("is_locked")
 
 
 def filter_shi_horizon(
     focal: Dict[str, Any], nodes: Iterable[Dict[str, Any]], max_eyes: float
 ) -> List[Dict[str, Any]]:
-    """在 /click 原返回集合上过滤相事件，不发起任何额外跨场查询。"""
+    """从 /click 原返回集合中筛选相事件；不按 is_share 过滤，保留有效距离与打码桩点校验。"""
     filtered: List[Dict[str, Any]] = []
     seen = set()
     for node in nodes:
@@ -103,7 +103,7 @@ def filter_shi_horizon(
         if not is_focal:
             if distance is None or distance < 0 or distance > max_eyes:
                 continue
-            if not _public_for_shi(node):
+            if not _usable_for_shi(node):
                 continue
         # 同一物理节点只保留一次；同名节点仍由系统既有身份机制处理。
         key = (
@@ -268,7 +268,7 @@ def _relation_text(node: Dict[str, Any], include_body: bool = False) -> str:
     if not include_body:
         return title
     body = str(node.get("event_tuple") or "").strip()
-    # 限制本次请求发送量；私密节点在进入此函数前已被排除。
+    # 限制单次模型请求的正文长度；打码桩点在进入此函数前已被排除。
     return f"标题：{title}\n内容：{body[:1600]}" if body and body != title else title
 
 
@@ -382,11 +382,11 @@ def _apply_model_results(
 async def observe_shi(
     focal: Dict[str, Any], phase_horizon: List[Dict[str, Any]], max_eyes: float
 ) -> Tuple[Optional[float], Dict[str, Any]]:
-    """对本次相事件视界进行瞬时观测；无跨请求缓存。"""
-    if not _public_for_shi(focal):
+    """对本次相事件视界进行瞬时观测；无跨请求缓存，也不按 is_share 排除焦点或候选。"""
+    if not _usable_for_shi(focal):
         return None, empty_shi_meta(max_eyes, "private_focal")
 
-    candidates = [node for node in phase_horizon if not _same_node(node, focal) and _public_for_shi(node)]
+    candidates = [node for node in phase_horizon if not _same_node(node, focal) and _usable_for_shi(node)]
     max_candidates = max(1, _env_int("SHI_MAX_CANDIDATES", DEFAULT_MAX_CANDIDATES))
     truncated = len(candidates) > max_candidates
     candidates = candidates[:max_candidates]
