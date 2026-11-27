@@ -447,6 +447,23 @@ const FOCUS_DIST = 200;   // 聚焦距离
 // 创世金光动画标记
 window.pendingGenesisNodeId = null;
 
+// 新贞入先走增量入图，再合并补一次 history 权威刷新。
+// 该刷新只由创建成功/新节点广播触发，不在普通 node_updated 或每秒可见性监控中执行。
+const POST_GENESIS_REFRESH_DELAY = 1200;
+let postGenesisRefreshTimer = null;
+function schedulePostGenesisRefresh(nodeId) {
+    if (postGenesisRefreshTimer !== null) clearTimeout(postGenesisRefreshTimer);
+    postGenesisRefreshTimer = setTimeout(() => {
+        postGenesisRefreshTimer = null;
+        loadInitialData({ background: true, immediate: true }).then(() => {
+            if (!Graph) return;
+            // 无论本轮是否找到大股东，都应用最新视界；无视界时也须清掉旧虚化状态。
+            updateHighlight();
+            console.log(`[发起首贞] 已完成大股东/事件视界定时重绘: ${nodeId || '未知节点'}`);
+        });
+    }, POST_GENESIS_REFRESH_DELAY);
+}
+
 // --- [2. 核心辅助工具] ---
 
 /**
@@ -492,16 +509,17 @@ function showDivineBeam(node, colorType = 'divine') {
     // 【移动端时间窗去重】触屏下一次操作会走到本函数两次（pointerup + touchend 派生的 click，
     // 或滑杆 change 双发）；且低帧率设备上 animate() 提前判死会把 activeBeam 置 null，
     // 使下面基于 activeBeam 的判重失效。这里先按时间窗拦截，与 activeBeam 状态无关。
-    if (__lastBeamStart.id === targetId && (nowMs - __lastBeamStart.t) < __BEAM_DEDUP_MS) {
-        return; // 同节点、窗口内 → 完全丢弃：不续期、不新建，避免任何视觉叠加
+    if (__lastBeamStart.id === targetId && __lastBeamStart.colorType === colorType &&
+        (nowMs - __lastBeamStart.t) < __BEAM_DEDUP_MS) {
+        return; // 同节点、同颜色、窗口内 → 完全丢弃：不续期、不新建，避免任何视觉叠加
     }
 
     if (activeBeam && !activeBeam.userData.isDead &&
-        activeBeam.userData.nodeId === targetId) {
+        activeBeam.userData.nodeId === targetId && activeBeam.userData.colorType === colorType) {
         if (typeof activeBeam.userData.restart === 'function') {
             activeBeam.userData.restart();
         }
-        __lastBeamStart = { id: targetId, t: nowMs }; // 续期也要登记，挡住紧随其后的重复派发
+        __lastBeamStart = { id: targetId, t: nowMs, colorType }; // 续期也要登记，挡住紧随其后的重复派发
         return;
     }
 
@@ -718,7 +736,7 @@ function showDivineBeam(node, colorType = 'divine') {
     
     Graph.scene().add(beamMesh);
     activeBeam = beamMesh;
-    __lastBeamStart = { id: targetId, t: nowMs }; // 登记建光时刻，拦截紧随其后的重复派发
+    __lastBeamStart = { id: targetId, t: nowMs, colorType }; // 登记建光时刻，拦截紧随其后的同类型重复派发
 
     // 【循环管理】原实现只在 beamAnimationId 为空时启动循环，但 animate() 判死后
     // 只把 activeBeam 置 null、从不重置 beamAnimationId，于是循环永远挂在 rAF 上跑空转；
@@ -2338,7 +2356,9 @@ function updateNodeIncremental(data) {
         // 【关键修复1】同步更新 Graph 内部的节点数据引用，否则引擎读取的永远是旧数据
         if (Graph && graphNodes) {
             let gNode = __graphLookup(sid, nid);
+            let isNewGraphNode = false;
             if (!gNode) {
+                isNewGraphNode = true;
                 // 二次守卫：Graph 里没有、但归一索引里已有这个节点（说明它曾在图中、因某次全量重载
                 // 被移出），此时以缓存的对象为基准合并，不引入新的身份。
                 const existedInCache = !!cacheNode.__isIndexedOnce;
@@ -2575,7 +2595,8 @@ function updateNodeIncremental(data) {
                 const gTargetId = gNode.id || gNode.node_id;
                 const isRecentOwnBeam = (__lastBeamStart.id === gTargetId) && (now - __lastBeamStart.t) < 8000;
 
-                if (!isCurrentlySelected && !isDrawerOpen && !isDragonCruising && !isLocalActionCooling && !isRecentOwnBeam && isSignificantWeight && Graph) {
+                // 拓扑新增由 node_created 的金色圣光接管，不能先按“远端高权重跃迁”生成白色光柱。
+                if (!isNewGraphNode && !isCurrentlySelected && !isDrawerOpen && !isDragonCruising && !isLocalActionCooling && !isRecentOwnBeam && isSignificantWeight && Graph) {
                     
                     // 防抖：如果2秒内已经跃迁过，则忽略，避免链路上的批量更新引发视角震荡
                     if (now - lastRemoteJumpTime > 2000) {
@@ -2767,16 +2788,17 @@ function initSocketHandlers() {
         // 2. 隔离不同的 actor_id
         if (data.actor_id && currentActorId && data.actor_id !== currentActorId) return;
 
-        // 【关键】一律走增量路径，绝不调用 loadInitialData()。
-        // 全量重载会重建整份节点对象（坐标归零）并重启仿真，多节点广播时会形成重绘风暴。
+        // 先走增量路径，让新节点立即出现；不在每个 node_updated 中全量重载。
+        // 真正的新节点随后只补一次合并的 history 权威刷新，用于同步大股东、普通视界和语义连线。
         const isKnown = !!__lookupNode(data.serial_id, data.node_id);
         cacheSetNode(data);
         updateNodeIncremental(data);
 
-        if (isKnown) return; // 已知节点只做权重/标签同步
+        if (isKnown) return; // 已知节点只做权重/标签同步，不重复刷新或建光
 
-        // 新贞降临：播放创世金光（内联实现，替代原先 loadInitialData 里的全局重载）
         const newId = data.node_id;
+        schedulePostGenesisRefresh(newId);
+        // 新贞降临：播放创世金光；延时权威刷新只更新图和视界，不清理此光柱。
         setTimeout(() => {
             if (!Graph) return;
             const gNode = Graph.graphData().nodes.find(n => n.id === newId || n.node_id === newId);
@@ -2800,10 +2822,17 @@ function initSocketHandlers() {
             setTimeout(() => {
                 highlightNodes.clear();
                 updateHighlight();
-                gNode.fx = null;
-                gNode.fy = null;
-                gNode.fz = null;
-                selectedNodeObj = null;
+                // 权威刷新可能已替换 Graph 中的节点对象；新旧两份都必须解除物理锁定。
+                const latestNode = Graph ? Graph.graphData().nodes.find(n => n.id === newId || n.node_id === newId) : null;
+                [gNode, latestNode].forEach(target => {
+                    if (!target) return;
+                    target.fx = null;
+                    target.fy = null;
+                    target.fz = null;
+                });
+                if (selectedNodeObj && (selectedNodeObj.id === newId || selectedNodeObj.node_id === newId)) {
+                    selectedNodeObj = null;
+                }
                 __loadState.hasAutoFitted = true;
             }, 2600);
         }, 600);
@@ -3691,8 +3720,10 @@ async function submitCreateNode() {
         console.log('[发起首贞] API响应:', data);
         
         if (data.status === 'success') {
-            showSelectionHint('事件创建成功！前端将通过Socket.IO实时更新。');
+            showSelectionHint('事件创建成功！正在同步大股东与事件视界。');
             closeCreateModal();
+            // Socket 只负责即时增量入图；此处兜底并合并一次权威刷新，Socket 丢失也不会漏掉。
+            schedulePostGenesisRefresh((data.data && data.data.node_id) || nodeId);
         } else {
             showSelectionHint('创建失败：' + data.message);
         }
@@ -3988,8 +4019,9 @@ async function submitDeriveNode(tag, parentId) {
         console.log('[寻龙] API响应:', data);
         
         if (data.status === 'success') {
-            showSelectionHint('事件创建成功！前端将通过Socket.IO实时更新。');
+            showSelectionHint('事件创建成功！正在同步大股东与事件视界。');
             closeDeriveModal();
+            schedulePostGenesisRefresh((data.data && data.data.node_id) || nodeId);
         } else {
             showSelectionHint('创建失败：' + data.message);
         }
