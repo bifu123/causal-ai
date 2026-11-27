@@ -45,6 +45,17 @@ function resolvePageToken() {
     return (new URLSearchParams(window.location.search).get('token') || '').trim();
 }
 
+/** 基于当前完整地址切换视图；只改路径，不把任何凭证写入日志。 */
+function buildCausalViewUrl(targetView) {
+    const target = new URL(window.location.href);
+    target.pathname = target.pathname.replace(/\/(3d|ui)\/?$/i, `/${targetView}`);
+    return target.toString();
+}
+
+function switchCausalView(targetView) {
+    window.location.assign(buildCausalViewUrl(targetView));
+}
+
 // 服务端已按 URL token 裁决角色：先套用 seed，等 /auth/context 返回后再校准
 if (window.ACCESS_SEED) applyAccess(window.ACCESS_SEED);
 

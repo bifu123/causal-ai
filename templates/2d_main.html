@@ -15,7 +15,7 @@
     <link rel="stylesheet" href="/static/css/font-awesome.min.css">
     <link rel="stylesheet" href="/static/css/easymde.min.css">
     <script src="/static/js/easymde.min.js"></script>
-    <link rel="stylesheet" href="/static/css/2d_main.css?v=20261127drawer3">
+    <link rel="stylesheet" href="/static/css/2d_main.css?v=20261127view2">
 
 </head>
 <body class="bg-black text-gray-100 overflow-hidden font-mono">
@@ -29,6 +29,13 @@
         </div>
         <div class="flex items-center space-x-4">
             <button id="btn-create-node" onclick="openCreateModal()" class="edit-only owner-edit-only bg-blue-700 hover:bg-blue-600 px-4 py-1 rounded-sm text-xs transition-colors" style="display:none">发起首贞</button>
+            <button id="switch-to-3d" class="view-switch-btn view-switch-from-2d" type="button"
+                    onclick="switchCausalView('3d')" title="切换到3D视图" aria-label="切换到3D视图">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+                    <path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z"></path>
+                    <path d="m4 7.5 8 4.5 8-4.5M12 12v9M8 5.3l8 4.5"></path>
+                </svg>
+            </button>
             <!-- 搜索按钮 -->
             <div class="search-toggle" id="btn-toggle-search" title="展开搜索面板">
                 🔍
@@ -212,6 +219,6 @@
         </div>
     </div>
 
-    <script src="/static/js/2d_main.js?v=20261127drawer3"></script>
+    <script src="/static/js/2d_main.js?v=20261127view2"></script>
 </body>
 </html>

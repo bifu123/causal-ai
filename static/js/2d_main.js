@@ -35,6 +35,17 @@ function resolvePageToken() {
     return (new URLSearchParams(window.location.search).get('token') || '').trim();
 }
 
+/** 基于当前完整地址切换视图；只改路径，不把任何凭证写入日志。 */
+function buildCausalViewUrl(targetView) {
+    const target = new URL(window.location.href);
+    target.pathname = target.pathname.replace(/\/(3d|ui)\/?$/i, `/${targetView}`);
+    return target.toString();
+}
+
+function switchCausalView(targetView) {
+    window.location.assign(buildCausalViewUrl(targetView));
+}
+
 /** 渲染权限 UI：主副本写操作（发起首贞 / 删除 / 派生）只给场主与 admin */
 function renderAccessUI() {
     const canEditMaster = is_edit_mode && ACCESS.can_write_master;

@@ -20,8 +20,8 @@
     <!-- 然后加载3d-force-graph，它会使用已存在的THREE实例 -->
     <script src="/static/js/3d-force-graph.min.js"></script>
     
-    <link rel="preload" href="/static/fonts/dseg7-classic-latin-700-normal.woff2?v=20261126shi12" as="font" type="font/woff2" crossorigin>
-    <link rel="stylesheet" href="/static/css/3d_main.css?v=20261126shi12">
+    <link rel="preload" href="/static/fonts/dseg7-classic-latin-700-normal.woff2?v=20261127view2" as="font" type="font/woff2" crossorigin>
+    <link rel="stylesheet" href="/static/css/3d_main.css?v=20261127view2">
     <link rel="stylesheet" href="/static/css/3d_form.css">
     <!-- EasyMDE Markdown编辑器 -->
     <link rel="stylesheet" href="/static/css/font-awesome.min.css">
@@ -152,6 +152,18 @@
             <div id="nav-toggle" title="拖拽移动 / 点击折叠">🔋</div>
         </div>
         
+        <!-- 当前完整 URL 切换到 2D；只改路径，完整保留所有查询参数和 hash -->
+        <button id="switch-to-2d" class="view-switch-btn view-switch-from-3d" type="button"
+                onclick="switchCausalView('ui')" title="切换到2D视图" aria-label="切换到2D视图">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+                <rect x="3" y="3" width="18" height="18" rx="2"></rect>
+                <circle cx="8" cy="8" r="1.5"></circle>
+                <circle cx="16" cy="9" r="1.5"></circle>
+                <circle cx="10" cy="16" r="1.5"></circle>
+                <path d="M9.4 8.2 14.5 8.8M8.4 9.4l1.2 5.1M15.5 10.4l-4.3 4.5"></path>
+            </svg>
+        </button>
+
         <!-- 搜索面板 - 右上角可折叠 -->
         <div id="search-panel">
             <!-- 搜索图标按钮 - 默认显示 -->
@@ -495,6 +507,6 @@
     </script>
 
     <script src="/static/js/3d_editor.js"></script>
-    <script src="/static/js/3d_main.js?v=20261127shi01"></script>
+    <script src="/static/js/3d_main.js?v=20261127view3"></script>
 </body>
 </html>

@@ -791,6 +791,56 @@ body::after {
     align-items: flex-end;
 }
 
+/* 3D -> 2D：位于搜索按钮左侧，覆盖层本身不接收指针事件。 */
+.view-switch-btn {
+    box-sizing: border-box;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: #60a5fa;
+    opacity: 0.85;
+    cursor: pointer;
+    margin-top: -6px;
+    transition: color 0.2s ease, background 0.2s ease, opacity 0.2s ease, transform 0.2s ease;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.view-switch-btn svg {
+    width: 22px;
+    height: 22px;
+    pointer-events: none;
+}
+
+.view-switch-from-3d {
+    position: absolute;
+    top: 20px;
+    right: 92px;
+    z-index: 9999;
+    width: 40px;
+    height: 48px;
+    pointer-events: auto;
+}
+
+.view-switch-btn:hover {
+    color: #93c5fd;
+    background: rgba(0, 0, 0, 0.55);
+    opacity: 1;
+}
+
+.view-switch-btn:active {
+    transform: scale(0.92);
+}
+
+.view-switch-btn:focus-visible {
+    outline: 2px solid rgba(147, 197, 253, 0.9);
+    outline-offset: 2px;
+    opacity: 1;
+}
+
 /* 搜索图标按钮 - 默认显示 */
 .search-toggle {
     width: 48px;
@@ -808,7 +858,9 @@ body::after {
     font-size: 20px;
     font-weight: bold;
     margin-bottom: 10px;
+    margin-top: -4px;
     opacity: 0.85;
+    
 }
 
 .search-toggle:hover {
@@ -1922,7 +1974,7 @@ body::after {
 /* ========== 相事件：电子计数器 ========== */
 @font-face {
     font-family: "ShiSevenSegment";
-    src: url("/static/fonts/dseg7-classic-latin-700-normal.woff2?v=20261126shi12") format("woff2");
+    src: url("/static/fonts/dseg7-classic-latin-700-normal.woff2?v=20261127view2") format("woff2");
     font-style: normal;
     font-weight: 700;
     font-display: swap;
@@ -2036,6 +2088,12 @@ body::after {
 }
 
 @media (max-width: 768px) {
+    .view-switch-from-3d {
+        right: 72px;
+        width: 44px;
+        height: 44px;
+    }
+
     #shi-meter {
         top: 76px;
         right: auto;
